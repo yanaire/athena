@@ -51,8 +51,9 @@ test('offline analysis joins source and both outputs with immutable input proven
     if(parent(w)){
       if(!r.length)return {name:'spawn_agent',args:{title:'Writer',prompt:'Author a script.'}};
       if(r.length===1)return {name:'wait_for_agents',args:{}};
-      if(r.length===2){const tasks=JSON.parse(r[1]??'').tasks;joined=tasks[0].artifacts;
-        return {name:'read_file',args:{artifactId:joined.find(f=>f.name==='result.json')?.id??'missing'}};}
+      if(r.length===2){const join=JSON.parse(r[1]??'');joined=join.tasks[0].artifacts;
+        assert.deepEqual(join.inspect,[{name:'result.json',tool:'read_file',arguments:{artifactId:joined.find(f=>f.name==='result.json')?.id}}]);
+        return {name:join.inspect[0].tool,args:join.inspect[0].arguments};}
       checked=r[2]??'';return 'Coordinator finished.';
     }
     if(!r.length)return {name:'write_file',args:{name:'analysis.py',content:script}};

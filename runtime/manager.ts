@@ -593,7 +593,13 @@ export class TaskManager implements AthenaTaskManager {
           this.#commit(()=>{this.#journal.transition(a,'running');this.#journal.event(a,'wait_completed','Child tasks settled; model slot reacquired.');});}
       }
     }
-    return {tasks:await Promise.all(current().map(t=>this.#summary(t)))};
+    const joined=await Promise.all(current().map(t=>this.#summary(t)));
+    if(!this.#enabledProjects.has(a.projectId))return {tasks:joined};
+    // Supply exact read arguments for published data files; never mark them as read here.
+    const inspect=joined.flatMap(t=>t.artifacts.filter(f=>/\.(json|csv)$/i.test(f.name)).map(f=>({
+      name:f.name,tool:'read_file',arguments:{artifactId:f.id}
+    })));
+    return {tasks:joined,...(inspect.length ? {nextStep:'Call read_file for these outputs before answering. Check their contents against the request.',inspect} : {})};
   }
   #upload(a:Attempt,selected:unknown) {
     const id=selected===undefined && a.fileIds.length===1?a.fileIds[0]:selected;
