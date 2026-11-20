@@ -63,11 +63,14 @@ export class Journal {
     if(!root)throw new Error('Run without root task.');
     const childrenPending=this.db.records<TaskRow>('task',a.sessionId).some(t=>t.runId===a.runId && t.parentTaskId && pending(t.status));
     const overall=pending(root.status)?root.status:childrenPending?'blocked':root.status;
-    const startedAt=run.startedAt??(overall==='running'?at:null);
-    this.db.putRecord('run',{...run,status:overall,startedAt,endedAt:pending(overall)?null:at,error:root.error});
-    if(!pending(overall))this.finishReceipt(run,overall,root.error);
+    if(pending(overall)){
+      this.db.putRecord('run',{...run,status:overall,startedAt:run.startedAt??(overall==='running'?at:null),endedAt:null,error:root.error});
+    }else if(run.cancellationRequested){
+      this.finishRun(run,'cancelled','Run cancelled by request.');
+    }else this.finishRun(run,overall,root.error);
   }
-  finishReceipt(run:Run,status:Status,error?:string) {
+  finishRun(run:Run,status:Status,error?:string) {
+    this.db.putRecord('run',{...run,status,endedAt:Date.now(),error});
     const receipt=this.db.receipt(run.sessionId,run.requestId);
     if(receipt)this.db.putReceipt({...receipt,state:status==='paused'?'interrupted':status==='succeeded'?'completed':'failed',
       response:status==='succeeded'?receipt.response:{type:'response',command:'prompt',id:run.requestId,success:false,

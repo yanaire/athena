@@ -36,6 +36,7 @@ export type Run = {
   readonly requestId: string; readonly taskId: string; readonly title: string;
   readonly status: Status; readonly startedAt: number | null; readonly endedAt: number | null;
   readonly model: ModelReference | null; readonly error?: string;
+  readonly cancellationRequested?: boolean;
 };
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
@@ -617,19 +618,22 @@ export class TaskManager implements AthenaTaskManager {
     if(!run || run.sessionId!==this.#active || !pending(run.status))throw new ManagerError('RUN_NOT_ACTIVE','Run is not active.');
     const task=this.#storage.record<TaskRow>('task',run.taskId);
     if(!task)throw new Error('Missing root task.');
+    // Record the user's run-level decision before aborting any Pi turn. The root may already be done.
+    this.#storage.transaction(()=>this.#storage.putRecord('run',{...run,cancellationRequested:true}));
     await this.#cancel(task);
     return reply({type:'abort'},{runId});
   }
   #interrupt(sessionId:string,reason:string){
-    for(const a of this.#storage.records<Attempt>('attempt',sessionId))if(pending(a.status))this.#journal.transition(a,'paused',reason);
-    // An M1 database may contain a previously accepted run with no M2 attempt.
+    // Settle the interrupted run in the same transaction as its outstanding work. A completed
+    // coordinator cannot establish the outcome of work that was still pending when the host died.
     for(const r of this.#runs(sessionId))if(pending(r.status)){
-      this.#storage.putRecord('run',{...r,status:'paused',endedAt:Date.now(),error:reason});
-      const t=this.#storage.record<Task>('task',r.taskId);
-      if(t)this.#storage.putRecord('task',{...t,status:'paused'});
+      this.#journal.finishRun(r,'paused',reason);
+      // M1 may have a pending root or tool without a corresponding M2 attempt.
+      const root=this.#storage.record<Task>('task',r.taskId);
+      if(root && pending(root.status))this.#storage.putRecord('task',{...root,status:'paused'});
       for(const tool of this.#storage.records<Tool>('tool',sessionId))if(tool.runId===r.id && pending(tool.status))this.#storage.putRecord('tool',{...tool,status:'paused'});
-      this.#journal.finishReceipt(r,'paused',reason);
     }
+    for(const a of this.#storage.records<Attempt>('attempt',sessionId))if(pending(a.status))this.#journal.transition(a,'paused',reason);
   }
   async close(){
     if(this.#closed)return;

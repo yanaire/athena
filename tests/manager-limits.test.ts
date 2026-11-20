@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
 
@@ -25,9 +27,11 @@ function completion(res: ServerResponse, text: string | { name: string; args: ob
 }
 
 // Only the provider is controlled. Every delegation, join, abort and CSV execution goes through Pi and TaskManager.
-async function fixture(t: TestContext, names: readonly string[], child: (name: string, res: ServerResponse) => void) {
+async function fixture(t: TestContext, names: readonly string[], child: (name: string, res: ServerResponse) => void, joinChildren = true) {
   const joined = Promise.withResolvers<string>();
+  let requests = 0;
   const server = createServer(async (req, res) => {
+    requests++;
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const wire: Wire = JSON.parse(Buffer.concat(chunks).toString());
@@ -35,7 +39,7 @@ async function fixture(t: TestContext, names: readonly string[], child: (name: s
       const results = wire.messages.filter(m => m.role === 'tool');
       const next = names[results.length];
       if (next) completion(res, { name: 'spawn_agent', args: { title: next, prompt: next } });
-      else if (results.length === names.length) completion(res, { name: 'wait_for_agents', args: {} });
+      else if (joinChildren && results.length === names.length) completion(res, { name: 'wait_for_agents', args: {} });
       else { joined.resolve(String(results.at(-1)?.content)); completion(res, 'Received outcomes.'); }
     } else {
       const input = JSON.stringify(wire.messages.filter(m => m.role === 'user'));
@@ -63,7 +67,7 @@ async function fixture(t: TestContext, names: readonly string[], child: (name: s
   await manager.initialize();
   const { project } = await manager.createProject({ name: 'Limits' });
   const { sessionId } = await manager.createSession({ projectId: project.id, title: 'Delegate' });
-  return { manager, sessionId, joined: joined.promise };
+  return { manager, sessionId, joined: joined.promise, directory, requests: () => requests };
 }
 
 test('two child provider requests overlap at limit two; a queued third enters on release and the parent receives the failed child outcome', { timeout: 15000 }, async t => {
@@ -158,3 +162,70 @@ test('cancelRun aborts both children, closes the held model request and terminat
   assert.throws(() => process.kill(-pid, 0), { code: 'ESRCH' });
   assert.deepEqual(after.artifacts, []);
 });
+
+for (const action of ['cancel', 'crash'] as const) {
+  test(`${action} after coordinator success preserves the completed attempt and records the run's own outcome`, { timeout: 15000 }, async t => {
+    const held = Promise.withResolvers<void>();
+    const { manager, directory, sessionId, requests } = await fixture(t, ['Held worker'], (_, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': held\n\n'); held.resolve();
+    }, false);
+    const prompt = { type: 'prompt', id: 'detached-child', message: 'Delegate without waiting.' };
+    type Snapshot = ReturnType<TaskManager['getSnapshot']>;
+    let before: Snapshot;
+    if (action === 'cancel') {
+      const blocked = Promise.withResolvers<void>();
+      const statuses: string[] = [];
+      const off = manager.subscribe(s => {
+        statuses.push(s.run.status);
+        if (s.run.status === 'blocked' && s.tasks.some(t => t.parentTaskId && t.status === 'running')) blocked.resolve();
+      });
+      await manager.pi(sessionId, prompt); await Promise.all([held.promise, blocked.promise]);
+      before = manager.getSnapshot(); assert.ok(before.run.id);
+      await manager.cancelRun(before.run.id);
+      assert.equal(manager.getSnapshot().run.status, 'cancelled');
+      assert.ok(!statuses.includes('succeeded')); off(); await manager.close();
+    } else {
+      await manager.close();
+      const script = `
+        import { TaskManager } from ${JSON.stringify(new URL('../runtime/manager.ts', import.meta.url).href)};
+        const m = new TaskManager({dataDir:${JSON.stringify(directory)}}); await m.initialize();
+        let sent = false;
+        m.subscribe(s => { if (!sent && s.run.status === 'blocked' && s.tasks.some(t => t.parentTaskId && t.status === 'running')) {
+          sent = true; process.send(s);
+        } });
+        await m.pi(${JSON.stringify(sessionId)}, ${JSON.stringify(prompt)});
+      `;
+      const host = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+      t.after(() => { if (host.exitCode === null && host.signalCode === null) host.kill('SIGKILL'); });
+      const [[snapshot]] = await Promise.all([once(host, 'message'), held.promise]); before = snapshot;
+      const exited = once(host, 'exit'); host.kill('SIGKILL'); assert.deepEqual(await exited, [null, 'SIGKILL']);
+    }
+    assert.equal(before.run.status, 'blocked');
+    const root = before.attempts.find(a => !a.parentTaskId), child = before.attempts.find(a => a.parentTaskId);
+    assert.ok(root && child); assert.equal(root.status, 'succeeded'); assert.equal(root.result, 'Received outcomes.');
+    assert.equal(child.status, 'running'); assert.equal(requests(), 3);
+
+    const reopened = new TaskManager({ dataDir: directory });
+    try {
+      await reopened.initialize(); const after = reopened.getSnapshot();
+      const status = action === 'cancel' ? 'cancelled' : 'paused';
+      assert.equal(after.run.status, status);
+      assert.deepEqual(after.attempts.find(a => a.id === root.id), root);
+      assert.deepEqual(after.tasks.find(t => t.id === root.taskId), before.tasks.find(t => t.id === root.taskId));
+      assert.equal(after.attempts.find(a => a.id === child.id)?.status, status);
+      assert.equal(after.tasks.find(t => t.id === child.taskId)?.status, status);
+      const terminal = after.events.filter(e => e.taskId === root.taskId && ['run_succeeded', 'run_failed', 'run_cancelled', 'interrupted'].includes(e.type));
+      assert.deepEqual(terminal.map(e => e.type), [action === 'cancel' ? 'run_cancelled' : 'interrupted']);
+      const reason = terminal[0]?.summary; assert.match(reason ?? '', action === 'cancel' ? /cancel/i : /restart/i);
+      const replay = await reopened.pi(sessionId, prompt);
+      assert.deepEqual(replay, { type: 'response', command: 'prompt', id: prompt.id, success: false, error: reason,
+        data: { runId: before.run.id, taskId: root.taskId, status } });
+      const db = new DatabaseSync(join(directory, 'workspace.sqlite'), { readOnly: true });
+      try {
+        assert.equal(db.prepare('SELECT state FROM receipts WHERE session_id=? AND request_id=?').get(sessionId, prompt.id)?.state,
+          action === 'cancel' ? 'failed' : 'interrupted');
+      } finally { db.close(); }
+      assert.deepEqual(after.attempts.map(a => a.id), before.attempts.map(a => a.id)); assert.equal(requests(), 3);
+    } finally { await reopened.close(); }
+  });
+}
