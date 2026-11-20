@@ -23,12 +23,12 @@ Execution에서 실행한 프로그램·인자·종료 상태를 확인하고, A
 | 도구 | 입력과 결과 |
 |---|---|
 | `read`, `calculate_csv` | M2 계약을 유지한다. `calculate_csv`는 별도의 고정 Node 워커로 `statistics.json`을 생성한다. |
-| `write_file({name,content})` | 자식 작업 공간에 UTF-8 파일을 생성하거나 수정한다. 응답에 바이트 수와 해시가 있다. 다른 자식의 공간에는 쓸 수 없다. |
+| `write_file({name,content})` | 자식 작업 공간에 UTF-8 파일을 생성하거나 수정한다. 응답의 바이트 수와 해시는 이 비공개 파일을 가리킨다. 이 시점에는 실행되지 않았고 다운로드할 산출물도 없다. |
 | `read_file` | 자식은 작업 파일 이름, 허용된 첨부 `fileId`, 또는 허용된 `artifactId` 중 하나를 지정한다. 부모는 자식의 실제 결과를 `artifactId`로 검증하고 읽을 수 있다. |
 | `run_command` | `language`(`python` 또는 `node`), `script`, `inputs`, `outputs`, 선택적 `args`를 받는다. 자식이 앞서 작성한 스크립트와 입력 스냅샷은 `/workspace`에서 읽고, 선언한 결과는 `/outputs`에 쓴다. 성공 응답에는 프로세스 ID, 출력, 종료 코드, 실제 소스와 결과 파일 참조가 있다. |
-| `spawn_agent`, `send_to_agent`, `wait_for_agents` | 부모가 첨부를 골라 주거나 `artifactIds`로 다른 자식의 결과를 명시적으로 전달한다. 합류한 다음에도 부모는 파일을 읽거나 자식에게 추가 지시를 보낼 수 있다. |
+| `spawn_agent`, `send_to_agent`, `wait_for_agents` | 부모가 첨부를 골라 주거나 `artifactIds`로 다른 자식의 결과를 명시적으로 전달한다. 일반 실행이 허용된 프로젝트에서는 합류 응답의 `inspect`에 게시된 CSV·JSON 이름과 `read_file` 호출 인자가 들어 있다. 실제 읽기 여부는 이후 부모의 도구 기록에서 확인한다. 잘못된 결과는 `send_to_agent`로 수정을 요청할 수 있다. |
 
-예를 들어 `run_command`의 입력은 `{"language":"python","script":"analysis.py","inputs":["settling.csv"],"outputs":["clean.csv","result.json"]}`이다. 문자열 입력은 작업 공간 이름이나 허용된 첨부의 고유한 이름이어야 한다. 별칭이 필요하면 `{name,fileId}` 또는 `{name,artifactId}`를 사용한다. `args`는 스크립트에 전달하는 개별 문자열이다. 모델은 셸 명령, 호스트 경로, 인터프리터 플래그, 환경 변수, 이미지 또는 작업 디렉터리를 지정할 수 없다.
+예를 들어 `run_command`의 입력은 `{"language":"python","script":"analysis.py","inputs":["settling.csv"],"outputs":["clean.csv","result.json"]}`이다. `inputs`는 필수다. 파일이 전혀 필요 없는 프로그램만 빈 배열을 사용한다. 문자열 입력은 작업 공간 이름이나 허용된 첨부의 고유한 이름이어야 한다. 별칭이 필요하면 `{name,fileId}` 또는 `{name,artifactId}`를 사용한다. `args`는 스크립트에 전달하는 개별 문자열이다. 모델은 셸 명령, 호스트 경로, 인터프리터 플래그, 환경 변수, 이미지 또는 작업 디렉터리를 지정할 수 없다.
 
 입출력은 UTF-8 텍스트 파일이다. 쓰기·등록 형식은 `.py`, `.js`, `.mjs`, `.cjs`, `.ts`, `.csv`, `.json`, `.md`, `.txt`다. `.ts`는 보관할 수 있지만 직접 실행하는 형식은 아니다. 파일당 1 MiB, 입력 스냅샷 합계 2 MiB, 명령당 결과 8개와 실행 소스 하나, stdout·stderr 각 16 KiB 제한이 있다. 동일 이름의 결과를 다시 만들어도 이전 다운로드 주소는 이전 바이트를 가리킨다.
 
