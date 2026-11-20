@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-11-19T23:56:01.862620+00:00",
+  "scope": "Current standalone deliverable and editable source; historical design exports are not screenshots of this revision.",
+  "checks": {
+    "ui_tested_sources_match": true,
+    "contract_tested_sources_match": true,
+    "all_ui_tests_pass": true,
+    "all_contract_tests_pass": true,
+    "source_exactly_embedded": true,
+    "styles_exactly_embedded": true,
+    "unique_initial_ids": true,
+    "one_right_side_toggle": true,
+    "single_reused_runtime_workbench_slot": true,
+    "six_settings_categories": true,
+    "model_and_reasoning_controls_in_composer": true,
+    "no_standalone_pi_runtime_button": true,
+    "no_external_runtime_assets": true,
+    "no_forced_520px_root_floor": true
+  },
+  "bundles": {
+    "standalone": {
+      "path": "/workspace/scratch/ef7a89df5a00/athena-workspace/athena-preview.html",
+      "bytes": 1314569,
+      "script_count": 24,
+      "initial_unique_ids": 69,
+      "sha256": "7fb2cc30a825fa9c93b75ecfc671e9f4441af1f1edfe4a22803718c84933fef4"
+    }
+  },
+  "integration": {
+    "total": 93,
+    "passed": 93,
+    "failed": 0
+  },
+  "contracts": {
+    "tests": 51,
+    "pass": 51,
+    "fail": 0,
+    "skipped": 0
+  },
+  "actual_browser_render_verified": false,
+  "live_provider_verified": false,
+  "actual_backend_persistence_verified": false,
+  "type_declarations_compiler_checked": false,
+  "limitations": [
+    "DOM tests use documented mocked browser APIs, focus, tabIndex and geometry; CSS assertions are static.",
+    "No actual browser layout, real Pi provider, TaskManager endpoint, durable file/document service or PDF exporter was connected.",
+    "A TypeScript compiler is not installed; the declaration files are reviewed adapter contracts."
+  ]
+}

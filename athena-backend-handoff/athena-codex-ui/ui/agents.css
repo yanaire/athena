@@ -1,0 +1,276 @@
+/* Agent team surface. The parent shell owns panel width and navigation.
+ * This surface keeps one independent scroll area and readable, wrapping text.
+ */
+#athena-codex .aga-host { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+#athena-codex .aga-panel {
+  --aga-text: #373a32;
+  --aga-muted: #73786c;
+  --aga-line: #e7e7dd;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: aga;
+  color: var(--aga-text);
+  background: var(--ac-surface, #fff);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+#athena-codex .aga-panel * { box-sizing: border-box; }
+#athena-codex .aga-panel button,
+#athena-codex .aga-panel input,
+#athena-codex .aga-panel textarea { font-family: inherit; }
+#athena-codex .aga-panel button:disabled { cursor: default; opacity: .5; }
+#athena-codex .aga-panel :is(button, input, textarea, [tabindex]):focus-visible { outline: 2px solid #8e9485; outline-offset: 2px; }
+#athena-codex .aga-panel [tabindex="-1"]:focus { outline: none; }
+#athena-codex .aga-team-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 65px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--aga-line);
+}
+#athena-codex .aga-back {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 30px;
+  padding: 0;
+  border-radius: 7px;
+  color: #777c6e;
+}
+#athena-codex .aga-back svg { width: 16px; height: 16px; }
+#athena-codex .aga-back:hover { background: #f0f1e9; }
+#athena-codex .aga-team-heading { flex: 1; min-width: 0; }
+#athena-codex .aga-team-heading h2 { font-size: 16px; font-weight: 550; line-height: 1.4; letter-spacing: -.25px; }
+#athena-codex .aga-team-count { display: block; margin-top: 3px; font-size: 11px; line-height: 1.45; color: var(--aga-muted); }
+#athena-codex .aga-panel .aga-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid #dedfd4;
+  border-radius: 7px;
+  background: #f7f8f2;
+  color: #59614f;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+#athena-codex .aga-add-button > svg { width: 14px; height: 14px; }
+#athena-codex .aga-add-button:hover { background: #eeefe7; border-color: #ccd0c1; }
+#athena-codex .aga-scroll {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 15px 18px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d5d8cb transparent;
+}
+#athena-codex .aga-preview-note { display: flex; align-items: flex-start; gap: 7px; margin: 0 1px 14px; color: #777c6e; font-size: 11px; line-height: 1.65; }
+#athena-codex .aga-preview-note > svg { width: 13px; height: 13px; margin-top: 2px; color: #969b8a; }
+#athena-codex .aga-preview-note > span { min-width: 0; }
+#athena-codex .aga-preview-badge { padding: 3px 7px; border: 1px solid #e3e4da; border-radius: 5px; background: #f5f6ee; color: #8c9181; font-size: 11px; line-height: 1.4; }
+#athena-codex .aga-roster { display: grid; gap: 5px; max-height: min(286px, 40dvh); padding: 3px; margin: -3px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #d5d8cb transparent; }
+#athena-codex .aga-roster-item { min-width: 0; }
+#athena-codex .aga-agent-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 11px;
+  width: 100%;
+  min-width: 0;
+  min-height: 73px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--aga-text);
+  text-align: left;
+}
+#athena-codex .aga-agent-row:hover { background: #f7f8f2; }
+#athena-codex .aga-agent-row.is-selected,
+#athena-codex .aga-agent-row[aria-pressed="true"],
+#athena-codex .aga-agent-row[aria-selected="true"] { background: #f5f6ef; border-color: #dfe2d3; }
+#athena-codex .aga-panel .aga-agent-row:focus-visible { outline-offset: -2px; }
+#athena-codex .aga-row-avatar { display: grid; place-items: center; width: 40px; height: 40px; }
+#athena-codex .aga-row-copy { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+#athena-codex .aga-row-heading { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; line-height: 1.3; }
+#athena-codex .aga-row-heading strong { font-size: 13px; font-weight: 550; color: #353b30; overflow-wrap: anywhere; }
+#athena-codex .aga-row-heading small { font-size: 11px; color: #7c8074; font-weight: 400; }
+#athena-codex .aga-row-task { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 11px; line-height: 1.5; color: #777c70; overflow-wrap: anywhere; }
+#athena-codex .aga-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 23px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #f0f1ea;
+  color: #70756a;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+#athena-codex .aga-status-dot { width: 4px; height: 4px; flex: 0 0 4px; border-radius: 50%; background: currentColor; opacity: .65; }
+#athena-codex .aga-status[data-status="working"] { background: #edf3e9; color: #5f7654; }
+#athena-codex .aga-status[data-status="waiting"] { background: #f6f1e5; color: #8a7855; }
+#athena-codex .aga-status[data-status="paused"] { background: #f1eef6; color: #7a6e8b; }
+#athena-codex .aga-status[data-status="done"] { background: #edf2e8; color: #667b55; }
+#athena-codex .aga-status[data-status="stopped"] { background: #f0f0eb; color: #7a7d73; }
+#athena-codex .aga-status[data-status="queued"] { background: #f3f3ed; color: #878979; }
+
+#athena-codex .aga-detail {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #e2e5d8;
+  border-radius: 13px;
+  background: #fdfdf9;
+}
+#athena-codex .aga-detail-header { display: flex; align-items: center; gap: 11px; min-width: 0; }
+#athena-codex .aga-detail-title { min-width: 0; flex: 1; }
+#athena-codex .aga-detail-title h3 { font-size: 16px; font-weight: 550; line-height: 1.4; letter-spacing: -.2px; overflow-wrap: anywhere; }
+#athena-codex .aga-detail-title > p,
+#athena-codex .aga-detail-title > span,
+#athena-codex .aga-detail-title > small { display: block; font-size: 11px; line-height: 1.5; color: #7b8072; }
+#athena-codex .aga-task-copy { margin-top: 14px; color: #5d6257; font-size: max(12px, calc(12px * var(--ac-font-scale, 1))); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+#athena-codex .aga-progress-caption { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 17px; margin-bottom: 6px; color: #7d8573; font-size: 11px; line-height: 1.5; }
+#athena-codex .aga-progress-caption strong { font-weight: 500; white-space: nowrap; }
+#athena-codex .aga-progress-track { height: 4px; overflow: hidden; border-radius: 4px; background: #e9ecdf; }
+#athena-codex .aga-progress-track > span { display: block; height: 100%; max-width: 100%; border-radius: inherit; background: #99ab85; transition: width 180ms ease; }
+#athena-codex .aga-sample-note { margin-top: 8px; color: #858c7b; font-size: 11px; line-height: 1.65; }
+#athena-codex .aga-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 16px; }
+#athena-codex .aga-panel .aga-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 33px;
+  padding: 7px 10px;
+  border: 1px solid #daddcf;
+  border-radius: 7px;
+  background: #fff;
+  color: #626b57;
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+#athena-codex .aga-button > svg { width: 13px; height: 13px; }
+#athena-codex .aga-button:hover:not(:disabled) { background: #f1f3eb; border-color: #c8cebb; }
+#athena-codex .aga-panel .aga-button-primary { color: #fffef9; background: #3e4438; border-color: #3e4438; }
+#athena-codex .aga-button-primary:hover:not(:disabled) { color: #fffef9; background: #535b49; border-color: #535b49; }
+#athena-codex .aga-tabs { display: flex; align-items: stretch; gap: 17px; margin-top: 22px; border-bottom: 1px solid #e5e8dc; }
+#athena-codex .aga-tabs > button { min-height: 36px; padding: 6px 1px 9px; border: 0; border-bottom: 2px solid transparent; color: #858c7b; font-size: 12px; line-height: 1.5; }
+#athena-codex .aga-tabs > button:hover { color: #505e42; }
+#athena-codex .aga-tabs > button.is-active,
+#athena-codex .aga-tabs > button[aria-selected="true"] { color: #4d5b3f; border-bottom-color: #8e9d7c; font-weight: 500; }
+#athena-codex .aga-tab-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; margin-left: 5px; padding: 0 4px; border-radius: 4px; background: #ecefe3; color: #7d8970; font-size: 11px; line-height: 1; }
+#athena-codex .aga-tab-panel { padding-top: 16px; min-width: 0; min-height: 116px; }
+#athena-codex .aga-activity { list-style: none; margin: 0; padding: 0; }
+#athena-codex .aga-activity > li { position: relative; display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 10px; padding: 0 0 16px; }
+#athena-codex .aga-activity > li:last-child { padding-bottom: 2px; }
+#athena-codex .aga-activity > li:not(:last-child)::before { content: ''; position: absolute; left: 2px; top: 12px; bottom: 0; width: 1px; background: #e3e8d9; }
+#athena-codex .aga-activity-dot { width: 5px; height: 5px; margin-top: 7px; border-radius: 50%; background: #a6b096; }
+#athena-codex .aga-activity > li > div { min-width: 0; }
+#athena-codex .aga-activity strong { display: block; color: #676d60; font-size: 12px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
+#athena-codex .aga-activity small { display: block; margin-top: 3px; color: #8b9282; font-size: 11px; line-height: 1.5; }
+#athena-codex .aga-output { min-width: 0; }
+#athena-codex .aga-output > p { margin-top: 9px; font-size: 11px; line-height: 1.6; color: #8c9380; }
+#athena-codex .aga-output-button { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 11px; border: 1px solid #e2e5d9; border-radius: 9px; background: #f7f8f2; text-align: left; }
+#athena-codex .aga-output-button:hover { background: #f0f3e9; border-color: #d0d8c2; }
+#athena-codex .aga-output-icon { display: grid; place-items: center; flex: 0 0 31px; width: 31px; height: 34px; border-radius: 7px; background: #e8eede; color: #81926b; }
+#athena-codex .aga-output-icon svg { width: 16px; height: 16px; }
+#athena-codex .aga-output-button > span:not(.aga-output-icon) { min-width: 0; flex: 1; }
+#athena-codex .aga-output-button strong { display: block; font-size: 12px; font-weight: 500; line-height: 1.5; color: #5d6257; overflow-wrap: anywhere; }
+#athena-codex .aga-output-button small { display: block; margin-top: 2px; color: #858d7b; font-size: 11px; line-height: 1.5; }
+#athena-codex .aga-output-button > svg:last-child { width: 14px; height: 14px; color: #8b947e; margin-left: auto; }
+#athena-codex .aga-output-empty,
+#athena-codex .aga-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 112px; padding: 18px 16px; border: 1px dashed #e3e6db; border-radius: 9px; background: #fafbf6; color: #858e79; text-align: center; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+#athena-codex .aga-output-empty > svg,
+#athena-codex .aga-empty > svg { width: 21px; height: 21px; color: #a2af92; }
+#athena-codex .aga-output-empty strong,
+#athena-codex .aga-empty strong { font-size: 12px; font-weight: 500; color: #6e7565; }
+
+#athena-codex .aga-create-form { min-width: 0; }
+#athena-codex .aga-create-form > h3 { margin: 3px 0 5px; font-size: 18px; font-weight: 550; letter-spacing: -.3px; line-height: 1.45; }
+#athena-codex .aga-create-form > p { color: #787f6e; font-size: 12px; line-height: 1.65; }
+#athena-codex .aga-create-form > .aga-role-description { min-height: 38px; margin-top: -7px; }
+#athena-codex .aga-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 19px 0 21px; }
+#athena-codex .aga-role-card { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; align-items: center; min-width: 0; min-height: 80px; padding: 12px 9px; border: 1px solid #e2e5da; border-radius: 10px; background: #fcfdf9; color: #5f6558; text-align: left; }
+#athena-codex .aga-role-card > .aav-avatar { grid-row: 1 / 3; }
+#athena-codex .aga-role-card strong { align-self: end; font-size: 12px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+#athena-codex .aga-role-card small { align-self: start; font-size: 11px; line-height: 1.5; color: #838b78; overflow-wrap: anywhere; }
+#athena-codex .aga-role-card:hover { border-color: #c9d0bf; background: #f5f7ef; }
+#athena-codex .aga-role-card[aria-checked="true"] { border-color: #9aa68b; background: #f1f4e9; box-shadow: inset 0 0 0 1px #9aa68b30; }
+#athena-codex .aga-role-card[aria-checked="true"]::after { content: ''; position: absolute; top: 9px; right: 9px; width: 4px; height: 7px; border: solid #859275; border-width: 0 1.5px 1.5px 0; transform: rotate(42deg); }
+#athena-codex .aga-create-form > label { display: block; margin: 16px 0 7px; color: #60675a; font-size: 12px; font-weight: 500; line-height: 1.5; }
+#athena-codex .aga-task-input { display: block; width: 100%; min-width: 0; min-height: 114px; max-height: 260px; padding: 11px 12px; border: 1px solid #dfe2d6; border-radius: 9px; background: #fcfcf8; color: #535d4b; font-size: max(12px, calc(12px * var(--ac-font-scale, 1))); line-height: 1.65; resize: vertical; }
+#athena-codex .aga-task-input::placeholder { color: #949b8c; }
+#athena-codex .aga-task-input:focus,
+#athena-codex .aga-task-input:focus-visible { outline: none; border-color: #959e88; box-shadow: 0 0 0 2px #959e8814; }
+#athena-codex .aga-field-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 5px; color: #89917f; font-size: 11px; line-height: 1.5; }
+#athena-codex .aga-create-summary { display: flex; align-items: center; gap: 9px; margin-top: 18px; padding: 12px 13px; border: 1px solid #e3e6da; border-radius: 9px; background: #f7f8f2; color: #7b8372; font-size: 12px; line-height: 1.65; }
+#athena-codex .aga-create-summary > span:not(.aav-avatar) { min-width: 0; }
+#athena-codex .aga-create-summary strong { color: #5e6952; font-weight: 500; }
+#athena-codex .aga-create-form > .aga-actions { justify-content: flex-end; margin-top: 20px; }
+#athena-codex .aga-task-input[aria-invalid="true"] { border-color: #b08e79; }
+#athena-codex .aga-fallback-avatar { display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 45%; background: #e6eade; color: #7d8970; font-size: 17px; }
+
+@container aga (max-width: 350px) {
+  #athena-codex .aga-team-header { padding-inline: 13px; gap: 7px; }
+  #athena-codex .aga-scroll { padding: 13px 12px 20px; }
+  #athena-codex .aga-agent-row { gap: 8px; padding: 9px 7px; }
+  #athena-codex .aga-row-heading { gap: 2px 5px; }
+  #athena-codex .aga-row-heading small { flex-basis: 100%; }
+  #athena-codex .aga-status { padding: 3px 6px; gap: 4px; }
+  #athena-codex .aga-detail { padding: 13px 12px; }
+  #athena-codex .aga-detail-header { gap: 8px; }
+  #athena-codex .aga-detail-title h3 { font-size: 15px; }
+  #athena-codex .aga-role-card { padding: 11px 7px; gap: 7px; }
+}
+@container aga (max-width: 290px) {
+  #athena-codex .aga-agent-row { grid-template-columns: 40px minmax(0, 1fr); row-gap: 4px; }
+  #athena-codex .aga-row-avatar { grid-row: 1 / 3; }
+  #athena-codex .aga-agent-row > .aga-status { grid-column: 2; justify-self: start; }
+  #athena-codex .aga-detail-header { flex-wrap: wrap; }
+  #athena-codex .aga-detail-header > .aga-status { margin-left: 56px; }
+  #athena-codex .aga-role-card { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 2px; text-align: center; }
+  #athena-codex .aga-role-card > .aav-avatar { grid-row: auto; margin-bottom: 5px; }
+  #athena-codex .aga-role-card small { align-self: auto; }
+  #athena-codex .aga-team-heading h2 { font-size: 15px; }
+}
+@media (pointer: coarse) {
+  #athena-codex .aga-back { width: 44px; height: 44px; flex-basis: 44px; }
+  #athena-codex .aga-panel .aga-add-button,
+  #athena-codex .aga-panel .aga-button,
+  #athena-codex .aga-tabs > button { min-height: 44px; }
+  #athena-codex .aga-task-input { font-size: max(16px, var(--ac-font-size, 14px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #athena-codex .aga-panel *,
+  #athena-codex .aga-panel *::before,
+  #athena-codex .aga-panel *::after { transition: none !important; animation: none !important; }
+}
+#athena-codex[data-reduced-motion="true"] .aga-panel *,
+#athena-codex[data-reduced-motion="true"] .aga-panel *::before,
+#athena-codex[data-reduced-motion="true"] .aga-panel *::after { transition: none !important; animation: none !important; }

@@ -1,0 +1,242 @@
+/* Desktop shell: fixed composer, independently scrolling conversation and surfaces. */
+#athena-codex {
+  --ac-left-width: 240px;
+  --ac-right-width: 440px;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-columns: var(--ac-left-width) minmax(0, 1fr);
+  -webkit-font-smoothing: antialiased;
+}
+#athena-codex .ac-sidebar {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  padding-bottom: 15px;
+}
+#athena-codex .ac-primary-nav { margin-bottom: 22px; }
+#athena-codex .ac-sidebar-collapse { margin-left: auto; color: #75766b; }
+#athena-codex .ac-agents-nav-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 22px; flex: none; }
+#athena-codex .ac-agents-nav[aria-expanded="true"] { background: #e2e3d8; }
+#athena-codex[data-left-open="true"] > .ac-sidebar { display: flex; }
+#athena-codex .ac-brand,
+#athena-codex .ac-primary-nav,
+#athena-codex .ac-sidebar-bottom { flex-shrink: 0; }
+#athena-codex .ac-brand-icon { display: block; width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; border-radius: 7px; }
+#athena-codex .ac-brand-caption { padding-left: 37px; }
+#athena-codex .ac-sidebar-content { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+#athena-codex .ac-project-label span,
+#athena-codex .ac-thread-item > span:not(.ac-thread-dot) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#athena-codex .ac-thread-item { min-height: 37px; }
+#athena-codex .ac-sidebar-bottom { margin-top: 0; padding-top: 22px; }
+#athena-codex .ac-stage { min-height: 0; height: 100%; }
+#athena-codex .ac-header { height: 56px; padding-inline: 20px; }
+#athena-codex .ac-header-title { overflow: hidden; }
+#athena-codex .ac-header-title strong { overflow: hidden; text-overflow: ellipsis; }
+#athena-codex .ac-header-title > span { flex-shrink: 0; }
+#athena-codex .ac-panel-toggle { color: #58574f; background: transparent; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 7px; flex-shrink: 0; margin-left: auto; }
+#athena-codex .ac-panel-toggle svg { width: 18px; height: 18px; }
+#athena-codex .ac-panel-toggle:hover { background: #ecebe3; }
+#athena-codex .ac-panel-toggle[aria-expanded="true"] { background: #e7e6dd; border-color: #cbc9bd; }
+#athena-codex .ac-workspace { min-height: 0; overflow: hidden; }
+#athena-codex[data-panel-open="true"] .ac-workspace {
+  grid-template-columns: minmax(0, 1fr) var(--ac-right-width);
+}
+#athena-codex[data-panel-open="true"][data-panel-layout="split"] .ac-workspace {
+  grid-template-columns: minmax(0, 1fr) var(--ac-right-width);
+}
+#athena-codex[data-panel-open="true"][data-panel-layout="overlay"] .ac-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+#athena-codex[data-panel-open="true"][data-panel-layout="split"] .ac-research-panel {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  z-index: 12;
+  box-shadow: none;
+}
+#athena-codex[data-panel-open="true"][data-panel-layout="overlay"] .ac-research-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--ac-right-width);
+  height: 100%;
+  min-height: 0;
+  z-index: 20;
+  box-shadow: -12px 0 38px #24251c16;
+}
+#athena-codex .ac-conversation {
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  position: relative;
+}
+#athena-codex .ac-conversation-inner {
+  flex: 1 1 0;
+  min-height: 0;
+  max-width: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 30px max(28px, calc((100% - 760px) / 2)) 24px;
+}
+#athena-codex .ac-conversation-date { margin-bottom: 25px; }
+#athena-codex .ac-user-message { background: #eae8dd; line-height: 1.85; }
+#athena-codex .ac-message-attachments { display: flex; flex-wrap: wrap; gap: 7px; padding-top: 9px; }
+#athena-codex .ac-message-attachments:first-child { padding-top: 0; }
+#athena-codex .ac-message-attachment { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 8px; border: 1px solid #d3d2c5; border-radius: 7px; background: #f7f6ee; font-size: 11px; }
+#athena-codex .ac-message-attachment svg { width: 14px; height: 14px; }
+#athena-codex .ac-message-attachment span { overflow-wrap: anywhere; min-width: 0; }
+#athena-codex .ac-response { color: #37372f; }
+#athena-codex .ac-response h1 { font-size: 18px; font-weight: 550; letter-spacing: -.4px; }
+#athena-codex .ac-artifact-list { background: #faf9f5; border-color: #dedcd1; }
+#athena-codex .ac-artifact { min-height: 54px; }
+#athena-codex .ac-artifact > span { flex-wrap: wrap; column-gap: 12px; row-gap: 0; }
+#athena-codex .ac-artifact strong { white-space: normal; }
+#athena-codex .ac-artifact small { color: #797568; }
+#athena-codex .ac-composer-dock {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 72%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: calc(100% - 48px);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 14px 0 13px;
+  position: relative;
+  z-index: 13;
+}
+#athena-codex .ac-composer-caption { font-size: 10px; margin-top: 8px; color: #858174; }
+#athena-codex .aga-team-strip { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 0 4px 11px; }
+#athena-codex .aga-strip-summary { display: grid; gap: 1px; min-width: 0; margin-right: auto; padding: 3px 0; text-align: left; border-radius: 5px; }
+#athena-codex .aga-strip-summary strong { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: 12px; font-weight: 500; color: #53574b; }
+#athena-codex .aga-strip-preview { font-size: 11px; color: #75796e; font-weight: 400; }
+#athena-codex #ac-agent-strip-status { color: #717569; font-size: 11px; line-height: 1.45; }
+#athena-codex .aga-strip-summary:hover strong { color: #292d23; }
+#athena-codex .aga-strip-roster { display: flex; align-items: center; gap: 4px; flex: none; }
+#athena-codex .aga-strip-avatar { display: grid; place-items: center; width: 36px; height: 38px; border-radius: 10px; padding: 3px; background: transparent; flex: none; }
+#athena-codex .aga-strip-avatar:hover { background: #e8e9df; }
+#athena-codex .aga-strip-overflow { width: 28px; height: 28px; border-radius: 50%; background: #e6e8dc; color: #59614d; font-size: 11px; padding: 0; flex: none; }
+#athena-codex .aga-strip-open { color: #737a67; width: 25px; height: 30px; }
+#athena-codex .ac-research-panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left-color: #deddd3;
+}
+#athena-codex .ac-panel-heading {
+  height: 47px;
+  min-height: 47px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--ac-line);
+  flex-shrink: 0;
+}
+#athena-codex .ac-side-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  margin-left: -5px;
+  border-radius: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: #67675e;
+}
+#athena-codex .ac-side-picker:hover { background: #f2f1eb; }
+#athena-codex .ac-side-picker svg { width: 15px; height: 15px; }
+#athena-codex .ac-side-picker svg:last-child { width: 12px; height: 12px; color: #969388; }
+#athena-codex .ac-research-slot,
+#athena-codex .ac-surface-slot,
+#athena-codex .ac-agents-slot {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+#athena-codex .ac-surface-slot { overflow: hidden; }
+#athena-codex .ac-agents-slot { overflow: hidden; display: flex; flex-direction: column; }
+#athena-codex .ac-research-slot { display: flex; flex-direction: column; }
+#athena-codex .ac-panel-tabs { min-height: 44px; flex-shrink: 0; gap: 23px; padding-inline: 21px; }
+#athena-codex .ac-panel-tab.ac-active { color: #33352e; border-bottom-color: #77796c; }
+#athena-codex .ac-panel-body { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+#athena-codex .ac-property { flex-wrap: wrap; gap: 5px 14px; }
+#athena-codex .ac-document-toolbar { flex-wrap: wrap; gap: 8px; }
+#athena-codex .ac-chart-key { flex-wrap: wrap; gap: 6px 16px; }
+#athena-codex .ac-results-table td { overflow-wrap: anywhere; }
+#athena-codex .ac-document-editor:focus-visible { outline: 1px solid #9e9f92; outline-offset: 1px; }
+#athena-codex .ac-dialog-backdrop { align-items: center; padding: 24px; }
+#athena-codex .ac-dialog { max-height: calc(100% - 24px); min-height: 0; overflow-y: auto; box-shadow: 0 18px 70px #25251b1c; }
+#athena-codex .ac-command-field input:focus-visible { outline: none; }
+#athena-codex .ac-command:focus-within { box-shadow: inset 0 0 0 1px #b8b8ac; }
+#athena-codex button:focus:not(:focus-visible),
+#athena-codex .ac-conversation:focus,
+#athena-codex .ac-conversation-inner:focus { outline: none; }
+#athena-codex * { scrollbar-width: thin; scrollbar-color: #c9c8bc transparent; }
+#athena-codex .ac-overlay-scrim { z-index: 16; }
+#athena-codex[data-left-open="true"]:not([data-left-drawer="true"]) .ac-overlay-scrim { left: var(--ac-left-width); }
+#athena-codex[data-left-drawer="true"] .ac-overlay-scrim { inset: 0; opacity: 1; }
+#athena-codex .ac-toast { z-index: 100; bottom: 18px; }
+@media (max-width: 1180px) {
+  #athena-codex .ac-header-title > span { display: none; }
+  #athena-codex .ac-sidebar { padding-inline: 10px; }
+  #athena-codex .ac-thread-item small { display: none; }
+}
+@media (max-width: 600px) {
+  #athena-codex { grid-template-columns: minmax(0, 1fr); }
+  #athena-codex[data-left-drawer="true"] > .ac-sidebar {
+    width: var(--ac-left-width);
+    top: 0;
+    height: 100%;
+    min-height: 0;
+    box-shadow: 12px 0 38px #24251c16;
+  }
+  #athena-codex[data-left-drawer="true"] .ac-brand { display: flex; }
+  #athena-codex[data-left-drawer="true"] .ac-primary-nav { margin-top: 7px; }
+}
+@media (max-width: 760px) {
+  #athena-codex[data-panel-open="true"] .ac-workspace { grid-template-columns: minmax(0, 1fr); }
+  #athena-codex[data-panel-open="true"] .ac-research-panel {
+    width: var(--ac-right-width, min(440px, calc(100% - 16px)));
+    height: 100%;
+    min-height: 0;
+    box-shadow: -12px 0 38px #24251c16;
+    z-index: 20;
+  }
+  #athena-codex .ac-conversation-inner { padding: 25px 23px 20px; }
+  #athena-codex .ac-composer-dock { width: calc(100% - 34px); padding-bottom: 12px; }
+  #athena-codex .ac-header { padding-inline: 13px; }
+}
+@media (max-width: 420px) {
+  #athena-codex .ac-conversation-inner { padding: 24px 18px 18px; }
+  #athena-codex .ac-composer-dock { width: calc(100% - 26px); }
+  #athena-codex .ac-response h1 { font-size: 16px; }
+  #athena-codex .ac-user-message { max-width: 96%; }
+  #athena-codex .ac-panel-toggle { height: 32px; width: 32px; padding: 0; }
+  #athena-codex .ac-composer-caption > span:last-child { display: none; }
+  #athena-codex .aga-team-strip { gap: 5px; padding-inline: 0; }
+  #athena-codex .aga-strip-roster { gap: 1px; }
+  #athena-codex .aga-strip-avatar { width: 33px; }
+  #athena-codex .aga-strip-open { display: none; }
+}
+@media (pointer: coarse) {
+  #athena-codex .aga-strip-avatar { min-width: 44px; min-height: 44px; }
+  #athena-codex .aga-strip-overflow { min-width: 44px; min-height: 44px; }
+  #athena-codex .aga-strip-summary { min-height: 44px; }
+}
+@media (max-height: 660px) {
+  #athena-codex .ac-brand { height: 63px; }
+  #athena-codex .ac-primary-nav { margin-block: 0 9px; }
+  #athena-codex .ac-sidebar-bottom { padding-top: 8px; }
+  #athena-codex .ac-profile { margin-top: 7px; padding-top: 9px; }
+  #athena-codex .ac-composer-dock { padding-top: 8px; padding-bottom: 8px; }
+}

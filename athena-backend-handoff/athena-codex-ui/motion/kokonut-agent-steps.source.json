@@ -1,0 +1,23 @@
+{
+  "repository": "kokonut-labs/kokonutui",
+  "commit": "655ec61161aff87721e4c60c3cc4dc3329f3e80e",
+  "commitDate": "2026-11-16T16:04:50Z",
+  "registryMatchesSource": true,
+  "files": [
+    {
+      "name": "ai-loading.tsx",
+      "sha": "a5fb5c74c7ab66e4d1d8885c0c382544a6fe2850",
+      "url": "https://github.com/kokonut-labs/kokonutui/blob/655ec61161aff87721e4c60c3cc4dc3329f3e80e/components/kokonutui/ai-loading.tsx"
+    },
+    {
+      "name": "ai-loading.json",
+      "sha": "40ae9b378c5741b76af85edef761c14aa70c426f",
+      "url": "https://github.com/kokonut-labs/kokonutui/blob/655ec61161aff87721e4c60c3cc4dc3329f3e80e/public/r/ai-loading.json"
+    },
+    {
+      "name": "LICENSE-KOKONUT.txt",
+      "sha": "c5ec4f31444e458c6662d6fecd38c01b9afe42db",
+      "url": "https://github.com/kokonut-labs/kokonutui/blob/655ec61161aff87721e4c60c3cc4dc3329f3e80e/LICENSE"
+    }
+  ]
+}

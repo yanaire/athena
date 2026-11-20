@@ -1,0 +1,21 @@
+{
+  "checks": [
+    "five initial states",
+    "derived count on running/done/failed",
+    "drawn check and cross presence",
+    "single running underline",
+    "callback IDs and immutable snapshots",
+    "reconcile does not auto-submit or change state",
+    "idempotent state updates",
+    "invalid state rejection",
+    "250ms/51-sample spring animation requests",
+    "live reduced-motion handling",
+    "destroy listener and animation cleanup",
+    "container restoration",
+    "safe remount"
+  ],
+  "result": "passed",
+  "environment": "Node + LinkeDOM; Web Animations calls are stubbed and inspected",
+  "browserRendering": "not tested; browser policy restriction preserved",
+  "networkBehavior": "module contains no network call"
+}

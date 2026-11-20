@@ -1,0 +1,135 @@
+<div id="athena-codex" lang="en" data-panel-open="false" data-left-open="true" data-left-drawer="false">
+  <aside class="ac-sidebar" id="ac-sidebar" aria-label="Projects and conversations">
+    <div class="ac-brand"><img class="ac-brand-icon" src="assets/athena-icon-128.png" width="28" height="28" alt="" aria-hidden="true"><strong>Athena</strong><button type="button" class="ac-icon-button ac-sidebar-collapse cursor-interaction" id="ac-sidebar-collapse" data-action="toggle-left" aria-label="Collapse projects" aria-expanded="true" aria-controls="ac-sidebar" data-morph-tooltip="Collapse projects"><i data-lucide="panel-left-close" aria-hidden="true"></i></button><span class="ac-brand-caption">Research workspace</span></div>
+    <nav class="ac-primary-nav" aria-label="Workspace">
+      <button class="ac-nav-button cursor-interaction" data-action="new-research"><i data-lucide="square-pen" aria-hidden="true"></i>New research</button>
+      <button class="ac-nav-button cursor-interaction" data-action="search"><i data-lucide="search" aria-hidden="true"></i>Search research</button>
+      <button class="ac-nav-button cursor-interaction" data-action="notes"><i data-lucide="book-open" aria-hidden="true"></i>Research notes</button>
+      <button class="ac-nav-button cursor-interaction" id="ac-knowledge-nav" data-workspace-view="knowledge" aria-controls="ac-knowledge-slot" aria-expanded="false"><i data-lucide="library" aria-hidden="true"></i>Knowledge</button>
+    </nav>
+    <div class="ac-sidebar-content">
+    <div class="ac-sidebar-label"><span>Projects</span><button class="ac-icon-button cursor-interaction" aria-label="Add project" data-action="new-project" data-morph-tooltip="New project"><i data-lucide="plus" aria-hidden="true"></i></button></div>
+    <div id="ac-example-projects">
+    <div class="ac-project-label"><i data-lucide="chevron-down" aria-hidden="true"></i><i data-lucide="folder" aria-hidden="true"></i><span>Biosignal circuits</span></div>
+    <div class="ac-threads">
+      <button class="ac-thread-item ac-selected cursor-interaction" aria-current="page" data-action="current-thread"><span class="ac-thread-dot"></span><span>RC filter validation</span><small>Now</small></button>
+      <button class="ac-thread-item cursor-interaction" data-action="sample-thread"><span>Front-end circuit review</span><small>2h</small></button>
+      <button class="ac-thread-item cursor-interaction" data-action="sample-thread"><span>Compare experiment conditions</span><small>Yesterday</small></button>
+    </div>
+    <button class="ac-project-label cursor-interaction" data-action="sample-thread"><i data-lucide="chevron-right" aria-hidden="true"></i><i data-lucide="folder" aria-hidden="true"></i><span>EMG signal analysis</span></button>
+    <button class="ac-project-label cursor-interaction" data-action="sample-thread"><i data-lucide="chevron-right" aria-hidden="true"></i><i data-lucide="folder" aria-hidden="true"></i><span>System modeling</span></button>
+    </div><div id="ac-live-projects" hidden></div>
+    </div>
+    <div class="ac-sidebar-bottom">
+      <button class="ac-nav-button cursor-interaction" data-action="programs"><i data-lucide="plug" aria-hidden="true"></i>Connections<span class="ac-nav-count">2</span></button>
+      <button class="ac-nav-button cursor-interaction" data-action="settings" aria-haspopup="dialog"><i data-lucide="settings-2" aria-hidden="true"></i>Settings</button>
+      <div class="ac-profile"><span class="ac-avatar">D</span><span>Dongmin<small>Personal workspace</small></span><i data-lucide="chevrons-up-down" aria-hidden="true"></i></div>
+    </div>
+  </aside>
+  <main class="ac-stage">
+    <header class="ac-header">
+      <button class="ac-icon-button cursor-interaction" id="ac-left-toggle" data-action="toggle-left" aria-label="Expand projects" aria-expanded="false" aria-controls="ac-sidebar" data-morph-tooltip="Expand projects" hidden><i data-lucide="panel-left-open" aria-hidden="true"></i></button>
+      <div class="ac-header-title"><strong id="ac-thread-title">RC filter validation</strong><span>Biosignal circuits</span></div>
+      <button type="button" class="ac-icon-button ac-panel-toggle cursor-interaction" id="ac-panel-toggle" aria-controls="ac-research-panel" aria-expanded="false" aria-pressed="false" aria-label="Open side view" data-morph-tooltip="Open side view" data-action="toggle-panel"><i data-lucide="panel-right-open" aria-hidden="true"></i></button>
+    </header>
+    <div class="ac-workspace">
+      <section class="ac-conversation" aria-label="Research conversation" id="ac-conversation">
+        <div class="ac-conversation-inner">
+          <div class="ac-conversation-date">Today · RC low-pass filter</div>
+          <div class="ac-user-message">Check the frequency response of an RC filter with R = 1 kΩ and C = 100 nF, and compare it with theory. I also want to see how changing the component values affects it.</div>
+          <div class="ac-response">
+            <div class="aw-response-label"><img src="assets/athena-icon-32.png" alt="" aria-hidden="true" width="19" height="19"><strong>Athena</strong><span>Research assistant</span></div>
+            <p class="aw-response-intro">The baseline is ready. Let’s see how component tolerances change the response.</p>
+            <section id="aw-activity" class="aw-activity" aria-label="Research execution activity"></section>
+            <details class="aw-baseline"><summary class="cursor-interaction"><i data-lucide="circle-check" aria-hidden="true"></i><span>Earlier baseline results</span><small>Sample</small><i data-lucide="chevron-down" aria-hidden="true"></i></summary><div class="aw-baseline-body">
+            <details class="ac-tool-summary">
+              <summary><i data-lucide="check" aria-hidden="true"></i><span>Baseline run · checked against theory</span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+              <div class="ac-tool-steps"><span>Checked baseline.cir input</span><span>Calculated AC response · 10 Hz–100 kHz</span><span>Checked relative error against theory</span><button class="ac-text-button cursor-interaction" data-action="open-file" data-file="simulation.log">View run log<i data-lucide="arrow-up-right" aria-hidden="true"></i></button></div>
+            </details>
+            <h1>The baseline frequency response is verified.</h1>
+            <p>The cutoff frequency is <strong>1.592 kHz</strong>, with a relative error of <strong>0.03%</strong> against the theoretical value of <strong>1.5915 kHz</strong>. This is within the specified 1% tolerance.</p>
+            <ul class="ac-findings"><li>Calculated the baseline circuit using the specified resistor and capacitor values.</li><li>Confirmed a single-pole low-pass response.</li><li>Kept the input, numerical data, and run log together.</li></ul>
+            <p>Open the files below to explore the results. Component tolerances will be compared in a follow-up analysis.</p>
+            <div class="ac-artifact-list" aria-label="Results from this conversation">
+              <button class="ac-artifact cursor-interaction" data-workspace-artifact="response-plot"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span><strong>Frequency response</strong><small>Chart · baseline v1</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></button>
+              <button class="ac-artifact cursor-interaction" data-workspace-artifact="validation-table"><i data-lucide="table-2" aria-hidden="true"></i><span><strong>Validation results</strong><small>Values · criteria · source files</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></button>
+              <button class="ac-artifact cursor-interaction" data-workspace-artifact="research-note"><i data-lucide="file-text" aria-hidden="true"></i><span><strong>Research note</strong><small>Purpose · method · results · limits</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></button>
+            </div>
+            
+            </div></details>
+            <div class="ac-response-actions"><button class="ac-icon-button cursor-interaction" data-action="copy-response" aria-label="Copy response" data-morph-tooltip="Copy response"><i data-lucide="copy" aria-hidden="true"></i></button><span>ngspice · Baseline v1</span></div>
+          
+          </div>
+          <div id="ac-pi-transcript" class="ac-pi-transcript" aria-label="Session conversation" hidden></div>
+          <div id="ac-live-user" class="ac-user-message ac-live-user" hidden></div>
+          <div id="ac-live-reply" aria-label="Follow-up response"></div>
+          <div id="ac-connected-activity" aria-label="Workspace task and agent activity"></div>
+          <div id="ac-pi-manual-activity" aria-label="Direct command activity"></div>
+        </div>
+        <div class="ac-composer-dock">
+          <div id="ac-pi-widgets-above" class="ac-pi-widgets" hidden></div>
+          <div id="ac-pi-draft-offer" class="ac-pi-draft-offer" hidden><i data-lucide="file-pen-line" aria-hidden="true"></i><span>An extension prepared a draft.</span><button type="button" class="cursor-interaction" data-action="pi-use-draft">Add to draft</button></div>
+          <div id="ac-unsent-draft" class="ac-pi-draft-offer" role="status" hidden><i data-lucide="mail-warning" aria-hidden="true"></i><span></span><button type="button" class="cursor-interaction" data-action="restore-unsent">Add unsent message to draft</button></div>
+          <div id="ac-composer-slot"></div>
+          <div id="ac-pi-widgets-below" class="ac-pi-widgets" hidden></div>
+          <div id="ac-pi-queue-controls" class="ac-pi-queue-controls" hidden>
+            <label for="ac-pi-delivery" class="ac-sr-only">Deliver the current draft</label>
+            <select id="ac-pi-delivery" class="cursor-interaction"><option value="steer">Steer current work</option><option value="follow_up">Queue a follow-up</option></select>
+            <button type="button" class="cursor-interaction" id="ac-pi-send-queued" data-action="pi-send-queued"><i data-lucide="corner-up-right" aria-hidden="true"></i><span>Send draft</span></button>
+            <button type="button" class="ac-pi-queue-count cursor-interaction" data-action="pi-queue" aria-label="View queued messages"><i data-lucide="list-ordered" aria-hidden="true"></i><span id="ac-pi-queue-count">0 queued</span></button>
+          </div>
+          <div class="ac-composer-caption"><span><i data-lucide="folder-open" aria-hidden="true"></i>Biosignal circuits</span><span id="ac-pi-session-status" class="ac-pi-session-status">UI preview · sample data</span></div>
+          <div id="ac-pi-statuses" class="ac-pi-statuses" role="status" aria-live="polite" hidden></div>
+        </div>
+      </section>
+      <aside class="ac-research-panel" id="ac-research-panel" aria-label="Side view" hidden>
+        <div class="ac-panel-heading">
+          <button type="button" class="ac-side-picker cursor-interaction" id="ac-side-picker" data-action="surface-home" aria-label="Choose a surface"><i data-lucide="panels-top-left" aria-hidden="true"></i><span id="ac-side-title">Surfaces</span><i data-lucide="chevron-down" aria-hidden="true"></i></button>
+        </div>
+        <nav class="aw-side-nav" aria-label="Research workspace views">
+          <button type="button" class="ac-icon-button cursor-interaction" data-workspace-view="workflow" aria-label="Workflow" data-morph-tooltip="Workflow"><i data-lucide="workflow" aria-hidden="true"></i></button>
+          <button type="button" class="ac-icon-button cursor-interaction" data-workspace-view="artifacts" aria-label="Artifacts" data-morph-tooltip="Artifacts"><i data-lucide="panels-top-left" aria-hidden="true"></i></button>
+          <button type="button" class="ac-icon-button cursor-interaction" data-workspace-view="timeline" aria-label="Agent timeline" data-morph-tooltip="Agent timeline"><i data-lucide="history" aria-hidden="true"></i></button>
+          <button type="button" class="ac-icon-button cursor-interaction" data-workspace-view="knowledge" aria-label="Knowledge" data-morph-tooltip="Knowledge"><i data-lucide="library" aria-hidden="true"></i></button>
+        </nav>
+        <div id="ac-surface-slot" class="ac-surface-slot"></div>
+        <div id="ac-workbench-slot" class="ac-workbench-slot" hidden></div>
+        <div id="ac-knowledge-slot" class="ac-knowledge-slot" hidden></div>
+        <div id="ac-research-slot" class="ac-research-slot" hidden>
+        <div class="ac-panel-tabs" role="tablist" aria-label="Research panel content">
+          <button class="ac-panel-tab cursor-interaction" type="button" role="tab" id="ac-tab-workflow" aria-controls="ac-view-workflow" aria-selected="false" data-panel-tab="workflow">Workflow</button>
+          <button class="ac-panel-tab ac-active cursor-interaction" type="button" role="tab" id="ac-tab-results" aria-controls="ac-view-results" aria-selected="true" data-panel-tab="results">Results</button>
+          <button class="ac-panel-tab cursor-interaction" type="button" role="tab" id="ac-tab-manuscript" aria-controls="ac-view-manuscript" aria-selected="false" data-panel-tab="manuscript">Manuscript</button>
+        </div>
+        <section class="ac-panel-body" id="ac-view-workflow" role="tabpanel" aria-labelledby="ac-tab-workflow" hidden>
+          <div class="ac-panel-section-title"><h2>Research tasks</h2><span class="ac-subtle" id="ac-task-count">3 / 5 complete</span></div>
+          <p class="ac-panel-description">Follow progress from the research plan to the manuscript.</p>
+          <div id="ac-task-list"></div>
+          <section class="ac-task-detail" aria-labelledby="ac-task-detail-title"><div class="ac-eyebrow">Selected task</div><h3 id="ac-task-detail-title">RC sensitivity analysis</h3><div class="ac-property"><span>Program</span><strong>ngspice</strong></div><div class="ac-property"><span>Run location</span><strong>Lab server</strong></div><div class="ac-property"><span>Last checked</span><strong id="ac-last-checked">8 / 12 conditions · 10:41</strong></div><div class="ac-recovery" id="ac-recovery"><i data-lucide="circle-alert" aria-hidden="true"></i><div><strong id="ac-recovery-title">Check connection</strong><p id="ac-recovery-description">The calculation may still be running. Check the existing run first.</p></div></div><button class="ac-button ac-button-primary cursor-interaction" data-action="reconcile" id="ac-reconcile"><i data-lucide="refresh-cw" aria-hidden="true"></i>Refresh status</button></section>
+          <div class="ac-scope-note"><i data-lucide="shield-check" aria-hidden="true"></i><span>Approved scope · ngspice · up to 12 conditions</span></div>
+        </section>
+        <section class="ac-panel-body" id="ac-view-results" role="tabpanel" aria-labelledby="ac-tab-results">
+          <label class="ac-field-label" for="ac-artifact-select">Result</label><select class="ac-select" id="ac-artifact-select"><option value="response">Frequency response</option><option value="table">Validation results</option><option value="baseline.cir">baseline.cir · input</option><option value="ac_response.csv">ac_response.csv · data</option><option value="simulation.log">simulation.log · log</option></select>
+          <div id="ac-result-response" data-result-view="response"><div class="ac-panel-section-title"><h2>Baseline frequency response</h2></div><p class="ac-panel-description">Baseline v1 · sample data</p><div class="ac-chart" id="ac-response-chart"></div><div class="ac-chart-key"><span><b></b>Sample simulation</span><span><b class="ac-key-theory"></b>Theory</span></div><div class="ac-result-value"><span>Cutoff frequency</span><strong>1.592 <small>kHz</small></strong></div><div class="ac-property"><span>Theoretical value</span><strong>1.5915 kHz</strong></div><div class="ac-property"><span>Relative error</span><strong>0.03%</strong></div><div class="ac-property"><span>Assessment</span><strong class="ac-check-text"><i data-lucide="check" aria-hidden="true"></i>Within 1% tolerance</strong></div><p class="ac-small-note">R = 1 kΩ · C = 100 nF<br>Sample calculation using an ideal model.</p></div>
+          <div id="ac-result-table" data-result-view="table" hidden><div class="ac-panel-section-title"><h2>Validation results</h2><span class="ac-subtle">Baseline v1</span></div><table class="ac-results-table"><thead><tr><th>Check</th><th>Criterion</th><th>Result</th></tr></thead><tbody><tr><td>Cutoff frequency</td><td>Error ≤ 1%</td><td>0.03%</td></tr><tr><td>Response shape</td><td>Single pole</td><td>Pass</td></tr><tr><td>Input/output</td><td>Consistent units</td><td>Pass</td></tr></tbody></table><p class="ac-small-note">Real component and measurement equipment effects are not included.</p></div>
+          <div data-result-view="file" id="ac-result-file" hidden><h2 id="ac-file-title">baseline.cir</h2><p class="ac-panel-description">Baseline v1 · read-only sample</p><pre class="ac-code" id="ac-file-content"></pre></div>
+          <section class="ac-sources"><h3>Source files</h3><button class="ac-file-row cursor-interaction" data-action="open-file" data-file="baseline.cir"><i data-lucide="file-code-2" aria-hidden="true"></i><span>baseline.cir<small>Input circuit</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></button><button class="ac-file-row cursor-interaction" data-action="open-file" data-file="ac_response.csv"><i data-lucide="file-spreadsheet" aria-hidden="true"></i><span>ac_response.csv<small>Response data</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></button><button class="ac-file-row cursor-interaction" data-action="open-file" data-file="simulation.log"><i data-lucide="file-text" aria-hidden="true"></i><span>simulation.log<small>Run log</small></span><i data-lucide="arrow-up-right" aria-hidden="true"></i></button></section>
+          <button class="ac-button cursor-interaction" data-open="manuscript"><i data-lucide="file-pen-line" aria-hidden="true"></i>View linked manuscript</button>
+        </section>
+        <section class="ac-panel-body" id="ac-view-manuscript" role="tabpanel" aria-labelledby="ac-tab-manuscript" hidden>
+          <div id="ac-document-revisions"></div>
+          <div class="ac-document-toolbar"><span id="ac-document-status">Draft v1 · saved</span><button class="ac-text-button cursor-interaction" data-action="edit-manuscript" id="ac-edit-manuscript"><i data-lucide="pencil" aria-hidden="true"></i>Edit</button></div>
+          <article class="ac-document" id="ac-document"><div class="ac-eyebrow">RESEARCH NOTE</div><h2>RC low-pass filter:<br>frequency response validation</h2><p class="ac-doc-meta">Biosignal circuits · Dongmin<br>Sample manuscript linked to baseline v1</p><h3>Purpose</h3><p>Verify the frequency response of an ideal RC circuit and compare its cutoff frequency with the analytical value.</p><h3>Method</h3><p>A 1 kΩ resistor and a 100 nF capacitor were used. The AC response was analyzed from 10 Hz to 100 kHz.</p><h3>Results</h3><button class="ac-cited-claim cursor-interaction" data-action="open-claim">The cutoff frequency was 1.592 kHz, with a relative error of approximately 0.03% against the theoretical value of 1.5915 kHz.<i data-lucide="link" aria-hidden="true"></i></button><p>This is within the predefined 1% tolerance.</p><h3>Scope and limitations</h3><p>This analysis excludes real component tolerances, non-ideal behavior, and measurement equipment effects.</p></article>
+          <label class="ac-field-label" id="ac-editor-label" for="ac-document-editor" hidden>Edit research note</label><textarea class="ac-document-editor" id="ac-document-editor" hidden></textarea>
+          <div class="ac-doc-evidence" id="ac-doc-evidence"><i data-lucide="link-2" aria-hidden="true"></i><div><strong>1 linked source</strong><span>Frequency response · Baseline v1</span></div><button class="ac-icon-button cursor-interaction" aria-label="Open manuscript source" data-open="results" data-artifact="response"><i data-lucide="arrow-up-right" aria-hidden="true"></i></button></div>
+          <button class="ac-button cursor-interaction" data-action="export-manuscript"><i data-lucide="download" aria-hidden="true"></i>Download manuscript</button>
+        </section>
+        </div>
+      </aside>
+    </div>
+  </main>
+  <button class="ac-overlay-scrim" id="ac-overlay-scrim" aria-label="Close open panel" hidden></button>
+  <div class="ac-dialog-backdrop" id="ac-dialog-backdrop" hidden><section class="ac-dialog" role="dialog" aria-modal="true" aria-labelledby="ac-dialog-title"><div class="ac-dialog-heading"><h2 id="ac-dialog-title"></h2><button class="ac-icon-button cursor-interaction" data-action="close-dialog" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button></div><div id="ac-dialog-content"></div><div class="ac-dialog-actions"><button class="ac-button ac-button-subtle cursor-interaction" data-action="close-dialog">Close</button><button class="ac-button ac-button-primary cursor-interaction" id="ac-dialog-primary" hidden></button></div></section></div>
+  <div class="ac-toast" id="ac-toast" role="status" aria-live="polite" hidden></div>
+  <span class="ac-sr-only" id="ac-live-status" role="status" aria-live="polite"></span>
+</div>

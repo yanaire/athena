@@ -1,0 +1,73 @@
+{
+  "authoringMethod": "hand-authored vector scenes; not browser extraction",
+  "layout": {
+    "sidebarWidth": 240,
+    "headerHeight": 56,
+    "researchPanelWidth": 420,
+    "conversationMaxWidth": 760,
+    "centralTabs": false,
+    "researchPanelTabs": [
+      "워크플로우",
+      "결과",
+      "원고"
+    ]
+  },
+  "designReference": "supplied DESIGN.md; warm ivory/white/terracotta palette",
+  "declaredTypography": "Noto Sans CJK KR, Noto Sans KR, system fallback; no proprietary Anthropic fonts",
+  "svg": [
+    {
+      "file": "01-conversation-collapsed.svg",
+      "validXml": true,
+      "size": [
+        1440,
+        960
+      ],
+      "textElements": 42,
+      "rasterImages": 0,
+      "foreignObject": 0,
+      "pngSizeVerified": true
+    },
+    {
+      "file": "02-results-sidebar-open.svg",
+      "validXml": true,
+      "size": [
+        1440,
+        960
+      ],
+      "textElements": 83,
+      "rasterImages": 0,
+      "foreignObject": 0,
+      "pngSizeVerified": true
+    },
+    {
+      "file": "03-manuscript-sidebar-open.svg",
+      "validXml": true,
+      "size": [
+        1440,
+        960
+      ],
+      "textElements": 76,
+      "rasterImages": 0,
+      "foreignObject": 0,
+      "pngSizeVerified": true
+    },
+    {
+      "file": "04-workflow-sidebar-open.svg",
+      "validXml": true,
+      "size": [
+        1440,
+        960
+      ],
+      "textElements": 71,
+      "rasterImages": 0,
+      "foreignObject": 0,
+      "pngSizeVerified": true
+    }
+  ],
+  "nativeComponentDefinitions": 5,
+  "figmaImporterJavaScriptSyntax": "passed",
+  "figmaImporterRuntime": "not tested; tool quota blocked direct access",
+  "browserExecution": "not performed; existing browser security restrictions respected",
+  "visualReview": "all four SVGs rendered through Inkscape and reviewed",
+  "researchData": "illustrative UI examples"
+}

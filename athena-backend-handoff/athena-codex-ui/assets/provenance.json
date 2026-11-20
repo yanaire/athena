@@ -1,0 +1,19 @@
+{
+  "repository": "yanaire/beta",
+  "commit": "3aab244b7296035efb8f09a3971fac913fe30efd",
+  "assets": [
+    {
+      "file": "athena-icon-128.png",
+      "source_path": "src-tauri/icons/128x128.png",
+      "git_blob_sha": "27c34a16c7b183a6aeaaeb77189e51817ec3e295",
+      "bytes": 16062
+    },
+    {
+      "file": "athena-icon-32.png",
+      "source_path": "src-tauri/icons/32x32.png",
+      "git_blob_sha": "5aead4f0b0c48186b918297084c6674f38fb1e35",
+      "bytes": 2001
+    }
+  ],
+  "usage": "Existing app icon reused unchanged at the request of the repository owner."
+}

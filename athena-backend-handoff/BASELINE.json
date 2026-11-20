@@ -1,0 +1,591 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-20T02:17:34.017580+00:00",
+  "purpose": "Developer handoff of existing Athena UI and proposed backend work; no backend implemented in this handoff.",
+  "priorDeliverables": {
+    "athena-preview.html": {
+      "libraryVersion": 10,
+      "libraryFileId": "libfile_fde3_f-1eec47b584e081919d5be465404900b6_ccd7a5e886488191818ae1b0b2fe05bf",
+      "bytes": 1314569,
+      "sha256": "7fb2cc30a825fa9c93b75ecfc671e9f4441af1f1edfe4a22803718c84933fef4",
+      "changedByHandoff": false
+    },
+    "athena-inline-agents-source.zip": {
+      "libraryVersion": 7,
+      "libraryFileId": "libfile_fde3_f-ed63e92a6fd881918b5c4f6142165789_ccd7a5e886488191818ae1b0b2fe05bf",
+      "bytes": 1816980,
+      "sha256": "ca461e9ea536c968137df550d48d18ccf19180be43de6a47b5a873fce46c195f",
+      "changedByHandoff": false
+    }
+  },
+  "copiedSource": {
+    "root": "athena-codex-ui/",
+    "files": 120,
+    "everyFileByteIdenticalToPriorArchive": true,
+    "filesByPath": {
+      "athena-codex-ui/DESIGN.md": {
+        "bytes": 17112,
+        "sha256": "44e9251944eff576b1da95bacbb1bdb6600bfe139e565dac30b9f5e37e97b7d8"
+      },
+      "athena-codex-ui/MOTION.md": {
+        "bytes": 10209,
+        "sha256": "dad38f7d27d0b257202e661adabb0b8f77c336e91b6f2feddb89aaf8b6770504"
+      },
+      "athena-codex-ui/README.md": {
+        "bytes": 15945,
+        "sha256": "a5e0c3f57e6359a0dcc913a969d76a38a3f49cf8b9c91487ce340e45a8b4dc77"
+      },
+      "athena-codex-ui/ai-text-loading.reference.tsx": {
+        "bytes": 3770,
+        "sha256": "e7c60e2dea30365ffef5701b357652114eaaa1425132be2993af9faba4b873e2"
+      },
+      "athena-codex-ui/app.css": {
+        "bytes": 22912,
+        "sha256": "ff5b366ca04afd51f32bc35d2c062a1b18598e6c4395d32566cf799774e8d048"
+      },
+      "athena-codex-ui/app.html": {
+        "bytes": 21256,
+        "sha256": "31c75f7b206571e8497265e4676225d8ff01e934696a567a25eed917eead42cd"
+      },
+      "athena-codex-ui/app.js": {
+        "bytes": 77340,
+        "sha256": "3abf4fad4fc095dc2e590387304a0e6307166916d6551c29ff77ff8aeec37f62"
+      },
+      "athena-codex-ui/assets/README.md": {
+        "bytes": 500,
+        "sha256": "14de0ff5410459611deaa86a9d6eee595a3904cb469ab4982f8ab223d9b9aecb"
+      },
+      "athena-codex-ui/assets/athena-icon-128.png": {
+        "bytes": 16062,
+        "sha256": "97fe3fe2d0ed8dc97efc53bb2f7ead4c7ed88c5317123b1e3b7e95e5f7cf86f7"
+      },
+      "athena-codex-ui/assets/athena-icon-32.png": {
+        "bytes": 2001,
+        "sha256": "d617fed292efe4f8f7f2defe0e693baba2b027a32c915b04f8626023ce063a7a"
+      },
+      "athena-codex-ui/assets/provenance.json": {
+        "bytes": 572,
+        "sha256": "3e9f29fe7d5abbd7f34ef69642031423cf097b5a1b77cac76e611c07441037ea"
+      },
+      "athena-codex-ui/assets/sample-research-note.pdf": {
+        "bytes": 5911,
+        "sha256": "34bca3569c4fd28ad6e29af51d38ad47c363045433fa894d9235d67aeb006319"
+      },
+      "athena-codex-ui/athena-authored-scenes.json": {
+        "bytes": 292178,
+        "sha256": "326573ff9c89c9545a0f6e602e4d2067308219260c91cd15af5a1b4cf1cb1998"
+      },
+      "athena-codex-ui/athena-preview.html": {
+        "bytes": 1314569,
+        "sha256": "7fb2cc30a825fa9c93b75ecfc671e9f4441af1f1edfe4a22803718c84933fef4"
+      },
+      "athena-codex-ui/athena_codex_scene.py": {
+        "bytes": 15449,
+        "sha256": "3aeec44b136f0e1cc9b62a1874a69bb3691269f8a70ef57568582fafb1889738"
+      },
+      "athena-codex-ui/build.py": {
+        "bytes": 4325,
+        "sha256": "e26bb4e77f29d690ac273f206b3b3542f77f47e425b6d8669946c5c6c97832c6"
+      },
+      "athena-codex-ui/docs/AGENT-STEPS.md": {
+        "bytes": 3501,
+        "sha256": "05086f43117ac7a4bb521a15e0bfdb9b71f6bc0b2c74355d2d400bcdf05bf3b0"
+      },
+      "athena-codex-ui/docs/PI-CAPABILITIES.md": {
+        "bytes": 11211,
+        "sha256": "2db050806fb837ba65be4ac47d9cc7df0a5afaaedb3ba7533a9ce23cc79278ed"
+      },
+      "athena-codex-ui/docs/PI-EVENT-MAP.md": {
+        "bytes": 6072,
+        "sha256": "e8f3bd065a4cc7e3fdfe65fca10fb6deb8603dcbff4c3bb8acd9216ed7b8a253"
+      },
+      "athena-codex-ui/docs/PI-HOST-ADAPTER.md": {
+        "bytes": 11046,
+        "sha256": "55868a6e376c938c34890c76afa3e8c2c05e19e8df754ee65ae352e5e81b8034"
+      },
+      "athena-codex-ui/docs/RUNTIME-INTEGRATION.md": {
+        "bytes": 15870,
+        "sha256": "9f2a859d73d3e58f2ae97943dc36dfc162a5300b783e618e2684e0369cd999e5"
+      },
+      "athena-codex-ui/docs/RUNTIME-READINESS.md": {
+        "bytes": 24598,
+        "sha256": "8a6e33aabc87339c1cc4d6805f4796e32a1f9b4db061a69a418f5e511e67521e"
+      },
+      "athena-codex-ui/export/01-conversation-collapsed.scene.json": {
+        "bytes": 44986,
+        "sha256": "36a6dfe114ebb5d09848d33413de18cb53802569c3195a3c8b181b83f5c1047a"
+      },
+      "athena-codex-ui/export/02-results-sidebar-open.scene.json": {
+        "bytes": 75988,
+        "sha256": "958e67dd5f619e34f0841aacb5ee32becea432c6613dccb8be56fc8c64090ca4"
+      },
+      "athena-codex-ui/export/03-manuscript-sidebar-open.scene.json": {
+        "bytes": 70143,
+        "sha256": "750b3db2217389e5bb2839b3abfeddcf36beeb2772b4eb67e54701e7f95a7cce"
+      },
+      "athena-codex-ui/export/04-workflow-sidebar-open.scene.json": {
+        "bytes": 71835,
+        "sha256": "58c2c4e6b2ce23e44030260affd1d00f8005432dcb0331b3f08ca463a1f9fa05"
+      },
+      "athena-codex-ui/export/README-ko.md": {
+        "bytes": 3828,
+        "sha256": "8cc0078b1302dc2ed0722a2a1e60cbc7bc65c6fa8d6837db0dad7ae373d27c13"
+      },
+      "athena-codex-ui/export/athena-design.json": {
+        "bytes": 166621,
+        "sha256": "d3c00a233b7f7fb98019ea97f26df453845a063b398ab2bf02b622b5639d89f6"
+      },
+      "athena-codex-ui/export/export-report.json": {
+        "bytes": 1206,
+        "sha256": "99330d5ac90f77cad7c0007a8fa2fbd968fd4b4b997d26fa18a73ff257ba7fe9"
+      },
+      "athena-codex-ui/export/figma-import/code.js": {
+        "bytes": 116493,
+        "sha256": "a08864ea6cf05d075771ee7b2b06a8c9d526e71a694f94898849856d002b869b"
+      },
+      "athena-codex-ui/export/figma-import/manifest.settings.json": {
+        "bytes": 222,
+        "sha256": "c2a788af01dec224dc5b503ccdca21443fa36344f1c5dc8a8612188e4c4a1ca5"
+      },
+      "athena-codex-ui/export/qa/01-conversation-collapsed.png": {
+        "bytes": 125952,
+        "sha256": "7ccb4b2ad0685eec983319805a3ec049c2c329ccb3ea174c124d4e8e52b39140"
+      },
+      "athena-codex-ui/export/qa/02-results-sidebar-open.png": {
+        "bytes": 178883,
+        "sha256": "8cfe07cd8b7de26d181690c77e1c6589095be11a85d9fe9f89cfd5585c667098"
+      },
+      "athena-codex-ui/export/qa/03-manuscript-sidebar-open.png": {
+        "bytes": 192519,
+        "sha256": "924c95b142659cf6b11fe4f68a7a4284fe47d772e744ff3d40a7f4c257409d5a"
+      },
+      "athena-codex-ui/export/qa/04-workflow-sidebar-open.png": {
+        "bytes": 185513,
+        "sha256": "50084efd0c1702b27b736b5dd19b71b9f4f9664aea5455030e30e76047c2d627"
+      },
+      "athena-codex-ui/export/svg/01-conversation-collapsed.svg": {
+        "bytes": 21687,
+        "sha256": "f422094b13354c3489e322c8490e54d123d0bb299c2df8b57dcecd9aa4064002"
+      },
+      "athena-codex-ui/export/svg/02-results-sidebar-open.svg": {
+        "bytes": 39509,
+        "sha256": "88d31d99b3680ca79ce737ef0480a09d12586ff04cfb0d7d593d188497c08806"
+      },
+      "athena-codex-ui/export/svg/03-manuscript-sidebar-open.svg": {
+        "bytes": 36487,
+        "sha256": "e60130a3b79b60a76aaf08a0e8e8667c14e5b468b596e52b240213054ae78417"
+      },
+      "athena-codex-ui/export/svg/04-workflow-sidebar-open.svg": {
+        "bytes": 34003,
+        "sha256": "7003d57bef8b0f601a009ba968cba947be50b0d92f666e84648f27631619b7fb"
+      },
+      "athena-codex-ui/export/vector-validation-report.json": {
+        "bytes": 1856,
+        "sha256": "6842c4ed5c8e4b3a99d3e2c9ff12a63986ec9b537a7e8e30a2069ea689f61b75"
+      },
+      "athena-codex-ui/export_ui.py": {
+        "bytes": 33103,
+        "sha256": "cdba1e94dc7cd5ca2c1b116c4ec7fe31e2475bc0c619f5905d0bde448ed0367a"
+      },
+      "athena-codex-ui/integrations/connections.d.ts": {
+        "bytes": 2763,
+        "sha256": "8c37ac145db760bae5cdbcb6e9c0cfad4595b73e966d12566b191f7a3883228f"
+      },
+      "athena-codex-ui/integrations/pi-bridge-contracts.d.ts": {
+        "bytes": 4713,
+        "sha256": "1805d03d08032ee0e349f55942c10fc5901f546d5f618df124a8a7362e4fb064"
+      },
+      "athena-codex-ui/integrations/pi-host-adapter.mjs": {
+        "bytes": 40792,
+        "sha256": "2a01f630f364b6681cb02d25a7b02cc716a084f76baef3c0c128f4e1d7d07334"
+      },
+      "athena-codex-ui/integrations/research-records.d.ts": {
+        "bytes": 3806,
+        "sha256": "f4dd3413e211aa8a7068e7a9e09058607707923a583b207b16a6dda86f08e854"
+      },
+      "athena-codex-ui/integrations/task-manager.d.ts": {
+        "bytes": 3662,
+        "sha256": "cd891de58231ff45cae9266cbee11db42736aa1d0805861ad7582cdcd2fa2785"
+      },
+      "athena-codex-ui/lucide-icons.json": {
+        "bytes": 420821,
+        "sha256": "573ca0afde72a5a3104140121d8624af2dd780328e76633f51985c1877acfaf6"
+      },
+      "athena-codex-ui/motion/LICENSE-KOKONUT.txt": {
+        "bytes": 1066,
+        "sha256": "b2e018ad1fd564608cc1ee0c2ad675ce5202c8ed9f5f68e6d09e7b6bc881d5d2"
+      },
+      "athena-codex-ui/motion/LICENSE-MOTION.txt": {
+        "bytes": 1100,
+        "sha256": "1bf0dc3f7727723e5a032ed12164a47cf92c05204cb1a3485f123c24e2833ed1"
+      },
+      "athena-codex-ui/motion/LICENSE-SMOOTHUI.txt": {
+        "bytes": 1070,
+        "sha256": "9877f4310c0549e5ce26affe52ba97c4e60325472bdcdd308a92fccd90f119cc"
+      },
+      "athena-codex-ui/motion/agent-steps.css": {
+        "bytes": 8014,
+        "sha256": "4d3a471968cb7ea6edf2b6a2010a343f13d0e101d013fbd87936c5325484c284"
+      },
+      "athena-codex-ui/motion/agent-steps.js": {
+        "bytes": 15778,
+        "sha256": "6d108448b881167bdcdc70e5c79fea9e2c70d38a93467db440f3f07430883fd4"
+      },
+      "athena-codex-ui/motion/command-button.reference.tsx": {
+        "bytes": 11333,
+        "sha256": "f3209c8c576d0a9923e4b71d198cb2359f0b24c4e912edf2b51531ef34de8cb1"
+      },
+      "athena-codex-ui/motion/composer.css": {
+        "bytes": 13949,
+        "sha256": "815da5aa67cb21e02f6e33a1fce92fabda9cb1f7cb4f7df28c9faf87488445c5"
+      },
+      "athena-codex-ui/motion/composer.js": {
+        "bytes": 55330,
+        "sha256": "dd3f13d2553d3c2907a5447ed1e7e49acabc999184d376105c1993a7dcf1108c"
+      },
+      "athena-codex-ui/motion/controls.css": {
+        "bytes": 3239,
+        "sha256": "a7d887942191496accc0f14eb8bc19e9480aade4e931970e4308adc4f4863d3b"
+      },
+      "athena-codex-ui/motion/controls.js": {
+        "bytes": 10994,
+        "sha256": "b0704cbd93da41b78f0b20fb2c1f6221b8268d0102ef1c8adda88634b45241f3"
+      },
+      "athena-codex-ui/motion/kokonut-agent-steps.reference.tsx": {
+        "bytes": 17440,
+        "sha256": "edaac5ca12f7294a1d27c1cbafc0a2ea5511e98886ed734e3dfe90da2a3166aa"
+      },
+      "athena-codex-ui/motion/kokonut-agent-steps.source.json": {
+        "bytes": 881,
+        "sha256": "895ca75d3e1e8ba1a265c1c1f5c32fa472950602dfc9a894327165158b64b2b0"
+      },
+      "athena-codex-ui/motion/motion-runtime-reference-metadata.json": {
+        "bytes": 215,
+        "sha256": "f72a82a69d519b839c6a9f8adad6b7d14c7a0fda982914a20d29514fc1da9ba5"
+      },
+      "athena-codex-ui/motion/motion-runtime-reference.cjs": {
+        "bytes": 191561,
+        "sha256": "521cfef8910fdd997463ea9881d4b790e017331e3d2f79c02adfc4d5fe1f2cae"
+      },
+      "athena-codex-ui/motion/reply.css": {
+        "bytes": 3777,
+        "sha256": "3fa080bcdaa860980b93f780bbc12125aaaa22c58c00505699afb43abfd8b335"
+      },
+      "athena-codex-ui/motion/reply.js": {
+        "bytes": 15862,
+        "sha256": "ccc298620c9dff77912f3eed6c537acf781c25c3829597a54dc151f0d5769ce9"
+      },
+      "athena-codex-ui/motion/smoothui-ai-task-list.registry.json": {
+        "bytes": 8008,
+        "sha256": "c6c52b5098b8c736acf5fc5cb917bd92cbdda68bf1141262f075be2242ba3cfd"
+      },
+      "athena-codex-ui/motion/task-list-notes.md": {
+        "bytes": 4896,
+        "sha256": "4cf99fc8ad32c25babd27f0071286128054fe09f080722facdbc8907a05ca19f"
+      },
+      "athena-codex-ui/motion/task-list-spring-samples.json": {
+        "bytes": 3651,
+        "sha256": "06a0dec5824fa339c0dd5bafdc5b2209b1d71324807012e30ddce7c0ba91d2ce"
+      },
+      "athena-codex-ui/motion/task-list-validation.json": {
+        "bytes": 738,
+        "sha256": "9b7bab582ad0f0b8f836b199edfe45339b43b5c6fe2245736760d60d748c745c"
+      },
+      "athena-codex-ui/motion/task-list.css": {
+        "bytes": 7253,
+        "sha256": "23c1c84a4d281abddbfa3981413501856f66bda0bce66efda958a72b861ba1b5"
+      },
+      "athena-codex-ui/motion/task-list.js": {
+        "bytes": 13824,
+        "sha256": "362465773664478c7f255c05301e93ebcb16464727d3c0cab0aeb10f58fb264d"
+      },
+      "athena-codex-ui/qa/bundle-validation.json": {
+        "bytes": 1759,
+        "sha256": "932b5fe1d9f629f6144877dc096192b79396fb735bd7d8fb3e05611a3adf236a"
+      },
+      "athena-codex-ui/qa/connection-manager-test.cjs": {
+        "bytes": 4002,
+        "sha256": "ff81a16adc59d7b0e3c5cee35f7d2f0654194e48cb9218f7dd38f5e71df05e05"
+      },
+      "athena-codex-ui/qa/integration-results.json": {
+        "bytes": 24357,
+        "sha256": "07d6fe124511d63721b9bbf2bb44c33eb40179a3e66b2b5fc5af77fb9803679d"
+      },
+      "athena-codex-ui/qa/integration-test.cjs": {
+        "bytes": 220040,
+        "sha256": "05c91b57ea360e02624b730004d934e0752780ae0ffaf52f8d81ec725c89a144"
+      },
+      "athena-codex-ui/qa/package-lock.json": {
+        "bytes": 10193,
+        "sha256": "89ab7b343727d345bd9f647788707cb06b4c1a0611cee92c1f4e26e4a0ac5133"
+      },
+      "athena-codex-ui/qa/package.json": {
+        "bytes": 134,
+        "sha256": "1813a15d80a3f1902d74e9c8820dfaf3fcb596c39075fb452fc81f01dfd05249"
+      },
+      "athena-codex-ui/qa/pi-host-adapter-test.mjs": {
+        "bytes": 33725,
+        "sha256": "acd291ae43aba30070f5e1ff7724104bcae818e8359c26da1c495606caaba6d5"
+      },
+      "athena-codex-ui/qa/research-records-test.cjs": {
+        "bytes": 12022,
+        "sha256": "5c696aa9150bb50ae09c30d3de159b0f6f7e290af42b2e33713a46e433104340"
+      },
+      "athena-codex-ui/qa/runtime-contract-results.json": {
+        "bytes": 2282,
+        "sha256": "45ba9ae653e0ca9748aa60417ca01920559ad242fe1149771394187c183906ba"
+      },
+      "athena-codex-ui/qa/runtime-contract-results.tap": {
+        "bytes": 12553,
+        "sha256": "512a88a2bed2321b31d32a3a19371e1b4bfcbf7d64b26bea27ba54a163067f9a"
+      },
+      "athena-codex-ui/qa/runtime-integrity-test.cjs": {
+        "bytes": 10469,
+        "sha256": "7a2e2fb11602e8647745603ba30f5024f52c82992ae8f960f1c0a750be2c6036"
+      },
+      "athena-codex-ui/qa/workspace-session-test.cjs": {
+        "bytes": 18604,
+        "sha256": "bc129d87d0a4695537603aabb637150e74dec4da362af663e2d349cf15dc2f3a"
+      },
+      "athena-codex-ui/qa/workspace-views-test.cjs": {
+        "bytes": 8722,
+        "sha256": "b6e6f7876c3c7bac39b2619f98586e557883443d5e185d995625d3bff62f2c38"
+      },
+      "athena-codex-ui/scene_helpers.py": {
+        "bytes": 5749,
+        "sha256": "b728b31c8d58a4d9612fe87e113a2bfd9c86fa5e561cd0a881caea8f7bbe6ec4"
+      },
+      "athena-codex-ui/ui/agent-avatars.css": {
+        "bytes": 2893,
+        "sha256": "ffc83d36ad6dde566ac53463c5652625d45855fef3613db7cdd46a82ee76402d"
+      },
+      "athena-codex-ui/ui/agent-avatars.js": {
+        "bytes": 3413,
+        "sha256": "9cffe79717737bb5e6c78e71b3fbeac0f224e3ee85b196f178fc5d1aa6c6c0f8"
+      },
+      "athena-codex-ui/ui/agents.css": {
+        "bytes": 17054,
+        "sha256": "60f3aec4a74baa484428c608b9ee7016c1534606813f913f998986fef3125c4a"
+      },
+      "athena-codex-ui/ui/agents.js": {
+        "bytes": 28646,
+        "sha256": "de7635d049b96afcc0e6785325f65224103355cdd001f4fda34ba49397e3cc94"
+      },
+      "athena-codex-ui/ui/chat-model-picker.css": {
+        "bytes": 7608,
+        "sha256": "0ed4a0d848f955e8dee2b67b36aee003a37de4219117682e06b6733b1b17c3e9"
+      },
+      "athena-codex-ui/ui/chat-model-picker.js": {
+        "bytes": 21938,
+        "sha256": "25ac16f2e95d9f81513450d52002d19b19e6632bac6d3ec11dd8e5b3ade96964"
+      },
+      "athena-codex-ui/ui/connection-manager.js": {
+        "bytes": 6771,
+        "sha256": "9336df44a4b50b97cb61db69481f3a99b5fc857b5672938cc9acbbf73b9ecee6"
+      },
+      "athena-codex-ui/ui/cute-avatars.css": {
+        "bytes": 3854,
+        "sha256": "030b6b491ec71827483772369af1ac9390c4c60335e3edc631e0724b83dddaa2"
+      },
+      "athena-codex-ui/ui/knowledge.css": {
+        "bytes": 13772,
+        "sha256": "1c97693d1b3b697b31995c7bc0428e856fde238e518af4014347311e191313da"
+      },
+      "athena-codex-ui/ui/knowledge.js": {
+        "bytes": 45608,
+        "sha256": "006805ef65c1648549a94909416220fed664b82cc72ce3fc12d33c77c5ace518"
+      },
+      "athena-codex-ui/ui/layout.css": {
+        "bytes": 11289,
+        "sha256": "f3a09ae82a3b996168149e872df31e11e1406f2292ff02ca1bd47a8993e250f2"
+      },
+      "athena-codex-ui/ui/model-settings.css": {
+        "bytes": 7899,
+        "sha256": "7b839c8a64557f540fec9fcb2dcbb68a46e19c734fc5ea934ef18db514313b51"
+      },
+      "athena-codex-ui/ui/model-settings.js": {
+        "bytes": 26082,
+        "sha256": "653fc55ea207863e6546828709d9def42f563ad912082ffae43d3f9f0494458a"
+      },
+      "athena-codex-ui/ui/pi-activity.css": {
+        "bytes": 2370,
+        "sha256": "844ec9b26ac057d4954dbc8ea4b81f07e828e83cefa27b7f1f9f4eac45784a47"
+      },
+      "athena-codex-ui/ui/pi-activity.js": {
+        "bytes": 22297,
+        "sha256": "597685c53f2b6ec8d5d5819b8594b8a452460dccfe5c56259cfcc19a96829e90"
+      },
+      "athena-codex-ui/ui/pi-runtime.js": {
+        "bytes": 50063,
+        "sha256": "20bcb3502299d3eae07bf5351f8d991d4c4bdd13572ae6df2d27bdd55864ed2f"
+      },
+      "athena-codex-ui/ui/pi-session-view.css": {
+        "bytes": 2866,
+        "sha256": "d64587fc620450cae0784cbfd688cfa8551e313963e913be37b97f12f42f9fd9"
+      },
+      "athena-codex-ui/ui/pi-session-view.js": {
+        "bytes": 6260,
+        "sha256": "78174909cbab814206f7f9666cd56aba3cc889ee94161e6fd56bc165abbe719c"
+      },
+      "athena-codex-ui/ui/pi-shell.css": {
+        "bytes": 3542,
+        "sha256": "5dec63c911a5997b98dd7f99df79d43fb19d5969dda26351770a4dcf3351d5c7"
+      },
+      "athena-codex-ui/ui/pi-workbench.css": {
+        "bytes": 12689,
+        "sha256": "adced0e4c2f5fc22d74154f6de87c87d9c8309a16324f718b162d97ef8f8dc67"
+      },
+      "athena-codex-ui/ui/pi-workbench.js": {
+        "bytes": 52425,
+        "sha256": "ba81950dd4e212bc8464ab9789a0e6b2a33caab05163ebb7325876094e2a074a"
+      },
+      "athena-codex-ui/ui/research-records.css": {
+        "bytes": 1863,
+        "sha256": "ff61509b3d7ad1089a518aac1d3d4f38451b419152fd759257314849e098db4f"
+      },
+      "athena-codex-ui/ui/research-records.js": {
+        "bytes": 17652,
+        "sha256": "a1b35488323857a589da1f06bbe2dba40416f543a69d4ae0b8b1d767d9b75654"
+      },
+      "athena-codex-ui/ui/resize.css": {
+        "bytes": 2119,
+        "sha256": "d0dc47221fd5ff813bd38bd4ae71ccbf1c94607ba81d7c8eac21d3c15677632e"
+      },
+      "athena-codex-ui/ui/resize.js": {
+        "bytes": 11465,
+        "sha256": "40448180d5b4e0fe98eb41e5448cb12facdea614f041f9b77555917c0ddce12a"
+      },
+      "athena-codex-ui/ui/settings.css": {
+        "bytes": 16039,
+        "sha256": "6055c10a10cd4966d2dd0161824e86403c9aec5a7cf3d51213710d8b7dcd913b"
+      },
+      "athena-codex-ui/ui/settings.js": {
+        "bytes": 29519,
+        "sha256": "4541dc0b7a79a5fef8f8582319540ffda28c97c5f01acca35d20379c52ad326e"
+      },
+      "athena-codex-ui/ui/surfaces.css": {
+        "bytes": 16560,
+        "sha256": "657cfab7bc6c7336ce1b53f6f2e0c3253525ef32fbd81e031cf94dd983ccd5d6"
+      },
+      "athena-codex-ui/ui/surfaces.js": {
+        "bytes": 17720,
+        "sha256": "7509a07164057e875514a40a5cd69d6ab04fdbec5270b90ca384613e2a54a3bf"
+      },
+      "athena-codex-ui/ui/workspace-chrome.css": {
+        "bytes": 12496,
+        "sha256": "86e7b95ce101a0df6884840295160c9bf5cb25e05eaa298c72e3c46735315ee1"
+      },
+      "athena-codex-ui/ui/workspace-chrome.js": {
+        "bytes": 27941,
+        "sha256": "8126e56a72e5d65db879129b99e1210158e43d5f6147c4d160a170381c18bc00"
+      },
+      "athena-codex-ui/ui/workspace-session.js": {
+        "bytes": 14600,
+        "sha256": "ed371ebc081e5330dbc36240d02814283da6aa751e9a1257e836c9d4b10248ad"
+      },
+      "athena-codex-ui/ui/workspace-store.js": {
+        "bytes": 28975,
+        "sha256": "0c439119b0a301108e56ace4c22fbf92b00196f5a4e0824da82cb9896e7b98d8"
+      },
+      "athena-codex-ui/ui/workspace-views.css": {
+        "bytes": 23079,
+        "sha256": "e0bca71cff5e44e8ce05364f9d531a8120747a565ac074ea6b861748c202183c"
+      },
+      "athena-codex-ui/ui/workspace-views.js": {
+        "bytes": 70569,
+        "sha256": "1ba81ea8e10268e8040ec3f70dcbca124c1d5beb534a3eed66c0c93cfdef182d"
+      },
+      "athena-codex-ui/vendor/LICENSE-LUCIDE.txt": {
+        "bytes": 3208,
+        "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+      },
+      "athena-codex-ui/vendor/lucide.min.js": {
+        "bytes": 397450,
+        "sha256": "ab85225ecc1daa2033607856f03dd2dabcbc08e2d260a5b97e17c690aa929766"
+      }
+    }
+  },
+  "existingVerificationReports": {
+    "qa/integration-results.json": {
+      "sha256": "07d6fe124511d63721b9bbf2bb44c33eb40179a3e66b2b5fc5af77fb9803679d",
+      "summary": {
+        "total": 93,
+        "passed": 93,
+        "failed": 0
+      },
+      "sourceHashCount": 47,
+      "allRecordedSourceHashesMatch": true,
+      "rerunDuringHandoff": false
+    },
+    "qa/runtime-contract-results.json": {
+      "sha256": "45ba9ae653e0ca9748aa60417ca01920559ad242fe1149771394187c183906ba",
+      "summary": {
+        "tests": 51,
+        "pass": 51,
+        "fail": 0,
+        "skipped": 0
+      },
+      "sourceHashCount": 14,
+      "allRecordedSourceHashesMatch": true,
+      "rerunDuringHandoff": false
+    },
+    "qa/bundle-validation.json": {
+      "sha256": "932b5fe1d9f629f6144877dc096192b79396fb735bd7d8fb3e05611a3adf236a",
+      "checks": {
+        "ui_tested_sources_match": true,
+        "contract_tested_sources_match": true,
+        "all_ui_tests_pass": true,
+        "all_contract_tests_pass": true,
+        "source_exactly_embedded": true,
+        "styles_exactly_embedded": true,
+        "unique_initial_ids": true,
+        "one_right_side_toggle": true,
+        "single_reused_runtime_workbench_slot": true,
+        "six_settings_categories": true,
+        "model_and_reasoning_controls_in_composer": true,
+        "no_standalone_pi_runtime_button": true,
+        "no_external_runtime_assets": true,
+        "no_forced_520px_root_floor": true
+      },
+      "rerunDuringHandoff": false
+    }
+  },
+  "handoffDocumentChecks": {
+    "relativeMarkdownLinksResolved": 25,
+    "allResolved": true
+  },
+  "newControlledAudit": {
+    "scope": "Controlled read-only handoff audit; no production service",
+    "finding": "historical_load_promotes_local_head",
+    "before": "v2",
+    "after": "v1",
+    "selected": "v1"
+  },
+  "handoffFileHashes": {
+    "ACCEPTANCE.md": "d5bdae07220fe0597d09696702022dad3a8ed8f5a3c509ffa512f9cb582fe4da",
+    "CONTRACT-GAPS.md": "136157350db9b0f0ddc89372f6c4b8476c6233309e3ffb9a588b809159053133",
+    "SDK-SOURCES.md": "a6d4b452483c6e34585fc664bead8926a8896c80ba50064a17d78dbf362fbfe2",
+    "START-HERE.md": "56144588b49e72944e6417946107743eb51bdc2906fbece2085ef2ca5c8c4ac9",
+    "athena-backend-handoff.md": "4124ea2def6cadaef50c6825644b5dbe3ffcd0226dae2f7c64f14737557183e9",
+    "handoff-audit.json": "3d2cfb182cd96a4168a4afe6d7ae6cbf6d363ee188d113db10b6ce4f18468877"
+  },
+  "verificationBoundaries": {
+    "productionBackendImplemented": false,
+    "actualBrowserRendered": false,
+    "liveProviderConnected": false,
+    "actualBackendPersistenceVerified": false,
+    "typeDeclarationsCompiledAgainstInstalledSdk": false,
+    "fixtureSuitesRerunThisHandoff": false,
+    "baselineSourceModified": false,
+    "controlledNodeAuditOnly": true
+  },
+  "sdkVersion": {
+    "declaredPackage": "@earendil-works/pi-coding-agent",
+    "declaredVersion": "1.5.2",
+    "declaredSourceCommit": "653f332b6fe22e2e927dd3d553d20234a3de27f0",
+    "officialReleaseDisplayedShortCommit": "b4afddd",
+    "relationshipVerified": false,
+    "installedPackageVerified": false,
+    "details": "SDK-SOURCES.md"
+  }
+}

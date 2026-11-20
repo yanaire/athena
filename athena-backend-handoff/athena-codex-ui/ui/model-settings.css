@@ -1,0 +1,85 @@
+/* Local model preferences; warm ivory surfaces and quiet sage accents. */
+#athena-codex .ams-root { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .ams-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+#athena-codex .ams-eyebrow { display: block; margin-bottom: 5px; color: #828579; font-size: 9px; font-weight: 600; letter-spacing: 1.6px; }
+#athena-codex .ams-heading h2 { margin: 0; color: #35372f; font-size: 23px; font-weight: 550; line-height: 1.3; letter-spacing: -.6px; }
+#athena-codex .ams-local-badge { display: inline-flex; align-items: center; gap: 5px; flex: none; min-height: 25px; padding: 3px 7px; border: 1px solid #dfe2d5; border-radius: 5px; background: #f0f2e9; color: #626f53; font-size: 10px; white-space: nowrap; }
+#athena-codex .ams-local-badge svg { width: 12px; height: 12px; }
+#athena-codex .ams-intro { margin: 10px 0 18px; max-width: 440px; color: #74766a; font-size: 12px; }
+#athena-codex .ams-notice { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid #e5e4d9; border-radius: 9px; background: #f7f6ee; color: #76796b; }
+#athena-codex .ams-notice svg { flex: none; width: 15px; height: 15px; margin-top: 2px; color: #879078; }
+#athena-codex .ams-notice p { margin: 0; font-size: 11px; line-height: 1.7; }
+#athena-codex .ams-form { min-width: 0; }
+#athena-codex .ams-section { padding: 23px 0 22px; min-width: 0; border-bottom: 1px solid #e7e6dc; }
+#athena-codex .ams-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+#athena-codex .ams-section-title h3 { margin: 0; color: #44483c; font-size: 13px; font-weight: 550; }
+#athena-codex .ams-section-title > span { color: #a1a28f; font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+#athena-codex .ams-section-copy { margin: -8px 0 13px; color: #7c7f71; font-size: 11px; }
+#athena-codex .ams-field { min-width: 0; margin-top: 15px; }
+#athena-codex .ams-section-title + .ams-field { margin-top: 0; }
+#athena-codex .ams-field > label { display: block; margin-bottom: 6px; color: #515648; font-size: 11px; font-weight: 500; }
+#athena-codex .ams-input { display: block; width: 100%; min-width: 0; min-height: 44px; border: 1px solid #dcded1; border-radius: 8px; padding: 10px 11px; background: #fdfcf7; color: #3b4234; font: inherit; font-size: 12px; line-height: 1.5; box-shadow: 0 1px 2px #3e412405; }
+#athena-codex .ams-input::placeholder { color: #9a9f8f; opacity: 1; }
+#athena-codex select.ams-input { padding-right: 27px; }
+#athena-codex .ams-input:hover { border-color: #bfc6b2; }
+#athena-codex .ams-input:focus-visible { outline: 2px solid #839374; outline-offset: 2px; border-color: #839374; }
+#athena-codex .ams-input[aria-invalid="true"] { border-color: #ac6c65; background: #fffaf7; }
+#athena-codex .ams-help { margin: 5px 0 0; color: #727b65; font-size: 10px; line-height: 1.7; }
+#athena-codex .ams-error { margin: 5px 0 0; color: #9a524b; font-size: 11px; line-height: 1.6; }
+#athena-codex .ams-error[hidden] { display: none; }
+#athena-codex .ams-routes { border: 1px solid #e2e4d7; border-radius: 10px; overflow: hidden; background: #fbfbf6; }
+#athena-codex .ams-route { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(130px, 1fr); align-items: center; gap: 13px; padding: 12px; }
+#athena-codex .ams-route + .ams-route { border-top: 1px solid #e9eadf; }
+#athena-codex .ams-role-copy { display: flex; align-items: center; gap: 9px; min-width: 0; }
+#athena-codex .ams-role-icon { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border: 1px solid #e3e7d8; border-radius: 8px; color: #7c8b69; background: #f1f4e9; }
+#athena-codex .ams-role-icon svg { width: 15px; height: 15px; }
+#athena-codex .ams-role-copy label { display: block; color: #454d3a; font-size: 11px; font-weight: 500; }
+#athena-codex .ams-role-copy p { margin: 2px 0 0; color: #727b65; font-size: 10px; line-height: 1.45; }
+#athena-codex .ams-route-field { min-width: 0; }
+#athena-codex .ams-route .ams-input { background: #fffefa; font-size: 11px; }
+#athena-codex .ams-parallel-row { display: flex; align-items: center; gap: 12px; }
+#athena-codex .ams-parallel-row .ams-input { flex: 0 0 125px; width: 125px; }
+#athena-codex .ams-limit-note { color: #747f67; font-size: 10px; }
+#athena-codex .ams-budget-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+#athena-codex .ams-limits-footnote { margin-top: 13px; padding: 10px 12px; border-radius: 7px; background: #f5f5ee; }
+#athena-codex .ams-save-area { padding: 20px 0 3px; }
+#athena-codex .ams-save-state { display: flex; align-items: center; gap: 6px; color: #89917c; font-size: 10px; }
+#athena-codex .ams-dirty-dot { width: 5px; height: 5px; flex: none; border-radius: 50%; background: #9ca98e; }
+#athena-codex .ams-root[data-dirty="true"] .ams-save-state { color: #737956; }
+#athena-codex .ams-root[data-dirty="true"] .ams-dirty-dot { background: #8f945a; }
+#athena-codex .ams-status { min-height: 17px; margin: 5px 0 12px; color: #808676; font-size: 10px; }
+#athena-codex .ams-status[data-tone="error"] { color: #9a524b; }
+#athena-codex .ams-status[data-tone="success"] { color: #6c8155; }
+#athena-codex .ams-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+#athena-codex .ams-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; max-width: 100%; padding: 9px 11px; border: 1px solid #dcdfd0; border-radius: 8px; background: #fbfbf5; color: #69735a; font: inherit; font-size: 11px; line-height: 1.5; }
+#athena-codex .ams-button svg { width: 14px; height: 14px; flex: none; }
+#athena-codex .ams-button:hover { border-color: #bfc8af; background: #eff2e7; }
+#athena-codex .ams-button:focus-visible { outline: 2px solid #839374; outline-offset: 3px; }
+#athena-codex .ams-button:disabled { opacity: .45; }
+#athena-codex .ams-primary { margin-left: auto; border-color: #5d6f4d; background: #5d6f4d; color: #fffefa; }
+#athena-codex .ams-primary:hover { border-color: #4b5e3c; background: #4b5e3c; }
+#athena-codex .ams-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 620px) {
+  #athena-codex .ams-route { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  #athena-codex .ams-role-copy p { font-size: 10px; }
+  #athena-codex .ams-route .ams-input { font-size: 12px; }
+  #athena-codex .ams-heading h2 { font-size: 21px; }
+  #athena-codex .ams-budget-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  #athena-codex .ams-format-button { flex-basis: 100%; }
+  #athena-codex .ams-actions > .ams-button:not(.ams-format-button) { flex: 1; }
+}
+@media (pointer: coarse) {
+  #athena-codex .ams-input,
+  #athena-codex .ams-route .ams-input { font-size: 16px; }
+}
+#athena-codex .ams-scopes { margin: 17px 0 24px; border: 1px solid #e3e2d8; border-radius: 9px; padding: 13px 14px; background: #faf9f4; }
+#athena-codex .ams-scopes h3 { margin: 0 0 7px; font-size: 12px; font-weight: 550; }
+#athena-codex .ams-scopes dl { margin: 0; display: grid; gap: 7px; }
+#athena-codex .ams-scopes dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 10px; font-size: 11px; line-height: 1.6; }
+#athena-codex .ams-scopes dt { color: #75796d; }
+#athena-codex .ams-scopes dd { margin: 0; overflow-wrap: anywhere; }
+#athena-codex .ams-project-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 6px; }
+#athena-codex .ams-project-actions .ams-button { white-space: normal; text-align: left; }
+#athena-codex .ams-execution-preferences > .ams-section:first-child { margin-top: 0; }
+#athena-codex .ams-execution-preferences .ams-actions { flex-wrap: wrap; }
+#athena-codex [data-ams-connection-status] { margin-top: 10px; }

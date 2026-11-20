@@ -1,0 +1,17 @@
+/* Icons stay in the conversation's text flow. Motion exists only for an active
+ * event state; terminal states and reduced-motion preferences are static. */
+#athena-codex .ap-icon {position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:17px;height:19px;color:inherit;vertical-align:-3px;line-height:1;}
+#athena-codex .ap-icon > svg,#athena-codex .ap-icon > i {display:block;width:15px;height:15px;flex:none;transform-origin:50% 50%;}
+#athena-codex .ap-icon[data-pi-active="true"][data-pi-motion="pulse"] > svg {animation:ap-icon-breathe 1.8s ease-in-out infinite;}
+#athena-codex .ap-icon[data-pi-active="true"][data-pi-motion="rotate"] > svg {animation:ap-icon-turn 2.2s linear infinite;}
+#athena-codex .ap-phase {display:inline-flex;align-items:center;gap:8px;min-width:0;color:rgba(48,52,46,.7);font-size:12px;line-height:1.8;}
+#athena-codex .ap-live-label {color:inherit;}
+#athena-codex .ap-phase[data-pi-active="true"] .ap-live-label {background:linear-gradient(105deg,currentColor 20%,rgba(48,52,46,.28) 45%,currentColor 70%);background-size:240% 100%;background-clip:text;-webkit-background-clip:text;color:rgba(48,52,46,.70);animation:ap-label-flow 2.6s linear infinite;}
+@supports (-webkit-text-fill-color:transparent) {#athena-codex .ap-phase[data-pi-active="true"] .ap-live-label {-webkit-text-fill-color:transparent;}}
+#athena-codex .ap-state-detail {font-size:11px;color:rgba(48,52,46,.61);overflow-wrap:anywhere;}
+@keyframes ap-icon-breathe {0%,100%{opacity:.58;transform:scale(.94);}50%{opacity:1;transform:scale(1);}}
+@keyframes ap-icon-turn {to{transform:rotate(360deg);}}
+@keyframes ap-label-flow {from{background-position:140% 0;}to{background-position:-100% 0;}}
+@media(prefers-reduced-motion:reduce){#athena-codex .ap-icon > svg,#athena-codex .ap-live-label {animation:none!important;transition:none!important;transform:none!important;opacity:1!important;}#athena-codex .ap-live-label {background:none!important;-webkit-text-fill-color:currentColor!important;}}
+#athena-codex[data-reduced-motion="true"] .ap-icon > svg,#athena-codex[data-reduced-motion="true"] .ap-live-label {animation:none!important;transition:none!important;transform:none!important;opacity:1!important;}
+#athena-codex[data-reduced-motion="true"] .ap-live-label {background:none!important;-webkit-text-fill-color:currentColor!important;}
