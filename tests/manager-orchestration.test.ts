@@ -58,10 +58,11 @@ test('offline analysis joins source and both outputs with immutable input proven
     if(!r.length)return {name:'write_file',args:{name:'analysis.py',content:script}};
     if(r.length===1)return {name:'run_command',args:{language:'python',script:'analysis.py',inputs:['scores.csv'],outputs:['result.json','note.txt'],args:['5']}};
     if(r.length===2)return {name:'write_file',args:{name:'fail.py',content:"import sys\nprint('out witness')\nprint('err witness',file=sys.stderr)\nsys.exit(7)"}};
-    if(r.length===3)return {name:'run_command',args:{language:'python',script:'fail.py',outputs:[]}};
+    if(r.length===3)return {name:'run_command',args:{language:'python',script:'fail.py',inputs:[],outputs:[]}};
     if(r.length===4)return {name:'write_file',args:{name:'SCORES.csv',content:'shadow'}};
-    if(r.length===5)return {name:'run_command',args:{language:'python',script:'analysis.py',outputs:['scores.csv']}};
-    diagnostic=r[3]??'';conflicts=r.slice(4);
+    if(r.length===5)return {name:'run_command',args:{language:'python',script:'analysis.py',inputs:[],outputs:['scores.csv']}};
+    if(r.length===6)return {name:'run_command',args:{language:'python',script:'analysis.py',outputs:[]}};
+    assert.match(r[6]??'',/inputs/i);diagnostic=r[3]??'';conflicts=r.slice(4,6);
     return 'Worker finished.';
   });
   let manager=await launch();const {project}=await manager.createProject({name:'Analysis'});

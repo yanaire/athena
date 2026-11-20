@@ -647,7 +647,7 @@ export class TaskManager implements AthenaTaskManager {
       `Granted upload ${name} is read-only. Put it in run_command.inputs and give outputs a different name.`);
   }
   async #analysis(a:Attempt,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
-    const {language,inputs=[],outputs,args:argv=[]}=args;
+    const {language,inputs,outputs,args:argv=[]}=args;
     if(Object.keys(args).some(k=>!['language','inputs','outputs','args','script'].includes(k)) ||
       (language!=='node' && language!=='python') || !Array.isArray(inputs) || inputs.length>ANALYSIS_FILE_LIMITS.batchFiles ||
       !Array.isArray(outputs) || !outputs.every((o:unknown)=>typeof o==='string') || !Array.isArray(argv) ||
