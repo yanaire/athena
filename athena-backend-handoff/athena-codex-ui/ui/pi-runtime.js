@@ -45,6 +45,7 @@
     return {revision:0,connected:false,mode:'disconnected',connectionLabel:'No Pi connection',busy:[],error:null,session:{},model:null,models:[],thinkingLevel:null,thinkingLevels:[],thinkingLevelsPending:false,tools:[],activeTools:[],queues:{steering:[],followUp:[],steeringMode:'one-at-a-time',followUpMode:'one-at-a-time'},stats:{},context:{},config:{autoCompaction:null,autoRetry:null},resources:{commands:[],skills:[],prompts:[],extensions:[],themes:[],contextFiles:[],diagnostics:[]},messages:[],entries:[],tree:[],forkMessages:[],sessions:[],ui:{requests:[],pendingRequestCount:0,notifications:[],statuses:[],widgets:[],editorText:'',title:''},capabilities:{},lastResult:null,clearedQueue:null,retry:null,compaction:null,settings:{},scopedModels:[],cacheWarming:null,systemPrompt:''};
   }
   function create(options = {}) {
+    const requestPrefix=window.crypto.randomUUID();
     let state=initial(),target=null,mode='disconnected',epoch=0,sessionEpoch=0,sequence=0,unsubscribe=null,destroyed=false,refreshing=null,refreshTimer=0;
     let modelRevision=0,thinkingRevision=0,scheduledFullRefresh=false,queuedFullRefresh=false;
     const listeners=new Set(),eventListeners=new Set(),pending=new Map(),dialogTimers=new Map(),busy=new Map(),uiPending=new Map();
@@ -320,7 +321,7 @@
       return response.data;
     }
     async function request(command,p,bound){
-      const id='athena-'+bound+'-'+(++sequence);
+      const id='athena-'+requestPrefix+'-'+bound+'-'+(++sequence);
       if(command==='bash')emit({type:'host_command_start',id,command,args:safe(p)});
       try{const data=await requestRaw(command,p,bound,id);if(bound!==epoch||destroyed)throw new Error('Pi connection changed.');if(command==='bash')emit({type:'host_command_end',id,command,data:safe(data)});return data;}
       catch(error){if(bound===epoch&&command==='bash')emit({type:'host_command_end',id,command,error:string(error?.message||error)});throw error;}

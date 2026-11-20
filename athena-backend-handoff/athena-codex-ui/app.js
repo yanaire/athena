@@ -1,5 +1,6 @@
 (()=>{'use strict';
  const root=document.getElementById('athena-codex');if(!root)return;
+ const hosted=window.AthenaHosted===true||(/^https?:$/.test(window.location?.protocol||'')&&window.location?.pathname==='/');
  const q=s=>root.querySelector(s),qa=s=>Array.from(root.querySelectorAll(s));
  const controller=new AbortController(),signal=controller.signal;
  const LEFT_VISIBILITY_KEY='athena.ui.project-sidebar-open.v1';
@@ -190,10 +191,10 @@
  }
  function renderWorkspace(snapshot){
   const previousSession=root.dataset.sessionId;
-  if(snapshot.mode==='runtime'&&previousSession&&snapshot.sessionId&&snapshot.sessionId!==previousSession&&!lifecyclePending){
+  if(snapshot.mode==='runtime'&&previousSession&&snapshot.sessionId!==previousSession&&(snapshot.sessionId||snapshot.taskManagerConnected)&&!lifecyclePending){
    sessionDrafts.set(previousSession,composer.captureDraft());preservePendingSubmission('The workspace switched conversations.');resetPiActivity();
    q('#ac-pi-transcript').replaceChildren();q('#ac-pi-transcript').hidden=true;q('#ac-live-user').hidden=true;piHistorySignature='';piManualTools.clear();piManualView?.reset();
-   composer.restoreDraft(sessionDrafts.get(snapshot.sessionId)||{value:'',attachments:[],mentions:[]});
+   composer.restoreDraft(sessionDrafts.get(snapshot.sessionId||'preview')||{value:'',attachments:[],mentions:[]});
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
   surfaces?.setRuntimeMode?.(live);
@@ -219,8 +220,9 @@
   }
   if(live){
    const current=(snapshot.sessions||[]).find(item=>item.id===snapshot.sessionId),project=(snapshot.projects||[]).find(item=>item.id===snapshot.projectId);
-   if(current?.title)q('#ac-thread-title').textContent=current.title;
+   q('#ac-thread-title').textContent=current?.title||'New conversation';
    q('.ac-header-title > span').textContent=project?.name||'Connected workspace';
+   q('.ac-composer-caption > span').lastChild.textContent=project?.name||'No project selected';
    if(!piSession)q('#ac-pi-session-status').textContent=snapshot.taskManagerConnected?'TaskManager connected · model session not connected':'Workspace service is not connected';
    if(snapshot.sessionBound===false){q('#ac-pi-session-status').textContent='Connect the model to this conversation';preservePendingSubmission('The selected conversation is no longer bound to the model connection.');if(piEngaged)resetPiActivity();}
   }
@@ -398,7 +400,7 @@
   const scroller=q('.ac-conversation-inner');scroller.scrollTop=scroller.scrollHeight;
  }
  const reply=window.AthenaReply.mount(q('#ac-live-reply'));
- const composer=window.AthenaComposer.mount(q('#ac-composer-slot'),{onSubmit:submit,onMention:item=>announce((item.label||item.name||'Resource')+' added to the prompt.'),onStop:stopResponse});
+ const composer=window.AthenaComposer.mount(q('#ac-composer-slot'),{hosted,onSubmit:submit,onMention:item=>announce((item.label||item.name||'Resource')+' added to the prompt.'),onStop:stopResponse});
  async function sendQueuedDraft(){
   if(!piSession||piSubmitting)return;
   if(lifecyclePending||nativeSessionTransition){toast('Wait for the active conversation to be confirmed.');return;}
@@ -469,7 +471,7 @@
   if(currentId)piSessionIdentity=currentId;
   if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=snapshot.session.sessionName;
   const percent=Number.isFinite(snapshot.context?.percent)?Math.round(snapshot.context.percent):null;
-  q('#ac-pi-session-status').textContent=snapshot.connected?(snapshot.session.isCompacting?'Compacting context':snapshot.session.isStreaming?'Pi is working':snapshot.connectionLabel)+(percent===null?'':' · '+percent+'% context'):'UI preview · sample data';
+  q('#ac-pi-session-status').textContent=snapshot.connected?(snapshot.session.isCompacting?'Compacting context':snapshot.session.isStreaming?'Pi is working':snapshot.connectionLabel)+(percent===null?'':' · '+percent+'% context'):workspaceStore?.getState().mode==='runtime'?'Model session is not connected':'UI preview · sample data';
   const queued=snapshot.queues.steering.length+snapshot.queues.followUp.length;
   q('#ac-pi-queue-count').textContent=queued+' queued';
   q('#ac-pi-queue-controls').hidden=!snapshot.connected||(!snapshot.session.isStreaming&&!state.busy&&!queued);
@@ -650,7 +652,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
  demoStore=window.AthenaWorkspaceStore.create();
- workspaceStore=window.AthenaWorkspaceSession.create({demo:demoStore,runtime:piRuntime,onError:toast});
+ workspaceStore=window.AthenaWorkspaceSession.create({demo:demoStore,runtime:piRuntime,onError:toast,hosted});
  connectionManager=window.AthenaConnectionManager.create();
  records=window.AthenaResearchRecords.create({projectId:'project-rc',onError:error=>toast(String(error.message||error))});
  records.ensureDocument({documentId:'research-note',title:'RC low-pass filter: frequency response validation',text:note,version:'1',originalSample:true,evidence:[{sourceId:'baseline.cir',version:'1'}]});
@@ -675,7 +677,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   onOpen(){overlay();announce('Settings opened.')},
   onClose(){overlay();announce('Settings closed.')}
  });
- modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onChange(config){
+ modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,hosted,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onChange(config){
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
  }});
@@ -696,6 +698,8 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   openApproval,startDemo:()=>workspaceStore.start(),pauseDemo:()=>workspaceStore.pause(),resumeDemo:()=>workspaceStore.resume(),cancelDemo:()=>workspaceStore.cancel(),retryTask:id=>workspaceStore.retryTask(id),resetDemo:()=>workspaceStore.reset(),setScenario:scenario=>workspaceStore.setScenario(scenario),
   handlePiEvent,attachPiSession,attachPiTransport:(transport,options={})=>attachPiSession(transport,{...options,mode:options.mode||transport.mode||'rpc'}),detachPiSession,resetPiActivity,previewPiActivity,
   attachTaskManager:adapter=>workspaceStore.attach(adapter),detachTaskManager:()=>workspaceStore.detach(),
+  enterHostedMode:()=>workspaceStore.enterHostedMode(),
+  reportHostError:message=>toast(String(message)),
   attachConnectionManager:adapter=>connectionManager.attach(adapter),detachConnectionManager:()=>connectionManager.detach(),
   attachResearchService:adapter=>{records.attach(adapter.documents||adapter);knowledge.attachRecords(adapter.knowledge||adapter);return true;},detachResearchService:()=>{records.detach();knowledge.detachRecords();},
   loadDocument:(id,version)=>openDocument({documentId:id,version}),ensureDocument:document=>records.ensureDocument(document),
@@ -705,4 +709,5 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
   destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
+ window.dispatchEvent(new CustomEvent('athena:ready'));
 })();

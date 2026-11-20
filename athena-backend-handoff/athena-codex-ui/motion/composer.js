@@ -52,6 +52,7 @@
     if (!slot || slot.nodeType !== 1) throw new TypeError('AthenaComposer.mount requires a DOM element.');
     if (slot.__athenaComposer) slot.__athenaComposer.destroy();
     const callbacks = options || {};
+    const hosted = () => window.AthenaHosted === true || callbacks.hosted === true;
     const frame = document.createElement('section');
     frame.className = 'acm-composer';
     frame.setAttribute('aria-label', 'Research message composer');
@@ -485,6 +486,7 @@
       frame.dispatchEvent(new CustomEvent('ac:command-selected', { bubbles: true, detail: { name: item.command, source: item.source } }));
     }
     function getSelections() {
+      if (hosted()) return [];
       return ITEMS.filter(item => selectedItems.has(item.id) || hasMention(item)).map(item => runtimeConnected ? { ...item, kind: 'Sample context', source: 'preview' } : { ...item });
     }
     function setRuntimeCommands(commands, config = {}) {
@@ -502,7 +504,7 @@
         normalized.push({ name, source, description: String(entry.description || '').slice(0, 1200) });
         if (normalized.length >= 200) break;
       }
-      const signature = JSON.stringify([connected, normalized]);
+      const signature = JSON.stringify([connected, hosted(), normalized]);
       if (signature === runtimeSignature) return;
       runtimeSignature = signature; runtimeConnected = connected;
       const oldActive = list[activeIndex]?.item.id;
@@ -524,7 +526,7 @@
           if (previousIcon !== glyph) { const previous = row.button.firstElementChild; row.glyph = makeIcon(glyph); previous.replaceWith(row.glyph); }
         }
       }
-      baseRows.forEach(row => { row.available = !connected || row.item.action === 'upload' || row.item.group === 'project'; });
+      baseRows.forEach(row => { row.available = row.item.action === 'upload' || (!hosted() && (!connected || row.item.group === 'project')); });
       const nextRows = GROUPS.flatMap(group => [...baseRows.filter(row => row.item.group === group.id), ...normalized.map(entry => runtimeRows.get(entry.name)).filter(row => row.item.group === group.id)]);
       rows.splice(0, rows.length, ...nextRows);
       for (const group of GROUPS) {
@@ -574,7 +576,7 @@
     function refreshGhost() {
       if (ghostAccepting) return;
       const value = input.value;
-      const eligible = !composing && !busy && !pickerOpen && !attachments.length && !selectedItems.size && input.selectionStart === value.length && input.selectionEnd === value.length && SUGGESTION.startsWith(value) && value.length < SUGGESTION.length;
+      const eligible = !hosted() && !composing && !busy && !pickerOpen && !attachments.length && !selectedItems.size && input.selectionStart === value.length && input.selectionEnd === value.length && SUGGESTION.startsWith(value) && value.length < SUGGESTION.length;
       if (!eligible) { resetGhost(); return; }
       const suffix = SUGGESTION.slice(value.length);
       if (ghostOffered && ghostSuffix === suffix) return;

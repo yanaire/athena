@@ -7,12 +7,12 @@
   const model = value => value && (value.id || value.modelId) && value.provider ? { provider: value.provider, modelId: value.modelId || value.id, ...(value.thinkingLevel != null ? { thinkingLevel: value.thinkingLevel } : {}) } : null;
   const empty = () => ({ mode: 'runtime', connected: false, taskManagerConnected: false, projectId: null, sessionId: null, revision: -1, projects: [], sessions: [], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, configuration: {}, tasks: [], agents: [], tools: [], artifacts: [], events: [], approvals: [], error: null });
 
-  function create({ demo, runtime, onError } = {}) {
+  function create({ demo, runtime, onError, hosted = false } = {}) {
     if (!demo || !runtime) throw new TypeError('Workspace session needs the demo store and runtime bridge.');
     let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false;
     let live = empty(), pi = runtime.getState(), activity = null, observedTools = [], observedEvents = [], appDefault = null, lockedModel = null, selectedSession = null;
     const listeners = new Set(), manualTools = new Map(), runModels = new Map();
-    const isLive = () => Boolean(host || pi.connected || selectedSession);
+    const isLive = () => Boolean(hosted || host || pi.connected || selectedSession);
     const available = (capability, method) => Boolean(host && live.revision >= 0 && rows(host.capabilities).includes(capability) && typeof host[method] === 'function');
     function getState() {
       if (!isLive()) return copy({ ...demo.getState(), mode: development ? 'demo' : 'preview', connected: false, taskManagerConnected: false, projectId: 'project-rc', sessionId: null, projects: [], sessions: [], modelScopes: { appDefault, projectDefault: null, conversation: null, runLocked: null } });
@@ -120,6 +120,7 @@
         publish(); return getState();
       },
       setAppDefault(value) { appDefault = model(value); publish(); },
+      enterHostedMode() { hosted = true; development = false; demo.cancel(); publish(); },
       setDevelopment(enabled) { if (isLive()) return false; development = Boolean(enabled); if (!development) demo.cancel(); publish(); return true; },
       createProject: input => command('create_project', 'createProject', [input]), createSession: input => command('create_session', 'createSession', [input]), openSession: sessionId => command('open_session', 'openSession', [sessionId]),
       setProjectDefaultModel: value => command('set_project_model', 'setProjectDefaultModel', [getState().projectId, value]),

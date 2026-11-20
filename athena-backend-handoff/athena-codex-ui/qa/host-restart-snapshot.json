@@ -1,0 +1,60 @@
+{
+  "revision": 18,
+  "projectId": "548c4bee-07e1-433f-a94d-3e0754dcfddc",
+  "sessionId": "01a1f6da-1a7b-7130-9d1c-22c29a9eba64",
+  "projects": [
+    { "id": "548c4bee-07e1-433f-a94d-3e0754dcfddc", "name": "File read acceptance", "defaultModel": null }
+  ],
+  "sessions": [
+    { "id": "01a1f6da-1a7b-7130-9d1c-22c29a9eba64", "projectId": "548c4bee-07e1-433f-a94d-3e0754dcfddc", "title": "Read a fresh marker", "model": { "provider": "athena", "modelId": "m1-qwen3-1.7b" } }
+  ],
+  "run": {
+    "id": "d3172d97-1f8f-42ac-953f-b91ecaf8ba71",
+    "status": "succeeded",
+    "elapsedMs": 625,
+    "startedAt": 1795142851211,
+    "model": { "provider": "athena", "modelId": "m1-qwen3-1.7b" }
+  },
+  "tasks": [
+    {
+      "id": "1a823cfe-baec-4a16-93b4-f89f764a4b8a",
+      "projectId": "548c4bee-07e1-433f-a94d-3e0754dcfddc",
+      "sessionId": "01a1f6da-1a7b-7130-9d1c-22c29a9eba64",
+      "runId": "d3172d97-1f8f-42ac-953f-b91ecaf8ba71",
+      "title": "Use the read tool on the attached calibration file. Then reply with its exact calibration serial number.",
+      "status": "succeeded",
+      "dependencies": [],
+      "toolIds": ["tool-0d7b5f96bed55dc2536cb023a5c2432d"],
+      "artifactIds": []
+    }
+  ],
+  "agents": [],
+  "tools": [
+    {
+      "id": "tool-0d7b5f96bed55dc2536cb023a5c2432d",
+      "projectId": "548c4bee-07e1-433f-a94d-3e0754dcfddc",
+      "sessionId": "01a1f6da-1a7b-7130-9d1c-22c29a9eba64",
+      "runId": "d3172d97-1f8f-42ac-953f-b91ecaf8ba71",
+      "taskId": "1a823cfe-baec-4a16-93b4-f89f764a4b8a",
+      "name": "read",
+      "sdkToolName": "read",
+      "args": { "path": "uploads/fd8b81c4-e104-47b2-91e3-a5dfb3f3fcfd.txt" },
+      "status": "succeeded",
+      "logs": [{ "at": 1795142851623, "text": "Calibration serial number: ATH-18d86b35b3\n" }]
+    }
+  ],
+  "artifacts": [],
+  "events": [
+    {
+      "id": "7b1665c2-eb77-43e1-999d-723049012420",
+      "projectId": "548c4bee-07e1-433f-a94d-3e0754dcfddc",
+      "sessionId": "01a1f6da-1a7b-7130-9d1c-22c29a9eba64",
+      "runId": "d3172d97-1f8f-42ac-953f-b91ecaf8ba71",
+      "taskId": "1a823cfe-baec-4a16-93b4-f89f764a4b8a",
+      "type": "run_succeeded",
+      "at": 1795142851836,
+      "summary": "Run succeeded."
+    }
+  ],
+  "approvals": []
+}

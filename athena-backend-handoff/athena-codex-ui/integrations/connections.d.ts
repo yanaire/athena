@@ -23,6 +23,8 @@ export interface ConnectionSnapshot {
   configurationId?: string;
   revision?: string | number;
   defaultModel?: ModelReference | null;
+  /** Validated host draft, present even before configurationId is assigned. */
+  configuration?: NonsecretModelConfiguration;
   verification?: { status: 'not_checked' | 'connected' | 'failed'; checkedAt?: string; message?: string };
 }
 export interface NewConversationRequest {

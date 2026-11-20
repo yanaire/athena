@@ -17,6 +17,7 @@
       if (typeof value.configurationId === 'string') state.configurationId = value.configurationId;
       if (typeof value.revision === 'string' || typeof value.revision === 'number') state.revision = value.revision;
       if (value.defaultModel !== undefined) state.defaultModel = model(value.defaultModel);
+      if (value.configuration !== undefined) state.configuration = copy(value.configuration);
       // Never infer connectivity from the existence of an adapter.
       if (value.verification && ['connected', 'failed', 'not_checked'].includes(value.verification.status)) state.verification = { status: value.verification.status, checkedAt: value.verification.checkedAt || null, message: String(value.verification.message || '') };
       publish();

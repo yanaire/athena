@@ -38,6 +38,8 @@ def build(inline_path=None, show_settings=False, show_agents=False):
         '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<title>Athena · Research workspace</title>\n'
         '<meta name="description" content="Athena research workspace with resizable panels, inline agent activity, tool execution, workflows, artifacts, model preferences, and project knowledge.">\n'
+        + script("if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pathname==='/'))document.documentElement.dataset.athenaHosted='true';")
+        +
         '<link rel="icon" type="image/png" href="' + asset_uri("assets/athena-icon-32.png") + '">\n'
         '<style>body{margin:0;background:#f5f4ed}noscript{display:block;padding:24px;font-family:system-ui}</style>\n'
         + styles + '</head>\n<body>\n' + body

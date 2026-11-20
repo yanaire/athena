@@ -38,7 +38,7 @@ const buildSource = fs.readFileSync(path.join(appDir, 'build.py'), 'utf8');
 const buildScripts = JSON.parse(buildSource.match(/^JS_FILES\s*=\s*(\[[^\n]+\])/m)?.[1] || '[]');
 const buildStyles = JSON.parse(buildSource.match(/^CSS_FILES\s*=\s*(\[[^\n]+\])/m)?.[1] || '[]');
 assert.ok(buildScripts.length && buildScripts.includes('ui/workspace-store.js'), 'Read the current build JS_FILES list.');
-const sourceNames = ['build.py', 'app.html', ...buildScripts, ...buildStyles, 'vendor/lucide.min.js'];
+const sourceNames = ['build.py', 'app.html', ...buildScripts, ...buildStyles, 'vendor/lucide.min.js', 'integrations/athena-host.js', 'qa/host-restart-snapshot.json'];
 // One immutable snapshot per run. A concurrent app edit cannot mix revisions.
 const sources = Object.fromEntries(sourceNames.map(name => [name, fs.readFileSync(path.join(appDir, name), 'utf8')]));
 const sha = text => crypto.createHash('sha256').update(text).digest('hex');
@@ -245,7 +245,7 @@ ElementProto.getAnimations = function ({ subtree } = {}) {
   return [...harnessOf(this).animations].filter(animation => animation.element === this || (subtree && this.contains(animation.element)));
 };
 
-function createEnvironment({ width = 1440, height = 1000, reduced = false, storage = new Map(), demo = false } = {}) {
+function createEnvironment({ width = 1440, height = 1000, reduced = false, storage = new Map(), demo = false, host = null } = {}) {
   const clock = new Clock();
   const parsed = parseHTML('<!doctype html><html><head></head><body>' + sources['app.html'] + '</body></html>');
   const document = parsed.document;
@@ -308,7 +308,7 @@ function createEnvironment({ width = 1440, height = 1000, reduced = false, stora
   }, { get(target, name) { return target[name] ?? element.style[name] ?? ''; } });
   const blockedNetwork = (...args) => { env.networkCalls.push(String(args[0])); throw new Error('Network calls are outside this local DOM integration test.'); };
   Object.assign(window, {
-    document, window, self: window,
+    document, window, self: window, crypto: crypto.webcrypto,
     Event: parsed.Event, CustomEvent: parsed.CustomEvent,
     Element: parsed.Element, HTMLElement: parsed.HTMLElement, Node: parsed.Node,
     navigator: { platform: 'Linux x86_64', clipboard: { writeText(text) { env.clipboardWrites.push(text); return Promise.resolve(); } } },
@@ -326,9 +326,11 @@ function createEnvironment({ width = 1440, height = 1000, reduced = false, stora
     lucide: { createIcons() {} },
   });
   window.globalThis = window;
+  if (host) Object.assign(window, { AthenaHosted: true, fetch: host.fetch, EventSource: host.EventSource });
   const context = vm.createContext(window, { name: 'Athena DOM integration — no browser' });
   env.trackingListeners = true;
   for (const name of buildScripts) new vm.Script(sources[name], { filename: name }).runInContext(context);
+  if (host) new vm.Script(sources['integrations/athena-host.js'], { filename: 'integrations/athena-host.js' }).runInContext(context);
   env.q = selector => { const found = document.querySelector(selector); assert.ok(found, 'Expected DOM element: ' + selector); return found; };
   env.qa = selector => [...document.querySelectorAll(selector)];
   env.click = selector => {
@@ -372,11 +374,215 @@ function createEnvironment({ width = 1440, height = 1000, reduced = false, stora
     for (const mql of env.media) { mql.matches = value; for (const callback of mql.listeners) callback({ matches: value, media: mql.media }); }
     clock.flush();
   };
-  env.destroy = () => { if (!env.destroyed) { env.destroyed = true; for (const cleanup of env.cleanups.reverse()) cleanup(); window.AthenaApp.destroy(); clock.flush(); } };
+  env.destroy = () => { if (!env.destroyed) { env.destroyed = true; for (const cleanup of env.cleanups.reverse()) cleanup(); window.AthenaHost?.destroy(); window.AthenaApp.destroy(); clock.flush(); } };
   environments.push(env); clock.flush(); if (demo) window.AthenaApp.setDemoMode(true); return env;
 }
 
 function test(name, callback) { tests.push({ name, callback }); }
+const plain = value => JSON.parse(JSON.stringify(value));
+
+function hostedFixture({ stage = true, restart = false } = {}) {
+  const fixture = { stream: null, fail: null, sent: [], files: [], bootstraps: 0 };
+  const configuration = { version: 1, provider: 'custom', endpoint: 'https://models.example/v1', defaultModel: 'pinned-model', roleModels: {}, parallelLimit: 1, contextBudget: 32768, outputBudget: 4096 };
+  let snapshot = { revision: 1, projectId: 'p1', sessionId: 's1', projects: [{ id: 'p1', name: 'Real project' }], sessions: [{ id: 's1', projectId: 'p1', title: 'Saved conversation' }], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, tasks: [], agents: [], tools: [], artifacts: [], events: [], approvals: [] };
+  // Captured from the real acceptance host on 2026-11-20; local cwd and
+  // repetitive historical event rows are omitted from this UI projection.
+  if (restart) snapshot = JSON.parse(sources['qa/host-restart-snapshot.json']);
+  fixture.history = new Map([['s1', [{ role: 'user', content: 'Saved question' }, { role: 'assistant', content: [{ type: 'text', text: 'Saved answer' }] }]]]);
+  if (restart) fixture.history.set(snapshot.sessionId, [{ role: 'user', content: snapshot.tasks[0].title }, { role: 'assistant', content: 'ATH-18d86b35b3' }]);
+  fixture.EventSource = class {
+    constructor(url) { assert.equal(url, '/api/events'); fixture.stream = this; this.readyState = 0; }
+    open() { this.readyState = 1; this.onopen(); }
+    error() { this.readyState = 0; this.onerror(); }
+    emit(data) { this.onmessage({ data: JSON.stringify(data) }); }
+    close() { this.readyState = 2; }
+  };
+  fixture.fetch = async (url, options) => {
+    if (url === '/api/bootstrap') {
+      assert.equal(fixture.stream.readyState, 1, 'SSE must be established before history hydration.');
+      fixture.bootstraps++;
+      if (fixture.fail === 'bootstrap') return { ok: false, json: async () => ({ error: 'Bootstrap unavailable' }) };
+      return { ok: true, json: async () => ({ snapshot, connection: { status: 'configured', configuration }, capabilities: ['create_project', 'create_session', 'open_session', 'set_project_model', 'cancel_run'], piCapabilities: ['get_state', 'get_messages', 'prompt', 'abort', ...(stage ? ['stage_files'] : [])] }) };
+    }
+    assert.equal(url, '/api/rpc');
+    assert.equal(options.headers['Content-Type'], 'application/json');
+    const { method, args } = JSON.parse(options.body);
+    if (fixture.fail === method) return { ok: true, json: async () => ({ error: method + ' rejected' }) };
+    let result;
+    if (method === 'pi') {
+      const [sessionId, command] = args;
+      if (fixture.fail === command.type) return { ok: true, json: async () => ({ result: { type: 'response', id: command.id, command: command.type, success: false, error: 'Prompt rejected' } }) };
+      let data = {};
+      if (command.type === 'get_state') data = { sessionId, sessionName: snapshot.sessions.find(s => s.id === sessionId)?.title, isStreaming: false };
+      if (command.type === 'get_messages') { await fixture.readHistory?.(); data = { messages: fixture.history.get(sessionId) || [] }; }
+      if (command.type === 'prompt') fixture.sent.push({ sessionId, ...command });
+      result = { type: 'response', id: command.id, command: command.type, success: true, data };
+    } else if (method === 'openSession' || method === 'createSession') {
+      const sessionId = method === 'openSession' ? args[0] : 's2';
+      if (method === 'createSession') snapshot = { ...snapshot, sessions: [...snapshot.sessions, { id: sessionId, projectId: snapshot.projectId, title: args[0].title }] };
+      snapshot = { ...snapshot, revision: snapshot.revision + 1, sessionId };
+      result = { sessionId, projectId: snapshot.projectId, snapshot };
+    } else if (method === 'createProject') {
+      const project = { id: 'p2', name: args[0].name };
+      snapshot = { ...snapshot, revision: snapshot.revision + 1, projectId: project.id, sessionId: null, projects: [...snapshot.projects, project] };
+      result = { project, snapshot };
+    } else if (method === 'stageFiles') {
+      fixture.files = args[1].map(file => ({ ...file, text: Buffer.from(file.data, 'base64').toString() }));
+      result = { fileReferences: fixture.files.map((file, i) => ({ id: 'stored-' + i, projectId: snapshot.projectId, name: file.name, mimeType: file.mimeType, size: Buffer.from(file.data, 'base64').length })) };
+    } else if (method === 'saveConfig') {
+      fixture.saved = args[0]; result = { saved: true, configurationId: 'config-1', configuration: args[0] };
+    } else if (method === 'cancelRun') {
+      fixture.cancelledRun = args[0]; result = { cancellationRequested: true };
+    } else throw new Error('Unexpected host method: ' + method);
+    return { ok: true, json: async () => ({ result }) };
+  };
+  fixture.startRun = () => {
+    snapshot = { ...snapshot, revision: snapshot.revision + 1, run: { ...snapshot.run, id: 'real-run', status: 'running' } };
+    fixture.stream.emit({ type: 'snapshot', snapshot });
+  };
+  return fixture;
+}
+
+test('Hosted bootstrap hydrates saved history and pinned unsaved configuration after SSE opens', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  assert.equal(env.state().workspace.mode, 'runtime');
+  assert.equal(host.bootstraps, 0);
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Saved answer'));
+  assert.equal(env.qa('#ac-pi-transcript article').length, 2);
+  assert.equal(env.q('[name="endpoint"]').value, 'https://models.example/v1');
+  assert.equal(env.q('[name="defaultModel"]').value, 'pinned-model');
+  for (const name of ['parallelLimit', 'contextBudget', 'outputBudget', 'role-main']) assert.equal(env.q('[name="' + name + '"]').disabled, true);
+  env.window.AthenaApp.openSettings('models');
+  env.q('.ams-form').dispatchEvent(new env.window.Event('submit', { bubbles: true, cancelable: true }));
+  await env.waitFor(() => host.saved);
+  assert.deepEqual(host.saved.roleModels, { main: '', researcher: '', analyst: '', reviewer: '', writer: '' });
+  assert.equal(host.saved.parallelLimit, 1);
+  env.destroy();
+});
+
+test('Hosted restart mounts bridge controls with cached markup and renders a completed actual run', async () => {
+  const host = hostedFixture({ restart: true }), env = createEnvironment({ host });
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('ATH-18d86b35b3'));
+  assert.equal(env.state().piConnected, true);
+  assert.equal(env.state().workspace.run.status, 'succeeded');
+  assert.equal(env.state().workspace.tools[0].sdkToolName, 'read');
+  assert.equal(env.q('#ac-host-reconnect').hidden, true);
+  assert.equal(env.qa('#ac-pi-transcript article').length, 2);
+  env.destroy();
+});
+
+test('Hosted model hydration preserves fields edited while bootstrap is pending', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  env.type('[name="endpoint"]', 'https://draft.example/v1');
+  env.type('[name="defaultModel"]', 'unsaved-draft-model');
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Saved answer'));
+  assert.equal(env.q('[name="endpoint"]').value, 'https://draft.example/v1');
+  assert.equal(env.q('[name="defaultModel"]').value, 'unsaved-draft-model');
+  assert.equal(env.state().models.saved.defaultModel, 'pinned-model');
+  env.destroy();
+});
+
+test('Hosted bootstrap errors and detach never expose demo data or accept a demo send', async () => {
+  const host = hostedFixture(); host.fail = 'bootstrap';
+  const env = createEnvironment({ host });
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-session-status').textContent.includes('Bootstrap unavailable'));
+  env.window.AthenaApp.detachTaskManager(); env.window.AthenaApp.setDemoMode(true);
+  await env.window.AthenaApp.submit('Keep this draft');
+  assert.equal(env.state().workspace.mode, 'runtime');
+  assert.deepEqual(plain(env.state().workspace.tasks), []);
+  assert.deepEqual(plain(env.state().workspace.artifacts), []);
+  assert.equal(host.sent.length, 0);
+  env.destroy();
+});
+
+test('Hosted activations isolate events and restore drafts while new projects have empty workspaces', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Saved answer'));
+  env.type('#ac-prompt-input', 'First draft');
+  await env.window.AthenaApp.createResearch('Second conversation');
+  await env.waitFor(() => env.state().piRuntime.session.sessionId === 's2');
+  assert.equal(env.state().prompt, '');
+  host.stream.emit({ type: 'pi', sessionId: 's1', event: { type: 'message_start', message: { role: 'user', content: 'Old session event' } } });
+  assert.equal(env.q('#ac-live-user').hidden, true);
+  env.type('#ac-prompt-input', 'Second draft');
+  await env.window.AthenaApp.openResearchSession('s1');
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Saved answer'));
+  assert.equal(env.state().prompt, 'First draft');
+  await env.window.AthenaApp.createProject({ name: 'Empty project' });
+  assert.equal(env.state().workspace.projectId, 'p2');
+  assert.equal(env.state().workspace.sessionId, null);
+  assert.equal(env.state().piConnected, false);
+  assert.equal(env.q('#ac-pi-transcript').children.length, 0);
+  assert.deepEqual(plain(env.state().workspace.tasks), []);
+  env.destroy();
+});
+
+test('Hosted staging sends actual bytes and rejected prompts retain text and attachments', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  host.stream.open();
+  await env.waitFor(() => env.state().piRuntime.session.sessionId === 's1');
+  const file = new File(['PDF contents'], 'evidence.pdf', { type: 'application/pdf' });
+  env.type('#ac-prompt-input', 'Read evidence');
+  host.fail = 'prompt';
+  await env.window.AthenaApp.submit('Read evidence', { attachments: [file], mentions: [] });
+  await env.waitFor(() => !env.state().busy && env.state().prompt === 'Read evidence');
+  assert.equal(host.files[0].text, 'PDF contents');
+  assert.equal(env.state().prompt, 'Read evidence');
+  assert.equal(env.qa('.acm-attachment-chip').length, 1);
+  host.fail = null;
+  await env.window.AthenaApp.submit('Read evidence', { attachments: [file], mentions: [] });
+  await env.waitFor(() => host.sent.length === 1);
+  assert.equal(host.sent[0].sessionId, 's1');
+  assert.equal(host.sent[0].fileReferences[0].id, 'stored-0');
+  env.destroy();
+});
+
+test('Hosted reconnect reloads saved history and preserves the current composer draft', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Saved answer'));
+  env.type('#ac-prompt-input', 'Draft during reconnect');
+  host.stream.error();
+  assert.equal(env.state().piConnected, false);
+  host.history.get('s1').push({ role: 'assistant', content: 'Completed while offline' });
+  host.stream.open();
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Completed while offline'));
+  assert.equal(env.state().prompt, 'Draft during reconnect');
+  assert.equal(env.qa('#ac-pi-transcript article').length, 3);
+  env.destroy();
+});
+
+test('Hosted cancellation targets the confirmed run without inventing a terminal outcome', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  host.stream.open();
+  await env.waitFor(() => env.state().piRuntime.session.sessionId === 's1');
+  host.startRun();
+  await env.window.AthenaApp.cancelDemo();
+  assert.equal(host.cancelledRun, 'real-run');
+  assert.equal(env.state().workspace.run.status, 'running');
+  env.destroy();
+});
+
+test('Hosted events received during history hydration reach the active conversation', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host });
+  host.readHistory = async () => {
+    host.readHistory = null;
+    for (const event of [
+      { type: 'agent_start' },
+      { type: 'message_start', message: { id: 'incoming', role: 'assistant', content: [] } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Arrived during hydration' } }
+    ]) host.stream.emit({ type: 'pi', sessionId: 's1', event });
+  };
+  host.stream.open();
+  await env.waitFor(() => env.q('.ar-text').textContent === 'Arrived during hydration');
+  assert.equal(env.q('#ac-pi-transcript').textContent.includes('Saved answer'), true);
+  env.destroy();
+});
 async function runTest({ name, callback }) {
   const start = Date.now();
   const initialCount = environments.length;

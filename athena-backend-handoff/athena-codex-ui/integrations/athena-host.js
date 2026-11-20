@@ -1,0 +1,170 @@
+/* Served separately as /athena-host.js by the host; never bundled into fixtures. */
+(() => {
+  'use strict';
+  window.AthenaHosted = true;
+  let app, events, snapshot, connection, inputContract, retryButton, capabilities = [], piCapabilities = [];
+  let generation = 0, activeSession = null, loading = null, destroyed = false;
+  let streamEpoch = 0, reload = false;
+  const buffered = [];
+  const workspaceListeners = new Set(), connectionListeners = new Set(), piListeners = new Set();
+  const notify = (listeners, value) => { for (const fn of listeners) fn(value); };
+  async function json(url, options) {
+    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(120000) });
+    const body = await response.json();
+    if (!response.ok || typeof body?.error === 'string') throw new Error(body?.error || 'The workspace service could not complete this request.');
+    return body;
+  }
+  async function rpc(method, args) {
+    const body = await json('/api/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args }) });
+    if (!Object.hasOwn(body, 'result')) throw new Error('The workspace service returned an invalid response.');
+    return body.result;
+  }
+  function unbind() {
+    generation++; activeSession = null; piListeners.clear(); app.detachPiSession();
+  }
+  function transport(sessionId) {
+    const bound = ++generation;
+    activeSession = sessionId;
+    const assertCurrent = () => {
+      if (destroyed || bound !== generation || sessionId !== activeSession) throw new Error('The active conversation changed. Your draft is preserved.');
+    };
+    const request = async command => {
+      assertCurrent();
+      const result = await rpc('pi', [sessionId, command]);
+      assertCurrent();
+      return result;
+    };
+    const canStage = piCapabilities.includes('stage_files');
+    return {
+      mode: 'host', label: 'Athena host connected', capabilities: piCapabilities,
+      inputContract,
+      supportsFileReferences: canStage,
+      request, send: request,
+      subscribe(fn) { piListeners.add(fn); return () => piListeners.delete(fn); },
+      ...(canStage ? { async stageFiles(files) {
+        assertCurrent();
+        const encoded = await Promise.all(files.map(async file => {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          let binary = '';
+          for (let at = 0; at < bytes.length; at += 32768) binary += String.fromCharCode(...bytes.subarray(at, at + 32768));
+          return { name: file.name, mimeType: file.type || 'application/octet-stream', data: btoa(binary) };
+        }));
+        assertCurrent();
+        const result = await rpc('stageFiles', [sessionId, encoded]);
+        assertCurrent(); return result;
+      } } : {})
+    };
+  }
+  function acceptSnapshot(next, bind = true) {
+    if (snapshot && next.revision <= snapshot.revision) return;
+    const changed = next.sessionId !== activeSession;
+    if (changed) unbind();
+    snapshot = next;
+    notify(workspaceListeners, next);
+    if (bind && changed && next.sessionId) app.attachPiTransport(transport(next.sessionId));
+  }
+  async function activate(method, args) {
+    const result = await rpc(method, args);
+    if (!result?.sessionId) throw new Error('The host did not confirm a conversation.');
+    unbind();
+    if (result.snapshot) acceptSnapshot(result.snapshot, false);
+    return { ...result, connection: transport(result.sessionId) };
+  }
+  const manager = {
+    get capabilities() { return capabilities; },
+    getSnapshot: () => snapshot,
+    subscribe(fn) { workspaceListeners.add(fn); return () => workspaceListeners.delete(fn); },
+    async createProject(input) {
+      const result = await rpc('createProject', [input]);
+      if (result?.snapshot) acceptSnapshot(result.snapshot);
+      return result;
+    },
+    createSession: input => activate('createSession', [input]),
+    openSession: id => activate('openSession', [id]),
+    cancelRun: runId => rpc('cancelRun', [runId]),
+    async setProjectDefaultModel(id, model) {
+      const result = await rpc('setProjectDefaultModel', [id, model]);
+      if (result?.snapshot) acceptSnapshot(result.snapshot);
+      return result;
+    }
+  };
+  const connections = {
+    getState: () => connection,
+    subscribe(fn) { connectionListeners.add(fn); return () => connectionListeners.delete(fn); },
+    verifyConnection: input => rpc('verifyConnection', [input]),
+    saveConfig: input => rpc('saveConfig', [input])
+  };
+  function failure(error) {
+    unbind();
+    connection = { ...connection, status: 'error', verification: { status: 'failed', message: String(error.message || error) } };
+    notify(connectionListeners, connection);
+    app.reportHostError(String(error.message || error));
+    retryButton.hidden = false;
+    const status = document.getElementById('ac-pi-session-status');
+    if (status) status.textContent = 'Workspace disconnected. Reconnecting will restore saved history. ' + String(error.message || error);
+  }
+  async function bootstrap() {
+    if (destroyed) return;
+    if (loading) { reload = true; return loading; }
+    const streamBound = streamEpoch;
+    loading = (async () => {
+      try {
+        const data = await json('/api/bootstrap');
+        if (destroyed || streamBound !== streamEpoch) return;
+        capabilities = data.capabilities; piCapabilities = data.piCapabilities; inputContract = data.inputContract;
+        snapshot = undefined; connection = data.connection;
+        unbind();
+        acceptSnapshot(data.snapshot, false);
+        await app.attachTaskManager(manager);
+        if (destroyed || streamBound !== streamEpoch) return;
+        app.attachConnectionManager(connections);
+        if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
+        await app.refreshPi();
+        if (destroyed || streamBound !== streamEpoch) return;
+        for (const data of buffered.splice(0)) receive(data);
+        retryButton.hidden = true;
+      } catch (error) { if (!destroyed) failure(error); }
+      finally { loading = null; if (reload && !destroyed && events.readyState === 1) { reload = false; bootstrap(); } }
+    })();
+    return loading;
+  }
+  function receive(data) {
+    switch (data.type) {
+      case 'snapshot': acceptSnapshot(data.snapshot); break;
+      case 'connection': connection = data.connection; notify(connectionListeners, connection); break;
+      case 'pi': if (data.sessionId === activeSession) notify(piListeners, data.event); break;
+      default: throw new Error('The host sent an unknown event.');
+    }
+  }
+  function connectEvents() {
+    events = new EventSource('/api/events');
+    events.onopen = () => { streamEpoch++; buffered.length = 0; bootstrap(); };
+    events.onerror = () => { streamEpoch++; buffered.length = 0; failure(new Error('The event stream was interrupted.')); };
+    events.onmessage = message => {
+      try {
+        const data = JSON.parse(message.data);
+        if (loading) buffered.push(data); else receive(data);
+      } catch (error) { failure(error); }
+    };
+  }
+  function start() {
+    if (app || !window.AthenaApp) return;
+    app = window.AthenaApp; app.enterHostedMode();
+    retryButton = document.createElement('button');
+    retryButton.id = 'ac-host-reconnect'; retryButton.type = 'button'; retryButton.className = 'ac-text-button cursor-interaction';
+    retryButton.textContent = 'Retry connection'; retryButton.hidden = true;
+    retryButton.addEventListener('click', () => window.AthenaHost.reconnect());
+    document.querySelector('.ac-composer-caption').appendChild(retryButton);
+    app.attachConnectionManager(connections);
+    connectEvents();
+    window.AthenaHost = Object.freeze({
+      reconnect() {
+        if (events.readyState === 1) return bootstrap();
+        events.close(); connectEvents();
+      },
+      destroy() { destroyed = true; events.close(); unbind(); workspaceListeners.clear(); connectionListeners.clear(); }
+    });
+  }
+  window.addEventListener('athena:ready', start, { once: true });
+  start();
+})();

@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Athena · Research workspace</title>
 <meta name="description" content="Athena research workspace with resizable panels, inline agent activity, tool execution, workflows, artifacts, model preferences, and project knowledge.">
+<script>
+if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pathname==='/'))document.documentElement.dataset.athenaHosted='true';
+</script>
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAHmElEQVR42q1XC2yUVRb+7swwnZlO30yfFEqBdmkLVluQh1oEkS4JrC6ygJsQXRaNYmJcN4iaqFGMj4QEd4NrzAaNiRHFxGUNL1Ee8pI3pWJLKy2FUvp+Qp/zz/WcO/cf/04HNNFLTtopd+459zvf+c65doxcNjI7WQC/73Lon9L6RxG2iR0b+ncfWR5ZbKQv2u282a6+b/A/I7RHWPby751k35N1RPAxLACO0E+WRvY22QNk3mHRCgEb4WMYciRsNgEpJVnE23eRfUq2Tgdi+goFYEY1nWyP5daGToWw02Wtjn0JbsR5nRjyB9DU1ov+QUMHifAghD6f1zWyuWSVpk+hc85OMskqyKLJBnSUfGk6QSAgpUiKd2Hp/ElYMHscUpLc0uV0CHeUHTf6/Ni2vwb/+awcrR19kYLgT0NkUTqIfI2EzWFB4R2LcycHxd4JVkHAYsXCXDy1fCrGZ8TiTGUrLjX0iLtuT8e5qjZs2lKGytoODAz4g95kiAtWFJz6bDPFqzkAc9NEsipLtJJ8CzpI/f9rT83EwxTAyfNNmF6Qig0fncGTywpQUdOJFc/txOCQ8WsrQWrEe8myyZrM0piloxzSuWH/6uavrZmJx5YU4FrrDRw83YDLjddRdqFZfritAl8eqBXs3DnKTlwwbkbAcD4wTB7Nty/NADKspWYSbvkfc3D/7LE4fLaBnDjQ0t6HyeMT8OqaGWI0kbC8uo1QaMcQBSF0FViJqH/KsIozP2fCws45mp0GV1ogABET7cT7L81DZooXfNuquk7kTUzE0bJG7D1Wrw5feHcWBWZDBeXfT9UQLMWwKwvl2MqHgPa7m+y4LVI981pemoP2rn58trtafS6rasF7xPLVS/IxQDf+hoKYPD4Rj/wpDxvXlmBsWgwCAakCy0qPxZ1TUlWpKiSGc+DW8igDwf1t5PxMRTMOnb2GU0S+lYsnY2xqDI6XN6Gtsx/3zJuA97aWIz4mSnbfGMS0/BRx+VoPcsYlcMliDCHX3N4LF5XpFeJNhNIM6f6wFdC75s/IJKZPRTOJTE5WAkqp9hmd8zVtGBj0w+OyI4OcGEZApCa5mZBwRzkQS+I0vSBFrn4oX+ZmJcqUpGhrasQtA6CNasMdk5Ox5L6J2HeiHsyhBbPGYu/xevBN2cmTy6ags3uAYE5BLqVhxtRU8fhD+er4qFE2me7zCl+Ch8wl7OTcbhO/2KFC7OWVT2Q7Rwxf8o/tmJozWlVAHcHrN1wygw7fcbBOLiudhKRYl4jxOKlqbMjOjEdfv5+UsF9s3VONJqqYb09dhcNhU3L961KgN/SStL7y7nfqi6d+aFYHdV8fZEkWm/93HrflJnGuBTv2GwHijVQlyutyY49CifnQN2Dg4pWu0MV+EQFmMa+vj13Bjd4hOEgPHn0gD/kTkpCe7MWWXVWa7VCVcIACyxkXj9hogTRfdDB4QoG1oYfSFR8bRSR1qhK26IO8aQBSb+rqGVCfP36zFF7PKHyyowpnL5Rj1YP5pIi91Ig8gvXhxX8dUQgxZyZmxuHBudnE/D7UXO2Gy2lHcqJbNS83EXbN6/sjpmJEFQiNF9dxR3c/Nn1ShkUlWfh8w0LkERIf/b+C8h2HaLcDax8tUodGU5AlxRmkkDOx8bkSLkn8SNAfIul++q0DmFaQRh00K+hQDE/ISB3Qv9XUd+H76lZ8uH4+9p9swMoX9+A06cK0ghQU56VQ/w8oNBLjXJh/Z6b8lpx1Xh8UpIiSBEhEEQLcJ7gEr1M6WTu0o4gpED8HICn3NrRQXy8iR9v21eKJ9XvBswDX96zCNCal8HocJDA9Si3nTBsjvCTduw7XYXS8W+RkxSPYyqHS1kiN7GhZg4Lf5NktB0WzqRw914hqItDzq4rx9F8LuaREJ/GD1XD9+yeULrzw92LViFj5SooyMCbViwuXOtBPswGnZeXiPCx9dnsovTKsFs1mdDfZPN0obMxU2ixYitf9rRhL78/Bpk/PUf4rcf5iG0qpCfkSPTSSCiyak41/bjiIwlwfiij3Tqr7nYfqwPrw5jN3YdVLX6OuoVt12EBQZqX2u5ObUUQEWBB5L+t6cpIH0x/eoqA21+YvfsDjf5mCxfdmU7OqwtvPzEbhH5Kx9asfUd/Uo0j4Z1LSpc/uUPA7tF7cSopbw8pRmJ1x3cbDyjmXFR/kIpHp7R/CpatdyCS41xJCASnwxTcXcYTmhrwJiWglwq1YuzPcefhqtXLgpDUgyYMgyV5lbTuYzbzMqdc8bHZhuhykEnz53WMiw+fBlEmjSSF9eOO/J2liagm19gjOTZ+nTUjMh8R3XP56LHOYgkGiozrh6YoWXCV4eXecN0opJA8toyjn3AO27avBoTMNQQ90a4MleuSth/Rw+hXZAnMoNd8EM8mOWDY6TC6wFPNQmkxtlyYgKWleZs1nhLhSauu7QtxBhFILcw794uIngF2EvYoeIftA/40/SzOI4KxoU601fArmv0nc1LGJtAn9Yh5GTZ8iwrvwXrJ/68dD6GZ8OcPiQPV4dVuMqO2brBNkT5CdivQ0i/Q45UG1iCzuN76K28iOaY5Z0Y48IoW/Xn/HZT4Dh539EzigOOTsCdCSAAAAAElFTkSuQmCC">
 <style>body{margin:0;background:#f5f4ed}noscript{display:block;padding:24px;font-family:system-ui}</style>
 <style>
@@ -2257,7 +2260,20 @@
 #athena-codex .apw-pending-row > strong { font-size: 11px; font-weight: 500; overflow-wrap: anywhere; }
 #athena-codex .apw-pending-row > small { margin: 0; }
 
+html[data-athena-hosted="true"] #ac-example-projects,
+html[data-athena-hosted="true"] #athena-codex .ac-profile,
+html[data-athena-hosted="true"] #athena-codex .ac-nav-count,
+html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) .ac-composer-caption>span:first-child,
+html[data-athena-hosted="true"] .ac-conversation-inner>.ac-response,
+html[data-athena-hosted="true"] .ac-conversation-inner>.ac-conversation-date,
+html[data-athena-hosted="true"] .ac-conversation-inner>.ac-user-message:not(.ac-live-user),
+html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-research-slot,
+html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-thread-title,
+html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) .ac-header-title>span,
+html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-session-status{display:none}
 #athena-codex[data-workspace-mode="runtime"] .ac-conversation-inner>.ac-response,
+#athena-codex[data-workspace-mode="runtime"] .ac-profile,
+#athena-codex[data-workspace-mode="runtime"] .ac-nav-count,
 #athena-codex[data-workspace-mode="runtime"] .ac-conversation-inner>.ac-conversation-date,
 #athena-codex[data-workspace-mode="runtime"] .ac-conversation-inner>.ac-user-message:not(.ac-live-user),
 #athena-codex[data-session-bound="false"] #ac-pi-transcript,
@@ -2885,6 +2901,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     return {revision:0,connected:false,mode:'disconnected',connectionLabel:'No Pi connection',busy:[],error:null,session:{},model:null,models:[],thinkingLevel:null,thinkingLevels:[],thinkingLevelsPending:false,tools:[],activeTools:[],queues:{steering:[],followUp:[],steeringMode:'one-at-a-time',followUpMode:'one-at-a-time'},stats:{},context:{},config:{autoCompaction:null,autoRetry:null},resources:{commands:[],skills:[],prompts:[],extensions:[],themes:[],contextFiles:[],diagnostics:[]},messages:[],entries:[],tree:[],forkMessages:[],sessions:[],ui:{requests:[],pendingRequestCount:0,notifications:[],statuses:[],widgets:[],editorText:'',title:''},capabilities:{},lastResult:null,clearedQueue:null,retry:null,compaction:null,settings:{},scopedModels:[],cacheWarming:null,systemPrompt:''};
   }
   function create(options = {}) {
+    const requestPrefix=window.crypto.randomUUID();
     let state=initial(),target=null,mode='disconnected',epoch=0,sessionEpoch=0,sequence=0,unsubscribe=null,destroyed=false,refreshing=null,refreshTimer=0;
     let modelRevision=0,thinkingRevision=0,scheduledFullRefresh=false,queuedFullRefresh=false;
     const listeners=new Set(),eventListeners=new Set(),pending=new Map(),dialogTimers=new Map(),busy=new Map(),uiPending=new Map();
@@ -3160,7 +3177,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       return response.data;
     }
     async function request(command,p,bound){
-      const id='athena-'+bound+'-'+(++sequence);
+      const id='athena-'+requestPrefix+'-'+bound+'-'+(++sequence);
       if(command==='bash')emit({type:'host_command_start',id,command,args:safe(p)});
       try{const data=await requestRaw(command,p,bound,id);if(bound!==epoch||destroyed)throw new Error('Pi connection changed.');if(command==='bash')emit({type:'host_command_end',id,command,data:safe(data)});return data;}
       catch(error){if(bound===epoch&&command==='bash')emit({type:'host_command_end',id,command,error:string(error?.message||error)});throw error;}
@@ -3314,6 +3331,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     if (!slot || slot.nodeType !== 1) throw new TypeError('AthenaComposer.mount requires a DOM element.');
     if (slot.__athenaComposer) slot.__athenaComposer.destroy();
     const callbacks = options || {};
+    const hosted = () => window.AthenaHosted === true || callbacks.hosted === true;
     const frame = document.createElement('section');
     frame.className = 'acm-composer';
     frame.setAttribute('aria-label', 'Research message composer');
@@ -3747,6 +3765,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       frame.dispatchEvent(new CustomEvent('ac:command-selected', { bubbles: true, detail: { name: item.command, source: item.source } }));
     }
     function getSelections() {
+      if (hosted()) return [];
       return ITEMS.filter(item => selectedItems.has(item.id) || hasMention(item)).map(item => runtimeConnected ? { ...item, kind: 'Sample context', source: 'preview' } : { ...item });
     }
     function setRuntimeCommands(commands, config = {}) {
@@ -3764,7 +3783,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         normalized.push({ name, source, description: String(entry.description || '').slice(0, 1200) });
         if (normalized.length >= 200) break;
       }
-      const signature = JSON.stringify([connected, normalized]);
+      const signature = JSON.stringify([connected, hosted(), normalized]);
       if (signature === runtimeSignature) return;
       runtimeSignature = signature; runtimeConnected = connected;
       const oldActive = list[activeIndex]?.item.id;
@@ -3786,7 +3805,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
           if (previousIcon !== glyph) { const previous = row.button.firstElementChild; row.glyph = makeIcon(glyph); previous.replaceWith(row.glyph); }
         }
       }
-      baseRows.forEach(row => { row.available = !connected || row.item.action === 'upload' || row.item.group === 'project'; });
+      baseRows.forEach(row => { row.available = row.item.action === 'upload' || (!hosted() && (!connected || row.item.group === 'project')); });
       const nextRows = GROUPS.flatMap(group => [...baseRows.filter(row => row.item.group === group.id), ...normalized.map(entry => runtimeRows.get(entry.name)).filter(row => row.item.group === group.id)]);
       rows.splice(0, rows.length, ...nextRows);
       for (const group of GROUPS) {
@@ -3836,7 +3855,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     function refreshGhost() {
       if (ghostAccepting) return;
       const value = input.value;
-      const eligible = !composing && !busy && !pickerOpen && !attachments.length && !selectedItems.size && input.selectionStart === value.length && input.selectionEnd === value.length && SUGGESTION.startsWith(value) && value.length < SUGGESTION.length;
+      const eligible = !hosted() && !composing && !busy && !pickerOpen && !attachments.length && !selectedItems.size && input.selectionStart === value.length && input.selectionEnd === value.length && SUGGESTION.startsWith(value) && value.length < SUGGESTION.length;
       if (!eligible) { resetGhost(); return; }
       const suffix = SUGGESTION.slice(value.length);
       if (ghostOffered && ghostSuffix === suffix) return;
@@ -5665,12 +5684,12 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
   const model = value => value && (value.id || value.modelId) && value.provider ? { provider: value.provider, modelId: value.modelId || value.id, ...(value.thinkingLevel != null ? { thinkingLevel: value.thinkingLevel } : {}) } : null;
   const empty = () => ({ mode: 'runtime', connected: false, taskManagerConnected: false, projectId: null, sessionId: null, revision: -1, projects: [], sessions: [], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, configuration: {}, tasks: [], agents: [], tools: [], artifacts: [], events: [], approvals: [], error: null });
 
-  function create({ demo, runtime, onError } = {}) {
+  function create({ demo, runtime, onError, hosted = false } = {}) {
     if (!demo || !runtime) throw new TypeError('Workspace session needs the demo store and runtime bridge.');
     let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false;
     let live = empty(), pi = runtime.getState(), activity = null, observedTools = [], observedEvents = [], appDefault = null, lockedModel = null, selectedSession = null;
     const listeners = new Set(), manualTools = new Map(), runModels = new Map();
-    const isLive = () => Boolean(host || pi.connected || selectedSession);
+    const isLive = () => Boolean(hosted || host || pi.connected || selectedSession);
     const available = (capability, method) => Boolean(host && live.revision >= 0 && rows(host.capabilities).includes(capability) && typeof host[method] === 'function');
     function getState() {
       if (!isLive()) return copy({ ...demo.getState(), mode: development ? 'demo' : 'preview', connected: false, taskManagerConnected: false, projectId: 'project-rc', sessionId: null, projects: [], sessions: [], modelScopes: { appDefault, projectDefault: null, conversation: null, runLocked: null } });
@@ -5778,6 +5797,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         publish(); return getState();
       },
       setAppDefault(value) { appDefault = model(value); publish(); },
+      enterHostedMode() { hosted = true; development = false; demo.cancel(); publish(); },
       setDevelopment(enabled) { if (isLive()) return false; development = Boolean(enabled); if (!development) demo.cancel(); publish(); return true; },
       createProject: input => command('create_project', 'createProject', [input]), createSession: input => command('create_session', 'createSession', [input]), openSession: sessionId => command('open_session', 'openSession', [sessionId]),
       setProjectDefaultModel: value => command('set_project_model', 'setProjectDefaultModel', [getState().projectId, value]),
@@ -6635,6 +6655,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (typeof value.configurationId === 'string') state.configurationId = value.configurationId;
       if (typeof value.revision === 'string' || typeof value.revision === 'number') state.revision = value.revision;
       if (value.defaultModel !== undefined) state.defaultModel = model(value.defaultModel);
+      if (value.configuration !== undefined) state.configuration = copy(value.configuration);
       // Never infer connectivity from the existence of an adapter.
       if (value.verification && ['connected', 'failed', 'not_checked'].includes(value.verification.status)) state.verification = { status: value.verification.status, checkedAt: value.verification.checkedAt || null, message: String(value.verification.message || '') };
       publish();
@@ -6791,6 +6812,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     let validation = { state: 'unchecked', errors: {} };
     let connectionManager = null, connectionUnsubscribe = null, connectionState = { capabilities: {}, busy: [] };
     let busy = false, saveEpoch = 0, canEditProject = false;
+    let hostConfigurationSeen = '', formEdited = false;
+    const hosted = () => window.AthenaHosted === true || options.hosted === true;
     let modelScopes = { appDefault: null, projectDefault: null, conversation: null, runLocked: null };
 
     try {
@@ -6915,7 +6938,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function refreshDirty() {
       const dirty = isDirty();
       root.dataset.dirty = String(dirty);
-      dirtyLabel.textContent = dirty ? 'Unsaved changes' : (storageMode === 'session' ? 'Saved in this session' : 'Preferences up to date');
+      dirtyLabel.textContent = dirty ? 'Unsaved changes' : hosted() && hostConfigurationSeen && !connectionState.configurationId ? 'Host defaults · not saved' : (storageMode === 'session' ? 'Saved in this session' : 'Preferences up to date');
       revertButton.disabled = busy || !dirty;
       for (const button of eventRoot.querySelectorAll('[data-ams-save-execution],.ams-primary,[data-ams-action=verify]')) button.disabled = busy || (button.dataset.amsAction === 'verify' && !connectionState.capabilities?.verifyConnection);
       ROLES.forEach(([role]) => { controls['role-' + role].placeholder = draft.defaultModel.trim() || 'Use default model'; });
@@ -6943,6 +6966,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return first ? null : checked.config;
     }
     function handleEdit() {
+      formEdited = true;
       draft = readDraft();
       validation = { state: 'unchecked', errors: {} };
       showErrors({});
@@ -6964,6 +6988,26 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       root.querySelector('[data-ams-project-help]').textContent = canEditProject ? 'Project defaults apply to new conversations. The active run keeps its confirmed model.' : 'Project defaults require a connected project host with model-setting support.';
     }
     function renderConnection() {
+      const incoming = connectionState.configuration;
+      const signature = incoming ? JSON.stringify(incoming) : '';
+      if (signature && signature !== hostConfigurationSeen) {
+        const checked = validate(incoming);
+        if (!Object.keys(checked.errors).length) {
+          const dirty = isDirty();
+          hostConfigurationSeen = signature;
+          saved = checked.config; storageMode = connectionState.configurationId ? 'host' : 'session';
+          if (!formEdited || !dirty) { draft = copy(saved); fillForm(draft); formEdited = false; }
+        }
+      }
+      if (hosted()) {
+        for (const name of ['parallelLimit', 'contextBudget', 'outputBudget', ...ROLES.map(([role]) => 'role-' + role)]) controls[name].disabled = true;
+        controls.parallelLimit.value = '1'; controls.contextBudget.value = '32768'; controls.outputBudget.value = '4096';
+        ROLES.forEach(([role]) => { controls['role-' + role].value = ''; });
+        const footnote = eventRoot.querySelector('.ams-limits-footnote');
+        if (footnote) footnote.textContent = 'This host supports one agent, 32,768 context tokens and 4,096 output tokens. Role routing and other limits are unavailable.';
+        if (!hostConfigurationSeen && !formEdited) { controls.endpoint.value = ''; controls.defaultModel.value = ''; }
+        draft = readDraft();
+      }
       const capable = Boolean(connectionState.capabilities?.saveConfig);
       root.querySelector('.ams-local-badge').innerHTML = icon(capable ? 'server' : 'hard-drive') + (capable ? 'Host configuration' : 'Local configuration');
       const status = root.querySelector('[data-ams-connection-status]');
@@ -10033,6 +10077,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 <script>
 (()=>{'use strict';
  const root=document.getElementById('athena-codex');if(!root)return;
+ const hosted=window.AthenaHosted===true||(/^https?:$/.test(window.location?.protocol||'')&&window.location?.pathname==='/');
  const q=s=>root.querySelector(s),qa=s=>Array.from(root.querySelectorAll(s));
  const controller=new AbortController(),signal=controller.signal;
  const LEFT_VISIBILITY_KEY='athena.ui.project-sidebar-open.v1';
@@ -10223,10 +10268,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  }
  function renderWorkspace(snapshot){
   const previousSession=root.dataset.sessionId;
-  if(snapshot.mode==='runtime'&&previousSession&&snapshot.sessionId&&snapshot.sessionId!==previousSession&&!lifecyclePending){
+  if(snapshot.mode==='runtime'&&previousSession&&snapshot.sessionId!==previousSession&&(snapshot.sessionId||snapshot.taskManagerConnected)&&!lifecyclePending){
    sessionDrafts.set(previousSession,composer.captureDraft());preservePendingSubmission('The workspace switched conversations.');resetPiActivity();
    q('#ac-pi-transcript').replaceChildren();q('#ac-pi-transcript').hidden=true;q('#ac-live-user').hidden=true;piHistorySignature='';piManualTools.clear();piManualView?.reset();
-   composer.restoreDraft(sessionDrafts.get(snapshot.sessionId)||{value:'',attachments:[],mentions:[]});
+   composer.restoreDraft(sessionDrafts.get(snapshot.sessionId||'preview')||{value:'',attachments:[],mentions:[]});
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
   surfaces?.setRuntimeMode?.(live);
@@ -10252,8 +10297,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   }
   if(live){
    const current=(snapshot.sessions||[]).find(item=>item.id===snapshot.sessionId),project=(snapshot.projects||[]).find(item=>item.id===snapshot.projectId);
-   if(current?.title)q('#ac-thread-title').textContent=current.title;
+   q('#ac-thread-title').textContent=current?.title||'New conversation';
    q('.ac-header-title > span').textContent=project?.name||'Connected workspace';
+   q('.ac-composer-caption > span').lastChild.textContent=project?.name||'No project selected';
    if(!piSession)q('#ac-pi-session-status').textContent=snapshot.taskManagerConnected?'TaskManager connected · model session not connected':'Workspace service is not connected';
    if(snapshot.sessionBound===false){q('#ac-pi-session-status').textContent='Connect the model to this conversation';preservePendingSubmission('The selected conversation is no longer bound to the model connection.');if(piEngaged)resetPiActivity();}
   }
@@ -10431,7 +10477,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   const scroller=q('.ac-conversation-inner');scroller.scrollTop=scroller.scrollHeight;
  }
  const reply=window.AthenaReply.mount(q('#ac-live-reply'));
- const composer=window.AthenaComposer.mount(q('#ac-composer-slot'),{onSubmit:submit,onMention:item=>announce((item.label||item.name||'Resource')+' added to the prompt.'),onStop:stopResponse});
+ const composer=window.AthenaComposer.mount(q('#ac-composer-slot'),{hosted,onSubmit:submit,onMention:item=>announce((item.label||item.name||'Resource')+' added to the prompt.'),onStop:stopResponse});
  async function sendQueuedDraft(){
   if(!piSession||piSubmitting)return;
   if(lifecyclePending||nativeSessionTransition){toast('Wait for the active conversation to be confirmed.');return;}
@@ -10502,7 +10548,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   if(currentId)piSessionIdentity=currentId;
   if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=snapshot.session.sessionName;
   const percent=Number.isFinite(snapshot.context?.percent)?Math.round(snapshot.context.percent):null;
-  q('#ac-pi-session-status').textContent=snapshot.connected?(snapshot.session.isCompacting?'Compacting context':snapshot.session.isStreaming?'Pi is working':snapshot.connectionLabel)+(percent===null?'':' · '+percent+'% context'):'UI preview · sample data';
+  q('#ac-pi-session-status').textContent=snapshot.connected?(snapshot.session.isCompacting?'Compacting context':snapshot.session.isStreaming?'Pi is working':snapshot.connectionLabel)+(percent===null?'':' · '+percent+'% context'):workspaceStore?.getState().mode==='runtime'?'Model session is not connected':'UI preview · sample data';
   const queued=snapshot.queues.steering.length+snapshot.queues.followUp.length;
   q('#ac-pi-queue-count').textContent=queued+' queued';
   q('#ac-pi-queue-controls').hidden=!snapshot.connected||(!snapshot.session.isStreaming&&!state.busy&&!queued);
@@ -10683,7 +10729,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
  demoStore=window.AthenaWorkspaceStore.create();
- workspaceStore=window.AthenaWorkspaceSession.create({demo:demoStore,runtime:piRuntime,onError:toast});
+ workspaceStore=window.AthenaWorkspaceSession.create({demo:demoStore,runtime:piRuntime,onError:toast,hosted});
  connectionManager=window.AthenaConnectionManager.create();
  records=window.AthenaResearchRecords.create({projectId:'project-rc',onError:error=>toast(String(error.message||error))});
  records.ensureDocument({documentId:'research-note',title:'RC low-pass filter: frequency response validation',text:note,version:'1',originalSample:true,evidence:[{sourceId:'baseline.cir',version:'1'}]});
@@ -10708,7 +10754,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   onOpen(){overlay();announce('Settings opened.')},
   onClose(){overlay();announce('Settings closed.')}
  });
- modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onChange(config){
+ modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,hosted,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onChange(config){
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
  }});
@@ -10729,6 +10775,8 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   openApproval,startDemo:()=>workspaceStore.start(),pauseDemo:()=>workspaceStore.pause(),resumeDemo:()=>workspaceStore.resume(),cancelDemo:()=>workspaceStore.cancel(),retryTask:id=>workspaceStore.retryTask(id),resetDemo:()=>workspaceStore.reset(),setScenario:scenario=>workspaceStore.setScenario(scenario),
   handlePiEvent,attachPiSession,attachPiTransport:(transport,options={})=>attachPiSession(transport,{...options,mode:options.mode||transport.mode||'rpc'}),detachPiSession,resetPiActivity,previewPiActivity,
   attachTaskManager:adapter=>workspaceStore.attach(adapter),detachTaskManager:()=>workspaceStore.detach(),
+  enterHostedMode:()=>workspaceStore.enterHostedMode(),
+  reportHostError:message=>toast(String(message)),
   attachConnectionManager:adapter=>connectionManager.attach(adapter),detachConnectionManager:()=>connectionManager.detach(),
   attachResearchService:adapter=>{records.attach(adapter.documents||adapter);knowledge.attachRecords(adapter.knowledge||adapter);return true;},detachResearchService:()=>{records.detach();knowledge.detachRecords();},
   loadDocument:(id,version)=>openDocument({documentId:id,version}),ensureDocument:document=>records.ensureDocument(document),
@@ -10738,6 +10786,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
   destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
+ window.dispatchEvent(new CustomEvent('athena:ready'));
 })();
 
 </script>

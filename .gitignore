@@ -1,0 +1,8 @@
+node_modules/
+.athena/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+__pycache__/
+.DS_Store

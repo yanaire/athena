@@ -86,6 +86,8 @@
     let validation = { state: 'unchecked', errors: {} };
     let connectionManager = null, connectionUnsubscribe = null, connectionState = { capabilities: {}, busy: [] };
     let busy = false, saveEpoch = 0, canEditProject = false;
+    let hostConfigurationSeen = '', formEdited = false;
+    const hosted = () => window.AthenaHosted === true || options.hosted === true;
     let modelScopes = { appDefault: null, projectDefault: null, conversation: null, runLocked: null };
 
     try {
@@ -210,7 +212,7 @@
     function refreshDirty() {
       const dirty = isDirty();
       root.dataset.dirty = String(dirty);
-      dirtyLabel.textContent = dirty ? 'Unsaved changes' : (storageMode === 'session' ? 'Saved in this session' : 'Preferences up to date');
+      dirtyLabel.textContent = dirty ? 'Unsaved changes' : hosted() && hostConfigurationSeen && !connectionState.configurationId ? 'Host defaults · not saved' : (storageMode === 'session' ? 'Saved in this session' : 'Preferences up to date');
       revertButton.disabled = busy || !dirty;
       for (const button of eventRoot.querySelectorAll('[data-ams-save-execution],.ams-primary,[data-ams-action=verify]')) button.disabled = busy || (button.dataset.amsAction === 'verify' && !connectionState.capabilities?.verifyConnection);
       ROLES.forEach(([role]) => { controls['role-' + role].placeholder = draft.defaultModel.trim() || 'Use default model'; });
@@ -238,6 +240,7 @@
       return first ? null : checked.config;
     }
     function handleEdit() {
+      formEdited = true;
       draft = readDraft();
       validation = { state: 'unchecked', errors: {} };
       showErrors({});
@@ -259,6 +262,26 @@
       root.querySelector('[data-ams-project-help]').textContent = canEditProject ? 'Project defaults apply to new conversations. The active run keeps its confirmed model.' : 'Project defaults require a connected project host with model-setting support.';
     }
     function renderConnection() {
+      const incoming = connectionState.configuration;
+      const signature = incoming ? JSON.stringify(incoming) : '';
+      if (signature && signature !== hostConfigurationSeen) {
+        const checked = validate(incoming);
+        if (!Object.keys(checked.errors).length) {
+          const dirty = isDirty();
+          hostConfigurationSeen = signature;
+          saved = checked.config; storageMode = connectionState.configurationId ? 'host' : 'session';
+          if (!formEdited || !dirty) { draft = copy(saved); fillForm(draft); formEdited = false; }
+        }
+      }
+      if (hosted()) {
+        for (const name of ['parallelLimit', 'contextBudget', 'outputBudget', ...ROLES.map(([role]) => 'role-' + role)]) controls[name].disabled = true;
+        controls.parallelLimit.value = '1'; controls.contextBudget.value = '32768'; controls.outputBudget.value = '4096';
+        ROLES.forEach(([role]) => { controls['role-' + role].value = ''; });
+        const footnote = eventRoot.querySelector('.ams-limits-footnote');
+        if (footnote) footnote.textContent = 'This host supports one agent, 32,768 context tokens and 4,096 output tokens. Role routing and other limits are unavailable.';
+        if (!hostConfigurationSeen && !formEdited) { controls.endpoint.value = ''; controls.defaultModel.value = ''; }
+        draft = readDraft();
+      }
       const capable = Boolean(connectionState.capabilities?.saveConfig);
       root.querySelector('.ams-local-badge').innerHTML = icon(capable ? 'server' : 'hard-drive') + (capable ? 'Host configuration' : 'Local configuration');
       const status = root.querySelector('[data-ams-connection-status]');

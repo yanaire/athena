@@ -11,7 +11,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 
 function load(name) {
-  const context = vm.createContext({ window: {}, setTimeout, clearTimeout, Date });
+  const context = vm.createContext({ window: { crypto: require('node:crypto').webcrypto }, setTimeout, clearTimeout, Date });
   vm.runInContext(fs.readFileSync(path.join(sourceRoot, 'ui', name + '.js'), 'utf8'), context);
   return context.window;
 }
@@ -31,6 +31,20 @@ function setup(t, connection) {
   t.after(() => runtime.destroy());
   return runtime;
 }
+
+test('fresh browser runtimes cannot reuse durable command receipt identifiers', async t => {
+  const receipts = new Map();
+  const connection = host({ request(wire) {
+    if (receipts.has(wire.id)) return receipts.get(wire.id);
+    const result = { disposition: 'handled', acceptedMessage: wire.message };
+    receipts.set(wire.id, result); return result;
+  } });
+  const first = setup(t, connection), reopened = setup(t, connection);
+  await first.execute('prompt', { message: 'First browser' });
+  const response = await reopened.execute('prompt', { message: 'Reopened browser' });
+  assert.equal(response.acceptedMessage, 'Reopened browser');
+  assert.equal(receipts.size, 2);
+});
 
 test('message limits reject intact before sending; valid long messages and slash arguments are never sliced', async t => {
   const body = '  ' + '한'.repeat(100000) + '\nend\n';
