@@ -7,7 +7,10 @@ import {
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { streamSimple as streamOpenAI } from "@earendil-works/pi-ai/api/openai-completions";
 import { createPiHostAdapter } from "../athena-backend-handoff/athena-codex-ui/integrations/pi-host-adapter.mjs";
-import { createProjectReadTool } from "./files.ts";
+import { createPiToolLoadout } from "./agent-tools.ts";
+import type { PiOrchestration } from "./agent-tools.ts";
+
+export type { PiOrchestration } from "./agent-tools.ts";
 
 export class PiRuntimeError extends Error {
   readonly code = "PI_RUNTIME_ERROR";
@@ -69,6 +72,7 @@ export interface PiSessionOptions {
   readonly projectDir: string;
   readonly sessionDir: string;
   readonly sessionFile?: string;
+  readonly orchestration?: PiOrchestration;
 }
 
 interface HostAdapter {
@@ -83,7 +87,7 @@ function hostAdapter(value: unknown): value is HostAdapter {
 }
 
 /** No discovery: extensions, MCP, skills, context files, and packages never load. */
-function fixedResources(): ResourceLoader {
+function fixedResources(systemPrompt: string): ResourceLoader {
   const extensions = { extensions: [], errors: [], runtime: createExtensionRuntime() };
   return {
     getExtensions: () => extensions,
@@ -91,7 +95,7 @@ function fixedResources(): ResourceLoader {
     getPrompts: () => ({ prompts: [], diagnostics: [] }),
     getThemes: () => ({ themes: [], diagnostics: [] }),
     getAgentsFiles: () => ({ agentsFiles: [] }),
-    getSystemPrompt: () => "You are Athena, a research assistant. Use the read tool to inspect project files when requested. Only claim to have read a file after a successful tool result. No shell, write, or network tools are available.",
+    getSystemPrompt: () => systemPrompt,
     getSystemPromptSource: () => undefined,
     getAppendSystemPrompt: () => [],
     getAppendSystemPromptSources: () => [],
@@ -163,12 +167,13 @@ export async function createPiSession(options: PiSessionOptions) {
     packages: [], extensions: [], skills: [], cacheWarming: "off",
     enableAnalytics: false, enableInstallTelemetry: false,
   });
+  const { customTools, systemPrompt } = createPiToolLoadout(projectDir, options.orchestration);
   const { session } = await createAgentSession({
     cwd: projectDir, agentDir: join(sessionDir, ".agent"),
     sessionManager: manager, modelRuntime, settingsManager,
     ...(model ? { model } : {}),
-    thinkingLevel: "off", tools: ["read"], customTools: [createProjectReadTool(projectDir)],
-    resourceLoader: fixedResources(),
+    thinkingLevel: "off", tools: customTools.map(tool => tool.name), customTools,
+    resourceLoader: fixedResources(systemPrompt),
   });
   const adapter = createPiHostAdapter({ session, sessionManager: manager, modelRuntime });
   if (!hostAdapter(adapter)) {

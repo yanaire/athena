@@ -1,14 +1,19 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { Storage } from './storage.ts';
 import type { StoredSession } from './storage.ts';
-import type {
-  AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool,
-  WorkspaceEvent, WorkspaceSnapshot,
-} from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
+import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
-
+import type { PiOrchestration } from './agent-tools.ts';
+import { CsvJobRunner } from './jobs.ts';
+import type { CsvJobEvent } from './jobs.ts';
+import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef } from './orchestration.ts';
+import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
+import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
+import { projectHistory } from './history.ts';
+import type { HistoryEvent } from './history.ts';
+export { ManagerError } from './orchestration.ts';
 export type PiCommand = Readonly<Record<string, unknown>> & { readonly type: string; readonly id?: string };
 export type StagedFileInput = { readonly name: string; readonly mimeType: string; readonly data: string };
 type PiEvent = Readonly<Record<string, unknown>> & { readonly type: string };
@@ -23,10 +28,10 @@ export interface ManagedPiSession {
   prompt(message: string): Promise<void>;
 }
 export type PiSessionFactory = (options: {
-  readonly projectDir: string; readonly sessionDir: string; readonly sessionFile?: string;
+  readonly projectDir: string; readonly sessionDir: string; readonly sessionFile?: string; readonly orchestration?: PiOrchestration;
 }) => Promise<ManagedPiSession>;
 export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory };
-type Run = {
+export type Run = {
   readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly requestId: string; readonly taskId: string; readonly title: string;
   readonly status: Status; readonly startedAt: number | null; readonly endedAt: number | null;
@@ -40,26 +45,12 @@ type Response = {
   readonly success: boolean; readonly data?: unknown; readonly error?: string;
 };
 
-export class ManagerError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) { super(message); this.code = code; }
-}
-
-function object(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-function text(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !value.trim()) throw new ManagerError('INVALID_INPUT', `${name} is required.`);
-  return value;
-}
-function hash(value: string | Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (object(value)) return `{${Object.keys(value).sort().filter(key => value[key] !== undefined)
     .map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
   return JSON.stringify(value) ?? 'null';
 }
-function pending(status: Status): boolean { return status === 'queued' || status === 'running' || status === 'blocked'; }
 function reply(command: PiCommand, data: unknown): Response {
   return { type: 'response', command: command.type, ...(command.id ? { id: command.id } : {}), success: true, data };
 }
@@ -69,9 +60,12 @@ const SNAPSHOT_EVENTS = new Set([
   'tool_execution_start', 'tool_execution_end', 'compaction_start', 'compaction_end',
 ]);
 
-/** One active runtime; SQLite owns acceptance and projections, Pi owns execution and messages. */
+type Accepted = { readonly taskId: string; readonly parentTaskId: string | null; readonly agentSessionId: string; readonly attemptId: string; readonly status: Status };
+type Dispatch = { readonly id: string; readonly projectId: string; readonly sessionId: string; readonly runId: string; readonly taskId: string; readonly fingerprint: string; readonly response?: Accepted };
+type Live = { runtime: ManagedPiSession; controller: AbortController; attempt: Attempt; finished: Promise<void> };
+
 export class TaskManager implements AthenaTaskManager {
-  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'cancel_run'];
+  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'cancel_run', 'cancel_task', 'get_agent_history'];
   readonly inputContract = {
     maxMessageCharacters: 262144, lengthUnit: 'utf16-code-units',
     supportsFileReferences: true, canStageFiles: true,
@@ -81,8 +75,16 @@ export class TaskManager implements AthenaTaskManager {
   readonly #factory: PiSessionFactory;
   readonly #listeners = new Set<(snapshot: WorkspaceSnapshot) => void>();
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
-  #runtime: ManagedPiSession | undefined;
-  #unsubscribe: (() => void) | undefined;
+  readonly #journal: Journal;
+  readonly #jobs: CsvJobRunner;
+  readonly #registry = new Map<string, ManagedPiSession>();
+  readonly #loading = new Map<string, Promise<ManagedPiSession>>();
+  readonly #turns = new Map<string, Live>();
+  readonly #executing = new Map<string, Attempt>();
+  readonly #waiters = new Set<() => void>();
+  readonly #scheduler = new TurnScheduler(limit('ATHENA_MODEL_CONCURRENCY', 2, 1, 64));
+  readonly #maxChildren = limit('ATHENA_MAX_CHILDREN', 8, 0, 128);
+  readonly #depth = limit('ATHENA_MAX_DEPTH', 1, 0, 1);
   #active: string | null = null;
   #busy = false;
   #ready = false;
@@ -91,6 +93,10 @@ export class TaskManager implements AthenaTaskManager {
   constructor(options: TaskManagerOptions) {
     this.#directory = options.dataDir;
     this.#storage = new Storage(options.dataDir);
+    this.#journal = new Journal(this.#storage);
+    this.#jobs = new CsvJobRunner({dataDir: options.dataDir, concurrency: limit('ATHENA_PROCESS_CONCURRENCY', 1, 1, 4),
+      recoveredAttempts: this.#storage.sessions().flatMap(s => this.#storage.records<ProcessRow>('process', s.id).map(p => p.job)),
+      onEvent: event => this.#processEvent(event) });
     this.#factory = options.createPiSession ?? (async options => {
       const { createPiSession } = await import('./pi.ts');
       return createPiSession(options);
@@ -114,16 +120,11 @@ export class TaskManager implements AthenaTaskManager {
         }
         this.#storage.advanceRevision();
       });
-      const selected = this.#storage.get<string | null>('activeSession') ?? null;
-      if (selected) {
-        const session = this.#session(selected);
-        const runtime = await this.#factory(this.#sessionOptions(session));
-        this.#bind(session.id, runtime);
-      }
+      this.#active = this.#storage.get<string | null>('activeSession') ?? null;
+      if (this.#active) await this.#openRoot(this.#session(this.#active));
       this.#ready = true;
     } finally { this.#busy = false; }
   }
-
   #assertReady(): void {
     if (!this.#ready || this.#closed) throw new ManagerError('NOT_READY', 'TaskManager is not initialized.');
   }
@@ -138,32 +139,44 @@ export class TaskManager implements AthenaTaskManager {
     if (!session) throw new ManagerError('SESSION_NOT_FOUND', 'Session does not exist.');
     return session;
   }
-  #bound(id: string): { session: StoredSession; runtime: ManagedPiSession } {
+  #bound(id: string) {
     this.#assertReady();
-    if (this.#busy || id !== this.#active || !this.#runtime) {
-      throw new ManagerError('SESSION_MISMATCH', 'Request is not bound to the active Pi session.');
+    const runtime = this.#registry.get(id);
+    if (this.#busy || id !== this.#active || !runtime) throw new ManagerError('SESSION_MISMATCH', 'Request is not bound to the selected Pi session.');
+    return {session:this.#session(id),runtime};
+  }
+  #projectDir(projectId:string) { return join(this.#directory, 'projects', projectId); }
+  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string) {
+    let runtime: ManagedPiSession;
+    // Pi may execute tools from a single model response concurrently. Bind each call at entry,
+    // and serialize its manager effects (including spawn then join) in SDK call order.
+    let chain = Promise.resolve();
+    runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, orchestration:{role,
+      execute:(name,raw,args,signal) => {
+        const a = this.#executing.get(runtime.sessionId);
+        if (!a) throw new ManagerError('ATTEMPT_INACTIVE','No dispatched attempt owns this tool.');
+        const work = chain.then(() => this.#operation(a,name,raw,args,signal));
+        chain = work.then(()=>{},()=>{}); return work;
+      }}});
+    if (this.#closed || this.#registry.has(runtime.sessionId)) {
+      runtime.close(); throw new ManagerError('SESSION_UNAVAILABLE','Manager closed or duplicate Pi identity.');
     }
-    return { session: this.#session(id), runtime: this.#runtime };
+    this.#registry.set(runtime.sessionId,runtime); return runtime;
   }
-  #projectDir(projectId: string): string { return join(this.#directory, 'projects', projectId); }
-  #sessionOptions(session: StoredSession) {
-    return { projectDir: this.#projectDir(session.projectId),
-      sessionDir: session.sessionDir, sessionFile: session.sessionFile };
+  #load(s: AgentSession): Promise<ManagedPiSession> {
+    const runtime = this.#registry.get(s.id); if (runtime) return Promise.resolve(runtime);
+    const loading = this.#loading.get(s.id); if (loading) return loading;
+    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile).then(value => {
+      if (value.sessionId !== s.id) { this.#registry.delete(value.sessionId); value.close(); throw new ManagerError('SESSION_ID_MISMATCH','Unexpected Pi identity.'); }
+      return value;
+    }).finally(()=>this.#loading.delete(s.id));
+    this.#loading.set(s.id,promise); return promise;
   }
-  #bind(id: string, runtime: ManagedPiSession): void {
-    if (runtime.sessionId !== id) throw new ManagerError('SESSION_ID_MISMATCH', 'Persisted session ID does not match the actual Pi identity.');
-    this.#unsubscribe?.();
-    this.#runtime?.close();
-    this.#active = id;
-    this.#runtime = runtime;
-    this.#unsubscribe = runtime.subscribe(event => {
-      if (!this.#closed && this.#runtime === runtime && this.#active === id) this.#receive(id, event);
-    });
-  }
+  #openRoot(s: StoredSession) { return this.#load({...s,sessionId:s.id,role:'parent'}); }
   #runs(sessionId: string): Run[] { return this.#storage.records<Run>('run', sessionId); }
   #currentRun(sessionId: string): Run | undefined { return this.#runs(sessionId).at(-1); }
 
-  getSnapshot(): WorkspaceSnapshot {
+  getSnapshot() {
     this.#assertReady();
     const session = this.#active ? this.#session(this.#active) : undefined;
     const run = session ? this.#currentRun(session.id) : undefined;
@@ -173,9 +186,11 @@ export class TaskManager implements AthenaTaskManager {
       sessions: this.#storage.sessions().map(({ sessionFile: _file, sessionDir: _dir, ...metadata }) => metadata),
       run: { id: run?.id ?? null, status: run?.status ?? 'ready', startedAt: run?.startedAt ?? null,
         elapsedMs: run?.startedAt ? (run.endedAt ?? Date.now()) - run.startedAt : 0, model: run?.model ?? session?.model ?? null },
-      tasks: session ? this.#storage.records<Task>('task', session.id) : [],
-      agents: [], tools: session ? this.#storage.records<Tool>('tool', session.id) : [],
-      artifacts: [], events: session ? this.#storage.records<WorkspaceEvent>('event', session.id) : [], approvals: [],
+      tasks: session ? this.#storage.records<TaskRow>('task', session.id) : [],
+      attempts: session ? this.#storage.records<Attempt>('attempt', session.id) : [],
+      processes: session ? this.#storage.records<ProcessRow>('process', session.id) : [],
+      agents: session ? this.#storage.records<Agent>('agent', session.id) : [], tools: session ? this.#storage.records<Tool>('tool', session.id) : [],
+      artifacts: session ? this.#storage.records<ArtifactRow>('artifact', session.id).map(row=>({...row,location:{uri:artifactRef(row.file).uri,label:row.title}})) : [], events: session ? this.#storage.records<WorkspaceEvent>('event', session.id) : [], approvals: [],
     });
   }
 
@@ -194,6 +209,8 @@ export class TaskManager implements AthenaTaskManager {
     return this.subscribeAllPi((id, event) => { if (id === sessionId) listener(event); });
   }
   #publish(): void {
+    for (const check of this.#waiters) check();
+    if (!this.#ready || this.#closed) return;
     for (const listener of this.#listeners) listener(this.getSnapshot());
   }
   #commit(action: () => void): void {
@@ -205,9 +222,6 @@ export class TaskManager implements AthenaTaskManager {
     this.#assertIdle();
     const project: Project = { id: randomUUID(), name: text(input.name, 'Project name'), defaultModel: input.defaultModel ?? null };
     mkdirSync(this.#projectDir(project.id), { recursive: true, mode: 0o700 });
-    this.#unsubscribe?.();
-    this.#runtime?.close();
-    this.#runtime = undefined;
     this.#active = null;
     this.#commit(() => {
       this.#storage.putProject(project);
@@ -227,21 +241,22 @@ export class TaskManager implements AthenaTaskManager {
     this.#busy = true;
     let runtime: ManagedPiSession | undefined;
     try {
-      runtime = await this.#factory({ projectDir: this.#projectDir(projectId), sessionDir });
+      runtime = await this.#make(projectId,sessionDir,'parent');
       const id = runtime.sessionId;
       const model = input.model ?? project.defaultModel ?? this.#model(runtime);
       this.#validateModel(runtime, model);
       const session: StoredSession = { id, projectId, title, model, sessionFile: runtime.sessionFile, sessionDir };
       this.#storage.transaction(() => {
         this.#storage.putSession(session);
+        this.#storage.putRecord('agent_session',{...session,sessionId:id,role:'parent'});
         this.#storage.set('activeSession', id);
         this.#storage.set('activeProject', projectId);
         this.#storage.advanceRevision();
       });
-      this.#bind(id, runtime);
+      this.#active = id;
       runtime = undefined;
     } finally {
-      runtime?.close();
+      if (runtime) { this.#registry.delete(runtime.sessionId); runtime.close(); }
       this.#busy = false;
     }
     this.#publish();
@@ -250,26 +265,19 @@ export class TaskManager implements AthenaTaskManager {
   }
 
   async openSession(sessionId: string): Promise<SessionActivation> {
-    this.#assertIdle();
+    this.#assertReady();
+    if (this.#busy) throw new ManagerError('SESSION_BUSY','Another selection is in progress.');
     const session = this.#session(sessionId);
     if (this.#active !== sessionId) {
       this.#busy = true;
-      let runtime: ManagedPiSession | undefined;
       try {
-        runtime = await this.#factory(this.#sessionOptions(session));
-        this.#storage.transaction(() => {
-          this.#storage.set('activeSession', sessionId);
-          this.#storage.set('activeProject', session.projectId);
-          this.#storage.advanceRevision();
-        });
-        this.#bind(sessionId, runtime);
-        runtime = undefined;
-      } finally { runtime?.close(); this.#busy = false; }
-      this.#publish();
+        await this.#openRoot(session);
+        this.#active = session.id;
+        this.#commit(()=>{this.#storage.set('activeSession',sessionId);this.#storage.set('activeProject',session.projectId);});
+      } finally { this.#busy = false; }
     }
-    return { sessionId, projectId: session.projectId, title: session.title, snapshot: this.getSnapshot() };
+    return {sessionId, projectId:session.projectId,title:session.title,snapshot:this.getSnapshot()};
   }
-
   #model(runtime: ManagedPiSession): ModelReference | null {
     const state = runtime.getState();
     if (!object(state) || !object(state.model)) return null;
@@ -289,8 +297,9 @@ export class TaskManager implements AthenaTaskManager {
     const project = this.#storage.project(projectId);
     if (!project) throw new ManagerError('PROJECT_NOT_FOUND', 'Project does not exist.');
     if (model) {
-      if (!this.#runtime) throw new ManagerError('MODEL_UNAVAILABLE', 'Open a session before selecting its supported model.');
-      this.#validateModel(this.#runtime, model);
+      const runtime = this.#active ? this.#registry.get(this.#active) : undefined;
+      if (!runtime) throw new ManagerError('MODEL_UNAVAILABLE', 'Open a session before selecting its supported model.');
+      this.#validateModel(runtime, model);
     }
     this.#commit(() => this.#storage.putProject({ ...project, defaultModel: model }));
     return { saved: true as const, snapshot: this.getSnapshot() };
@@ -347,7 +356,8 @@ export class TaskManager implements AthenaTaskManager {
         }
         const bytes = readFileSync(stored.path);
         if (hash(bytes) !== stored.digest) throw new ManagerError('FILE_CHANGED', 'The staged file content changed.');
-        message += `\n\nAttached file display name: ${JSON.stringify(stored.name)}.\n` +
+        message += `\n\nInput attachment (never a result): ${JSON.stringify({fileId:stored.id,name:stored.name})}. ` +
+          `Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ` +
           `Call read with these exact arguments: ${JSON.stringify({ path: relative(this.#projectDir(session.projectId), stored.path) })}`;
       }
     }
@@ -364,8 +374,10 @@ export class TaskManager implements AthenaTaskManager {
         const state = runtime.getState();
         return reply(command, { ...(object(state) ? state : {}), inputContract: this.inputContract });
       }
-      case 'get_messages': return reply(command, { messages: runtime.getMessages() });
+      case 'get_messages': return reply(command, { messages: this.#history(session, runtime) });
       case 'abort': {
+        const run = this.#currentRun(sessionId);
+        if (run && pending(run.status)) { await this.cancelRun(run.id); return reply(command,{runId:run.id}); }
         const response = await runtime.command(command);
         return response;
       }
@@ -394,157 +406,245 @@ export class TaskManager implements AthenaTaskManager {
     const run: Run = { id: randomUUID(), projectId: session.projectId, sessionId: session.id, requestId,
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
       status: 'queued', startedAt: null, endedAt: null, model: this.#model(runtime) };
-    const response = reply(command, { accepted: true, runId: run.id, taskId: run.taskId });
-    this.#commit(() => {
-      this.#storage.putRecord('run', run);
-      this.#storage.putRecord('task', { id: run.taskId, projectId: run.projectId, sessionId: run.sessionId, runId: run.id,
-        title: run.title, status: 'queued', dependencies: [], toolIds: [], artifactIds: [] } satisfies Task);
-      this.#storage.putReceipt({ sessionId: session.id, requestId, fingerprint, state: 'accepted', response });
-      this.#event(run, 'dispatch_accepted', 'Prompt accepted for one Pi dispatch.');
+    const fileIds=Array.isArray(command.fileReferences)?command.fileReferences.filter(object).map(ref=>text(ref.id,'File ID')):[];
+    const a=this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
+      parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds);
+    const response=reply(command,{accepted:true,...context(a)});
+    this.#commit(()=>{
+      this.#storage.putRecord('run',{...run,agentSessionId:a.agentSessionId,attemptId:a.id});
+      this.#journal.accept(a,run.title);
+      this.#storage.putReceipt({sessionId:session.id,requestId,fingerprint,state:'accepted',response});
     });
-    // Acceptance is durable before the only provider dispatch. A crash in between is uncertain, never retried.
-    void this.#execute(runtime, run, message);
+    this.#schedule(a,runtime);
     return response;
   }
-
-  async #execute(runtime: ManagedPiSession, run: Run, message: string): Promise<void> {
+  #attempt(owner:Omit<Context,'attemptId'>,requestId:string,prompt:string,fileIds:readonly string[]):Attempt {
+    const id=randomUUID();
+    return {...owner,id,attemptId:id,requestId,prompt,fileIds,status:'queued',acceptedAt:Date.now(),startedAt:null,endedAt:null};
+  }
+  #schedule(a:Attempt,runtime:ManagedPiSession) {
+    const controller=new AbortController();
+    const finished=this.#execute(a,runtime,controller.signal);
+    this.#turns.set(a.id,{controller,runtime,attempt:a,finished});
+  }
+  async #execute(a:Attempt,runtime:ManagedPiSession,signal:AbortSignal) {
+    let unsubscribe:(()=>void)|undefined;
     try {
-      await runtime.prompt(message);
-      if (this.#closed) return;
-      // A handled extension command may finish without an agent run; do not invent success.
-      const current = this.#storage.record<Run>('run', run.id);
-      if (current && current.status === 'queued') {
-        this.#commit(() => this.#finish(current, 'paused', 'Pi returned without starting an agent run.'));
-      }
-    } catch (error) {
-      if (!this.#closed) {
-        const current = this.#storage.record<Run>('run', run.id);
-        if (current) this.#commit(() => this.#finish(current, 'failed', error instanceof Error ? error.message : 'Pi execution failed.'));
-      }
+      await this.#scheduler.acquire(a,signal);
+      signal.throwIfAborted();
+      this.#executing.set(a.agentSessionId,a);
+      unsubscribe=runtime.subscribe(event=>{
+        if(this.#closed || this.#executing.get(a.agentSessionId)!==a)return;
+        const semantic=SNAPSHOT_EVENTS.has(event.type);
+        this.#storage.transaction(()=>{
+          this.#journal.receive(a,event,signal.aborted);
+          if(semantic){this.#journal.event(a,event.type,event.type,typeof event.toolCallId==='string'?{toolId:toolId(a,event.toolCallId)}:{});this.#storage.advanceRevision();}
+        });
+        const normalized=normalizeEvent(a,event);
+        for(const listener of this.#piListeners)listener(a.agentSessionId,structuredClone(normalized));
+        if(semantic)this.#publish();
+      });
+      await runtime.prompt(a.prompt);
+      if(!this.#closed && pending(this.#storage.record<Attempt>('attempt',a.id)?.status??'ready'))
+        this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'paused','Pi returned without settling the attempt.'));
+    }catch(error){
+      if(!this.#closed)this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'failed',error instanceof Error?error.message:'Pi failed.'));
+    }finally{
+      unsubscribe?.();
+      if(this.#executing.get(a.agentSessionId)===a)this.#executing.delete(a.agentSessionId);
+      this.#scheduler.release(a);this.#turns.delete(a.id);
     }
   }
-
-  #event(run: Run, type: string, summary: string, toolId?: string): WorkspaceEvent {
-    const event: WorkspaceEvent = { id: randomUUID(), projectId: run.projectId, sessionId: run.sessionId,
-      runId: run.id, taskId: run.taskId, type, at: Date.now(), summary, ...(toolId ? { toolId } : {}) };
-    this.#storage.putRecord('event', event);
-    return event;
+  #children(a:Context) {return this.#storage.records<TaskRow>('task',a.sessionId).filter(t=>t.runId===a.runId && t.parentTaskId===a.taskId);}
+  #child(a:Context,id:unknown) {
+    const task=this.#storage.record<TaskRow>('task',text(id,'Task ID'));
+    if(!task || task.sessionId!==a.sessionId || task.runId!==a.runId || task.parentTaskId!==a.taskId)
+      throw new ManagerError('TASK_SCOPE_MISMATCH','This is not a direct child of the calling task.');
+    return task;
   }
-  #finish(run: Run, status: Status, error?: string): void {
-    this.#storage.putRecord('run', { ...run, status, endedAt: Date.now(), ...(error ? { error } : {}) });
-    const task = this.#storage.record<Task>('task', run.taskId);
-    if (task) this.#storage.putRecord('task', { ...task, status });
-    for (const tool of this.#storage.records<Tool>('tool', run.sessionId)) {
-      if (tool.runId === run.id && pending(tool.status)) this.#storage.putRecord('tool', { ...tool, status: status === 'succeeded' ? 'failed' : status });
+  #summary(t:TaskRow) {return {taskId:t.id,parentTaskId:t.parentTaskId,agentSessionId:t.agentSessionId,attemptId:t.attemptId,
+    title:t.title,status:t.status,result:t.result??null,error:t.error,artifactIds:t.artifactIds,
+    artifacts:t.artifactIds.flatMap(id=>{const row=this.#storage.record<ArtifactRow>('artifact',id);
+      return row && row.sessionId===t.sessionId && row.taskId===t.id?[artifactRef(row.file)]:[];})};}
+  async #operation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,sdkSignal?:AbortSignal):Promise<unknown> {
+    const turn=this.#turns.get(a.id);
+    if(!turn || this.#executing.get(a.agentSessionId)!==a || this.#closed)throw new ManagerError('ATTEMPT_INACTIVE','This attempt is no longer active.');
+    const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
+    signal.throwIfAborted();
+    if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
+    switch(name){
+      case 'spawn_agent':case 'send_to_agent':return this.#dispatch(a,name,raw,args,signal);
+      case 'get_task':return this.#summary(this.#child(a,args.taskId));
+      case 'list_tasks':return {tasks:this.#children(a).map(t=>this.#summary(t))};
+      case 'wait_for_agents':return this.#wait(a,args.taskIds,signal);
+      case 'cancel_task':{
+        const child=this.#child(a,args.taskId);
+        await this.#cancel(child);
+        return this.#summary(this.#child(a,child.id));
+      }
+      default:throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
     }
-    const receipt = this.#storage.receipt(run.sessionId, run.requestId);
-    if (receipt) this.#storage.putReceipt({
-      ...receipt, state: status === 'paused' ? 'interrupted' : status === 'succeeded' ? 'completed' : 'failed',
-      response: status === 'succeeded' ? receipt.response : {
-        type: 'response', command: 'prompt', id: run.requestId, success: false,
-        error: error ?? `Run ${status}.`, data: { runId: run.id, taskId: run.taskId, status },
-      },
+  }
+  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<Accepted>{
+    const requestId=text(args.requestId??raw,'Request ID');
+    const id=hash(canonical([a.sessionId,a.runId,a.taskId,name,requestId]));
+    const kind=name==='spawn_agent'?'spawn':'send';
+    const fingerprint=hash(canonical(args));
+    const existing=this.#storage.record<Dispatch>(kind,id);
+    if(existing){
+      if(existing.fingerprint!==fingerprint)throw new ManagerError('REQUEST_ID_CONFLICT','Request ID already has different arguments.');
+      if(existing.response)return existing.response;
+      throw new ManagerError('DISPATCH_INTERRUPTED','This reservation will not be dispatched again.');
+    }
+    const child=kind==='send'?this.#child(a,args.taskId):undefined;
+    if(child && (child.status==='cancelled'||child.status==='paused'))throw new ManagerError('TASK_CLOSED','Cannot send to a cancelled or interrupted task.');
+    if(!child && (this.#depth===0||this.#children(a).length>=this.#maxChildren))throw new ManagerError('CHILD_LIMIT','Direct child limit reached.');
+    const taskId=child?.id??randomUUID();
+    const title=child?.title??text(args.title,'Child title');
+    const message=text(child?args.message:args.prompt,'Child message');
+    if(message.length>32768)throw new ManagerError('INPUT_TOO_LARGE','Child message exceeds 32768 characters.');
+    const reservation:Dispatch={...context(a),id,taskId,fingerprint};
+    this.#commit(()=>this.#storage.putRecord(kind,reservation));
+    const sessionDir=join(this.#directory,'agents',randomUUID());
+    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child');
+    if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
+    signal.throwIfAborted();
+    const grantInfo=a.fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
+    const prompt=child?message:message+'\nGranted input files: '+JSON.stringify(grantInfo);
+    const next=this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,a.fileIds);
+    const response={taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId,attemptId:next.id,status:next.status};
+    this.#commit(()=>{
+      if(!child)this.#storage.putRecord('agent_session',{projectId:a.projectId,sessionId:a.sessionId,id:runtime.sessionId,
+        role:'child',sessionDir,sessionFile:runtime.sessionFile} satisfies AgentSession);
+      this.#journal.accept(next,title);
+      this.#storage.putRecord(kind,{...reservation,response});
+      this.#journal.event(next,child?'send_queued':'child_spawned',title);
     });
-    this.#event(run, status === 'paused' ? 'interrupted' : `run_${status}`, error ?? `Run ${status}.`);
+    this.#schedule(next,runtime);
+    return response;
   }
-  #interrupt(sessionId: string, reason: string): void {
-    for (const run of this.#runs(sessionId)) if (pending(run.status)) this.#finish(run, 'paused', reason);
-  }
-
-  #receive(sessionId: string, event: PiEvent): void {
-    const run = this.#currentRun(sessionId);
-    const session = this.#session(sessionId);
-    const semantic = SNAPSHOT_EVENTS.has(event.type);
-    this.#storage.transaction(() => {
-      this.#storage.putRecord('pi_event', { id: randomUUID(), projectId: session.projectId, sessionId,
-        runId: run?.id ?? null, at: Date.now(), event });
-      if (!semantic) return;
-      this.#storage.advanceRevision();
-      if (!run || !pending(run.status)) return;
-      switch (event.type) {
-        case 'agent_start': {
-          this.#storage.putRecord('run', { ...run, status: 'running', startedAt: run.startedAt ?? Date.now() });
-          const task = this.#storage.record<Task>('task', run.taskId);
-          if (task) this.#storage.putRecord('task', { ...task, status: 'running' });
-          break;
-        }
-        case 'message_end': {
-          if (object(event.message) && event.message.role === 'assistant') {
-            const stop = event.message.stopReason;
-            this.#storage.putRecord('run', { ...run, error: stop === 'error' ? String(event.message.errorMessage ?? 'Assistant failed.') : undefined });
-          }
-          break;
-        }
-        case 'auto_retry_end':
-          if (event.success === false) this.#storage.putRecord('run', { ...run, error: String(event.finalError ?? 'Retry failed.') });
-          break;
-        case 'agent_settled':
-          this.#finish(run, event.aborted === true ? 'cancelled' : run.error ? 'failed' : run.startedAt === null ? 'paused' : 'succeeded', run.error);
-          break;
-        case 'tool_execution_start':
-        case 'tool_execution_end': this.#tool(run, event); break;
-      }
-      this.#event(run, event.type, event.type);
-    });
-    // Tool IDs remain identical in the chat projection and manager snapshot.
-    const forwarded = { ...event };
-    if (run) {
-      if (typeof event.toolCallId === 'string') forwarded.toolCallId = this.#toolId(run, event.toolCallId);
-      const update = event.assistantMessageEvent;
-      if (object(update) && typeof update.type === 'string' && update.type.startsWith('toolcall_')) {
-        const normalize = (part: unknown) => object(part) && part.type === 'toolCall' && typeof part.id === 'string'
-          ? { ...part, id: this.#toolId(run, part.id) } : part;
-        forwarded.assistantMessageEvent = { ...update,
-          ...(typeof update.id === 'string' ? { id: this.#toolId(run, update.id) } : {}),
-          ...(update.toolCall ? { toolCall: normalize(update.toolCall) } : {}),
-          ...(object(update.partial) && Array.isArray(update.partial.content)
-            ? { partial: { ...update.partial, content: update.partial.content.map(normalize) } } : {}) };
+  async #wait(a:Attempt,list:unknown,signal:AbortSignal) {
+    if(list!==undefined && !Array.isArray(list))throw new ManagerError('INVALID_INPUT','taskIds must be an array.');
+    const tasks=Array.isArray(list)?list.map(id=>this.#child(a,id)):this.#children(a);
+    const summaries=()=>tasks.map(t=>this.#summary(this.#child(a,t.id)));
+    if(tasks.some(t=>pending(t.status))) {
+      this.#commit(()=>{this.#journal.transition(a,'blocked');this.#journal.event(a,'wait_started','Waiting for '+tasks.length+' child tasks.');});
+      this.#scheduler.release(a,true);
+      try {
+        await new Promise<void>((resolve,reject)=>{
+          const clear=()=>{this.#waiters.delete(check);signal.removeEventListener('abort',abort);};
+          const abort=()=>{clear();reject(signal.reason);};
+          const check=()=>{if(!summaries().some(t=>pending(t.status))){clear();resolve();}};
+          signal.throwIfAborted();
+          this.#waiters.add(check);signal.addEventListener('abort',abort,{once:true});check();
+        });
+      }finally{
+        if(!signal.aborted){await this.#scheduler.acquire(a,signal);
+          this.#commit(()=>{this.#journal.transition(a,'running');this.#journal.event(a,'wait_completed','Child tasks settled; model slot reacquired.');});}
       }
     }
-    for (const listener of this.#piListeners) listener(sessionId, structuredClone(forwarded));
-    if (semantic) this.#publish();
+    return {tasks:summaries()};
   }
-
-  #toolId(run: Run, rawId: string): string { return `tool-${hash(`${run.id}:${rawId}`).slice(0, 32)}`; }
-  #tool(run: Run, event: PiEvent): void {
-    if (typeof event.toolCallId !== 'string') return;
-    const id = this.#toolId(run, event.toolCallId);
-    const previous = this.#storage.record<Tool>('tool', id);
-    const result = event.result ?? event.partialResult;
-    const output = object(result) && Array.isArray(result.content)
-      ? result.content.filter(object).filter(item => item.type === 'text').map(item => String(item.text ?? '')).join('\n') : '';
-    const name = typeof event.toolName === 'string' ? event.toolName : previous?.name ?? 'tool';
-    const tool: Tool = { ...previous, id, projectId: run.projectId, sessionId: run.sessionId, runId: run.id, taskId: run.taskId,
-      name, sdkToolName: name, args: event.args ?? previous?.args, cwd: this.#projectDir(run.projectId),
-      status: event.type === 'tool_execution_end' ? event.isError === true ? 'failed' : 'succeeded' : 'running',
-      logs: output ? [...(previous?.logs ?? []), { at: Date.now(), text: output }] : previous?.logs ?? [] };
-    this.#storage.putRecord('tool', tool);
-    const task = this.#storage.record<Task>('task', run.taskId);
-    if (task && !task.toolIds.includes(id)) this.#storage.putRecord('task', { ...task, toolIds: [...task.toolIds, id] });
+  async #childTool(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    if(name!=='read' && name!=='calculate_csv')throw new ManagerError('TOOL_DENIED','Workers can only read granted inputs or calculate CSV statistics.');
+    const keys=name==='read'?['fileId']:['fileId','column'];
+    if(Object.keys(args).some(k=>!keys.includes(k)))throw new ManagerError('INVALID_INPUT','Unexpected child tool arguments.');
+    const id=args.fileId===undefined && a.fileIds.length===1?a.fileIds[0]:args.fileId;
+    if(typeof id!=='string' || !a.fileIds.includes(id))throw new ManagerError('GRANT_DENIED','Choose one of the explicitly granted file IDs.');
+    const f=this.#storage.record<StoredFile>('file',id);
+    if(!f || f.sessionId!==a.sessionId || f.projectId!==a.projectId)throw new ManagerError('GRANT_DENIED','File is outside this conversation.');
+    const bytes=readFileSync(f.path);
+    if(hash(bytes)!==f.digest)throw new ManagerError('FILE_CHANGED','Granted file bytes changed.');
+    if(name==='read')return bytes.toString('utf8');
+    const grant=await this.#jobs.grant({projectId:a.projectId,sessionId:a.sessionId,fileId:f.id,versionId:text(f.versionId,'Version'),name:f.name,bytes});
+    signal.throwIfAborted();
+    const tid=toolId(a,raw);
+    // A process owns its own attempt key: multiple jobs within one Pi turn remain distinct.
+    const processId=randomUUID();
+    const request={projectId:a.projectId,sessionId:a.sessionId,taskId:a.taskId,attemptId:processId,
+      toolId:tid,grantId:grant.id,requestId:raw,...(args.column!==undefined?{column:text(args.column,'Column')}:{})};
+    const job=this.#jobs.start(request);
+    const cancel=()=>job.cancel();signal.addEventListener('abort',cancel,{once:true});
+    try{
+      const result=await job.result;
+      if(result.status!=='succeeded' || !result.artifact)throw new ManagerError('CSV_FAILED',result.error??('CSV process '+result.status));
+      const statistics:unknown=JSON.parse((await this.#jobs.download(result.artifact)).toString('utf8'));
+      return {statistics,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
+    }finally{signal.removeEventListener('abort',cancel);}
   }
-
-  async cancelRun(runId: string): Promise<unknown> {
+  #processEvent(event:CsvJobEvent){this.#commit(()=>this.#journal.process(event));}
+  #history(conversation:StoredSession,runtime:ManagedPiSession) {
+    const messages=runtime.getMessages();
+    if(!Array.isArray(messages))throw new ManagerError('INVALID_HISTORY','Invalid Pi history.');
+    const journal=this.#storage.records<HistoryEvent>('pi_event',conversation.id)
+      .filter(row=>row.projectId===conversation.projectId && row.agentSessionId===runtime.sessionId);
+    return projectHistory(messages,journal);
+  }
+  async getAgentHistory(conversationId:string,agentSessionId:string) {
     this.#assertReady();
-    const run = this.#active ? this.#currentRun(this.#active) : undefined;
-    if (!run || run.id !== runId || !pending(run.status)) throw new ManagerError('RUN_NOT_ACTIVE', 'Run is not active.');
-    return this.pi(run.sessionId, { type: 'abort', id: randomUUID() });
+    const conversation=this.#session(conversationId);
+    const agent=this.#storage.record<AgentSession>('agent_session',agentSessionId);
+    if(agentSessionId!==conversationId && (!agent || agent.sessionId!==conversationId || agent.projectId!==conversation.projectId))
+      throw new ManagerError('SESSION_MISMATCH','Agent session is outside the requested conversation.');
+    const runtime=agent?await this.#load(agent):await this.#openRoot(conversation);
+    return {conversationId,agentSessionId,messages:this.#history(conversation,runtime)};
   }
-
-  async close(): Promise<void> {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#unsubscribe?.();
-    const state = this.#runtime?.getState();
-    if (object(state) && (state.isStreaming === true || state.isIdle === false)) {
-      await this.#runtime?.command({ type: 'abort', id: randomUUID() });
+  async artifactDownload(conversationId:string,artifactId:string){
+    this.#assertReady();
+    const file=this.#storage.record<ArtifactRow>('artifact',artifactId);
+    if(!file || file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
+    return {bytes:await this.#jobs.download(file.file),name:file.file.name};
+  }
+  async #cancel(task:TaskRow){
+    const turns=[...this.#turns.values()].filter(t=>t.attempt.taskId===task.id || (!task.parentTaskId && t.attempt.runId===task.runId));
+    for(const t of turns)t.controller.abort(new ManagerError('CANCELLED','Task cancellation requested.'));
+    await Promise.all(turns.filter(t=>this.#executing.get(t.attempt.agentSessionId)===t.attempt).map(t=>t.runtime.command({type:'abort',id:randomUUID()})));
+    await Promise.all(turns.map(t=>t.finished));
+  }
+  async cancelTask(taskId:string) {
+    this.#assertReady();
+    const task=this.#storage.record<TaskRow>('task',taskId);
+    if(!task || task.sessionId!==this.#active)throw new ManagerError('TASK_SCOPE_MISMATCH','Task is outside the selected conversation.');
+    if(!pending(task.status))throw new ManagerError('TASK_NOT_ACTIVE','Task is not active.');
+    await this.#cancel(task);
+    const updated=this.#storage.record<TaskRow>('task',taskId);
+    if(!updated)throw new Error('Missing cancelled task.');
+    return this.#summary(updated);
+  }
+  async cancelRun(runId:string) {
+    this.#assertReady();
+    const run=this.#storage.record<Run>('run',runId);
+    if(!run || run.sessionId!==this.#active || !pending(run.status))throw new ManagerError('RUN_NOT_ACTIVE','Run is not active.');
+    const task=this.#storage.record<TaskRow>('task',run.taskId);
+    if(!task)throw new Error('Missing root task.');
+    await this.#cancel(task);
+    return reply({type:'abort'},{runId});
+  }
+  #interrupt(sessionId:string,reason:string){
+    for(const a of this.#storage.records<Attempt>('attempt',sessionId))if(pending(a.status))this.#journal.transition(a,'paused',reason);
+    // An M1 database may contain a previously accepted run with no M2 attempt.
+    for(const r of this.#runs(sessionId))if(pending(r.status)){
+      this.#storage.putRecord('run',{...r,status:'paused',endedAt:Date.now(),error:reason});
+      const t=this.#storage.record<Task>('task',r.taskId);
+      if(t)this.#storage.putRecord('task',{...t,status:'paused'});
+      for(const tool of this.#storage.records<Tool>('tool',sessionId))if(tool.runId===r.id && pending(tool.status))this.#storage.putRecord('tool',{...tool,status:'paused'});
+      this.#journal.finishReceipt(r,'paused',reason);
     }
-    this.#runtime?.close();
-    this.#storage.transaction(() => {
-      for (const session of this.#storage.sessions()) this.#interrupt(session.id, 'Host closed before execution settled.');
+  }
+  async close(){
+    if(this.#closed)return;
+    this.#closed=true;
+    const turns=[...this.#turns.values()];
+    for(const t of turns)t.controller.abort();
+    await Promise.all(turns.filter(t=>this.#executing.get(t.attempt.agentSessionId)===t.attempt).map(t=>t.runtime.command({type:'abort',id:randomUUID()})));
+    await Promise.all(turns.map(t=>t.finished));
+    await this.#jobs.close();
+    for(const runtime of this.#registry.values())runtime.close();
+    this.#registry.clear();
+    this.#storage.transaction(()=>{
+      for(const s of this.#storage.sessions())this.#interrupt(s.id,'Host closed before execution settled.');
       this.#storage.advanceRevision();
     });
-    this.#listeners.clear();
-    this.#piListeners.clear();
-    this.#storage.close();
+    this.#listeners.clear();this.#piListeners.clear();this.#storage.close();
   }
 }
