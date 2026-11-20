@@ -93,7 +93,7 @@
   if(view==='execution'){
    composer.closeMenu?.();closePanel(false);overlay();
    const toolId=selection?.toolId;
-   if(!toolId||!(piView?.revealTool(toolId)||piManualView?.revealTool(toolId)))workspaceChrome?.revealTool(selection||{});
+   if(selection?.processId||!toolId||!(piView?.revealTool(toolId)||piManualView?.revealTool(toolId)))workspaceChrome?.revealTool(selection||{});
    announce('Tool details expanded in the conversation.');return;
   }
   if(!WORKSPACE_VIEWS.includes(view))return;
@@ -107,7 +107,7 @@
  }
  function openAgents(id=null,from=null){
   const agent=workspaceStore?.getState().agents.find(item=>item.id===id);
-  openWorkspace('timeline',agent?{taskId:agent.taskId}:null,from);
+  openWorkspace('timeline',agent?{taskId:agent.taskId,agentSessionId:agent.agentSessionId}:null,from);
  }
  function openApproval(id){
   settings?.close(false);
@@ -198,6 +198,7 @@
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
   surfaces?.setRuntimeMode?.(live);
+  knowledge?.setRuntimeMode?.(live);
   for(const [key,value] of [['projectId',snapshot.projectId],['sessionId',snapshot.sessionId],['runId',snapshot.run?.id]])root.dataset[key]=value||'';
   const activity=q('#aw-activity');
   if(live&&activity.parentElement!==q('#ac-connected-activity'))q('#ac-connected-activity').appendChild(activity);
@@ -655,10 +656,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  workspaceStore=window.AthenaWorkspaceSession.create({demo:demoStore,runtime:piRuntime,onError:toast,hosted});
  connectionManager=window.AthenaConnectionManager.create();
  records=window.AthenaResearchRecords.create({projectId:'project-rc',onError:error=>toast(String(error.message||error))});
- records.ensureDocument({documentId:'research-note',title:'RC low-pass filter: frequency response validation',text:note,version:'1',originalSample:true,evidence:[{sourceId:'baseline.cir',version:'1'}]});
+ if(!hosted)records.ensureDocument({documentId:'research-note',title:'RC low-pass filter: frequency response validation',text:note,version:'1',originalSample:true,evidence:[{sourceId:'baseline.cir',version:'1'}]});
  surfaces=window.AthenaSurfaces.mount(q('#ac-surface-slot'),{files,icons,toast,onResearch:tab=>openPanel(tab||'results'),onWorkspace:(view,selection)=>openWorkspace(view,selection),onAgents:()=>openWorkspace('timeline'),onClose:()=>closePanel()});
  workspaceViews=window.AthenaWorkspaceViews.mount(q('#ac-workbench-slot'),{store:workspaceStore,records,icons,toast,onNavigate:(view,selection)=>openWorkspace(view,selection),onApproval:openApproval});
- knowledge=window.AthenaKnowledge.mount(q('#ac-knowledge-slot'),{icons,toast,onUseSource(item){
+ knowledge=window.AthenaKnowledge.mount(q('#ac-knowledge-slot'),{icons,toast,hosted,onUseSource(item){
   const snippet='['+item.title+']\n'+String(item.excerpt||'');
   composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+snippet);
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();

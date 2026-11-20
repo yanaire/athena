@@ -185,7 +185,7 @@
 #athena-codex .ac-overlay-scrim { z-index: 16; }
 #athena-codex[data-left-open="true"]:not([data-left-drawer="true"]) .ac-overlay-scrim { left: var(--ac-left-width); }
 #athena-codex[data-left-drawer="true"] .ac-overlay-scrim { inset: 0; opacity: 1; }
-#athena-codex .ac-toast { z-index: 100; bottom: 18px; }
+#athena-codex .ac-toast { z-index: 100; bottom: 18px; pointer-events: none; }
 @media (max-width: 1180px) {
   #athena-codex .ac-header-title > span { display: none; }
   #athena-codex .ac-sidebar { padding-inline: 10px; }

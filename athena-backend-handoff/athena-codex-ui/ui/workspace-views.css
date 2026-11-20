@@ -32,6 +32,7 @@
 #athena-codex .awv-action-row:empty{display:none}
 #athena-codex .awv-button,#athena-codex .awv-copy-dialog .awv-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:5px 9px;border:1px solid #d9d6ca;border-radius:6px;background:#fffef9;font-size:10px;line-height:1.6;text-decoration:none;white-space:normal;text-align:center}
 #athena-codex .awv-button:hover{background:#eeece2}
+#athena-codex a.awv-button{color:var(--awv-ink)}
 #athena-codex .awv-button-accent{background:#efe8d9;border-color:#ded1b8;color:#876d47}
 #athena-codex .awv-button svg{width:12px;height:12px}
 #athena-codex .awv-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin:12px 0 8px;min-width:0}
@@ -65,9 +66,9 @@
 #athena-codex .awv-task-detail{margin-top:20px;border-top:1px solid var(--awv-line);padding-top:16px}
 #athena-codex .awv-kicker{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#9b9079}
 #athena-codex .awv-task-detail>h3{margin:9px 0 2px;font-size:14px}
-#athena-codex .awv-detail-list{display:grid;gap:14px;margin:17px 0 0}
+#athena-codex .awv-detail-list{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:17px 0 0}
 #athena-codex .awv-detail-list dt{font-size:10px;color:#938875;margin-bottom:5px}
-#athena-codex .awv-detail-list dd{margin:0;display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+#athena-codex .awv-detail-list dd{margin:0;display:flex;flex-wrap:wrap;gap:4px;min-width:0;overflow-wrap:anywhere}
 #athena-codex .awv-link-chip{font-size:9px;padding:4px 6px;border:1px solid #ddd7c6;border-radius:4px;background:#f5f2e8;line-height:1.6;text-align:left;white-space:normal;overflow-wrap:anywhere}
 #athena-codex .awv-link-chip:hover{background:#eae5d7}
 #athena-codex .awv-link-row{display:flex;align-items:center;gap:7px;min-width:0;width:100%;text-align:left;padding:8px 4px;border:0;border-bottom:1px solid #eae6dc;background:transparent;font-size:10px}
@@ -93,7 +94,7 @@
 #athena-codex .awv-artifact-provenance{padding:10px 11px;background:#efeee3;border:1px solid #e4e1d2;border-radius:6px;margin-bottom:18px}
 #athena-codex .awv-provenance-label{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:500;color:#86816a}
 #athena-codex .awv-provenance-label svg{width:12px;height:12px}
-#athena-codex .awv-artifact-provenance p{font-size:9px;line-height:1.7;margin:4px 0 0;color:#96907b}
+#athena-codex .awv-artifact-provenance p{font-size:9px;line-height:1.7;margin:4px 0 0;color:#96907b;overflow-wrap:anywhere}
 #athena-codex .awv-artifact-content{min-width:0}
 #athena-codex .awv-series-controls{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin:16px 0 8px;font-size:10px;color:#8b7e68}
 #athena-codex .awv-series-controls label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;max-width:100%}

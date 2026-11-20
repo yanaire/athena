@@ -5,11 +5,11 @@
   const rows = value => Array.isArray(value) ? value : [];
   const id = value => typeof value === 'string' && value.length ? value : null;
   const model = value => value && (value.id || value.modelId) && value.provider ? { provider: value.provider, modelId: value.modelId || value.id, ...(value.thinkingLevel != null ? { thinkingLevel: value.thinkingLevel } : {}) } : null;
-  const empty = () => ({ mode: 'runtime', connected: false, taskManagerConnected: false, projectId: null, sessionId: null, revision: -1, projects: [], sessions: [], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, configuration: {}, tasks: [], agents: [], tools: [], artifacts: [], events: [], approvals: [], error: null });
+  const empty = () => ({ mode: 'runtime', connected: false, taskManagerConnected: false, projectId: null, sessionId: null, revision: -1, projects: [], sessions: [], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, configuration: {}, tasks: [], agents: [], attempts: [], processes: [], tools: [], artifacts: [], events: [], approvals: [], error: null });
 
   function create({ demo, runtime, onError, hosted = false } = {}) {
     if (!demo || !runtime) throw new TypeError('Workspace session needs the demo store and runtime bridge.');
-    let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false;
+    let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false, hydration = 0;
     let live = empty(), pi = runtime.getState(), activity = null, observedTools = [], observedEvents = [], appDefault = null, lockedModel = null, selectedSession = null;
     const listeners = new Set(), manualTools = new Map(), runModels = new Map();
     const isLive = () => Boolean(hosted || host || pi.connected || selectedSession);
@@ -23,24 +23,27 @@
       const sessionBound = Boolean(pi.connected && sessionId && piSessionId === sessionId);
       const inScope = item => (!item.sessionId || item.sessionId === sessionId) && (!item.projectId || item.projectId === projectId);
       const tools = new Map(live.tools.filter(inScope).map(item => [item.id, { ...item, source: 'task-manager' }]));
-      for (const item of [...observedTools, ...manualTools.values()].filter(inScope)) tools.set(item.id, { ...tools.get(item.id), ...item, taskId: item.taskId || tools.get(item.id)?.taskId || null, source: 'pi' });
+      for (const item of [...observedTools, ...manualTools.values()].filter(inScope)) {
+        const recorded = tools.get(item.id);
+        tools.set(item.id, { ...item, ...recorded, taskId: recorded?.taskId || item.taskId || null, source: recorded ? 'task-manager' : 'pi' });
+      }
       const project = live.projects.find(item => item.id === projectId);
       const sessions = [...live.sessions];
       if (selectedSession && !sessions.some(item => item.id === selectedSession.id)) sessions.push(selectedSession);
-      return copy({ ...live, sessions, mode: 'runtime', sessionBound, workspaceBound, connected: Boolean(pi.connected || host && live.revision >= 0), taskManagerConnected: Boolean(host && live.revision >= 0), taskManagerStatus: !host ? 'disconnected' : live.error ? 'error' : live.revision >= 0 ? 'connected' : 'connecting', projectId, sessionId,
+      return copy({ ...live, sessions, hydration, mode: 'runtime', sessionBound, workspaceBound, connected: Boolean(pi.connected || host && live.revision >= 0), taskManagerConnected: Boolean(host && live.revision >= 0), taskManagerStatus: !host ? 'disconnected' : live.error ? 'error' : live.revision >= 0 ? 'connected' : 'connecting', projectId, sessionId,
         run: host && workspaceBound ? live.run : sessionBound ? { id: pi.session?.runId || null, status: pi.session?.isStreaming ? 'running' : activity?.settled ? activity.phase === 'error' ? 'failed' : activity.phase === 'stopped' ? 'cancelled' : 'succeeded' : 'ready', startedAt: activity?.startedAt || null, elapsedMs: activity?.elapsedMs || 0, model: lockedModel } : empty().run,
-        tasks: live.tasks.filter(inScope), agents: live.agents.filter(inScope), artifacts: live.artifacts.filter(inScope), approvals: live.approvals.filter(inScope), tools: [...tools.values()],
+        tasks: workspaceBound ? live.tasks.filter(inScope) : [], agents: workspaceBound ? live.agents.filter(inScope) : [], attempts: workspaceBound ? live.attempts.filter(inScope) : [], processes: workspaceBound ? live.processes.filter(inScope) : [], artifacts: workspaceBound ? live.artifacts.filter(inScope) : [], approvals: workspaceBound ? live.approvals.filter(inScope) : [], tools: [...tools.values()],
         events: [...live.events.filter(inScope), ...observedEvents.filter(inScope)].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index),
         modelScopes: { appDefault, projectDefault: model(project?.defaultModel), conversation: sessionBound && model(pi.model) ? { ...model(pi.model), thinkingLevel: pi.thinkingLevel } : null, runLocked: host && workspaceBound ? live.run?.model : sessionBound ? lockedModel : null },
-        capabilities: { createProject: available('create_project', 'createProject'), createSession: available('create_session', 'createSession'), openSession: available('open_session', 'openSession'), setProjectModel: Boolean(projectId) && available('set_project_model', 'setProjectDefaultModel'), retryTask: workspaceBound && available('retry_task', 'retryTask'), cancelRun: workspaceBound && available('cancel_run', 'cancelRun'), decideApproval: workspaceBound && available('decide_approval', 'decideApproval') }
+        capabilities: { createProject: available('create_project', 'createProject'), createSession: available('create_session', 'createSession'), openSession: available('open_session', 'openSession'), setProjectModel: Boolean(projectId) && available('set_project_model', 'setProjectDefaultModel'), retryTask: workspaceBound && available('retry_task', 'retryTask'), cancelRun: workspaceBound && available('cancel_run', 'cancelRun'), cancelTask: workspaceBound && available('cancel_task', 'cancelTask'), agentHistory: workspaceBound && available('get_agent_history', 'getAgentHistory'), decideApproval: workspaceBound && available('decide_approval', 'decideApproval') }
       });
     }
     function publish() { if (!destroyed) { const state = getState(); for (const fn of listeners) fn(state); } }
-    function ingest(input) {
+    function ingest(input, rehydrate = false) {
       const snapshot = input ? copy(input) : input;
-      if (!host || destroyed || !snapshot || !Number.isSafeInteger(snapshot.revision) || snapshot.revision <= live.revision) return false;
+      if (!host || destroyed || !snapshot || !Number.isSafeInteger(snapshot.revision) || (!rehydrate && snapshot.revision <= live.revision)) return false;
       if (!id(snapshot.sessionId) && rows(snapshot.tasks).length) throw new Error('Task snapshots must identify their session.');
-      for (const name of ['projects', 'sessions', 'tasks', 'agents', 'tools', 'artifacts', 'events', 'approvals']) {
+      for (const name of ['projects', 'sessions', 'tasks', 'agents', 'attempts', 'processes', 'tools', 'artifacts', 'events', 'approvals']) {
         if (rows(snapshot[name]).some(item => !id(item?.id))) throw new Error(name + ' must retain host-issued identifiers.');
       }
       if (live.sessionId && snapshot.sessionId !== live.sessionId) { activity = null; observedTools = []; manualTools.clear(); observedEvents = []; lockedModel = null; }
@@ -51,7 +54,7 @@
       if (snapshot.run?.id && supplied && !remembered) runModels.set(runKey, copy(supplied));
       live = { ...empty(), ...snapshot, mode: 'runtime', connected: true, taskManagerConnected: true,
         projects: rows(snapshot.projects), sessions: rows(snapshot.sessions), tasks: rows(snapshot.tasks).map(item => ({ ...item, dependencies: rows(item.dependencies), toolIds: rows(item.toolIds), artifactIds: rows(item.artifactIds) })),
-        agents: rows(snapshot.agents), tools: rows(snapshot.tools).map(item => ({ ...item, logs: rows(item.logs), args: item.args || {} })), artifacts: rows(snapshot.artifacts), events: rows(snapshot.events), approvals: rows(snapshot.approvals),
+        agents: rows(snapshot.agents), attempts: rows(snapshot.attempts), processes: rows(snapshot.processes), tools: rows(snapshot.tools).map(item => ({ ...item, logs: rows(item.logs), args: item.args || {} })), artifacts: rows(snapshot.artifacts), events: rows(snapshot.events), approvals: rows(snapshot.approvals),
         run: { ...empty().run, ...(snapshot.run || {}), model: remembered || supplied || null }, error: runError };
       if (selectedSession?.id === live.sessionId) selectedSession = null;
       publish(); return true;
@@ -59,6 +62,11 @@
     function report(error) { live.error = String(error?.message || error); onError?.(live.error); publish(); }
     async function attach(adapter) {
       if (!adapter || typeof adapter.subscribe !== 'function' || typeof adapter.getSnapshot !== 'function') throw new TypeError('TaskManager needs getSnapshot() and subscribe().');
+      if (host === adapter) {
+        const bound = epoch, snapshot = await adapter.getSnapshot();
+        if (bound === epoch && host === adapter) { hydration++; ingest(snapshot, true); }
+        return getState();
+      }
       detach(); host = adapter; development = false; demo.cancel(); live = empty(); live.taskManagerConnected = false;
       const bound = epoch;
       hostUnsubscribe = adapter.subscribe(next => { if (bound === epoch && host === adapter) try { ingest(next); } catch (error) { report(error); } });
@@ -124,8 +132,17 @@
       setDevelopment(enabled) { if (isLive()) return false; development = Boolean(enabled); if (!development) demo.cancel(); publish(); return true; },
       createProject: input => command('create_project', 'createProject', [input]), createSession: input => command('create_session', 'createSession', [input]), openSession: sessionId => command('open_session', 'openSession', [sessionId]),
       setProjectDefaultModel: value => command('set_project_model', 'setProjectDefaultModel', [getState().projectId, value]),
+      async getAgentHistory(conversationId, agentSessionId) {
+        const current = getState();
+        if (!current.capabilities?.agentHistory || current.sessionId !== conversationId || !current.agents.some(agent => agent.agentSessionId === agentSessionId)) throw new Error('Agent history is not available in this conversation.');
+        const result = await command('get_agent_history', 'getAgentHistory', [conversationId, agentSessionId]);
+        if (getState().sessionId !== conversationId) throw new Error('The active conversation changed.');
+        if (!Array.isArray(result?.messages) || result.agentSessionId !== agentSessionId || (result.conversationId ?? result.sessionId) !== conversationId) throw new Error('The host returned history for a different agent or conversation.');
+        return result.messages;
+      },
       retryTask: taskId => isLive() ? command('retry_task', 'retryTask', [taskId]).catch(report) : demo.retryTask(taskId),
-      cancel: () => isLive() ? command('cancel_run', 'cancelRun', [live.run.id]).catch(report) : demo.cancel(),
+      cancelTask: taskId => command('cancel_task', 'cancelTask', [taskId]).catch(report),
+      cancel: (runId = live.run.id) => isLive() ? command('cancel_run', 'cancelRun', [runId]).catch(report) : demo.cancel(),
       decideApproval: (approvalId, decision) => isLive() ? command('decide_approval', 'decideApproval', [approvalId, decision]).catch(report) : demo.decideApproval(approvalId, decision),
       start: local('start'), pause: local('pause'), resume: local('resume'), reset: local('reset'), setScenario: local('setScenario'), configure: config => { if (!isLive()) return demo.configure(config); return false; },
       destroy() { if (destroyed) return; hostUnsubscribe?.(); runtimeOff(); eventOff(); demoOff(); listeners.clear(); destroyed = true; epoch++; }

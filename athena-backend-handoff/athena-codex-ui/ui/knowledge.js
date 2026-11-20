@@ -61,7 +61,8 @@
     const projectBuckets = new Map(), sourceOperations = new Set();
     let selectedId = projectId === 'project-rc' ? 'sample-brief' : null;
     const sourceDefaults = (source, project = projectId) => ({ ...source, projectId: project, sourceVersion: String(source.sourceVersion || '1'), originalLocation: source.originalLocation || { uri: null, label: source.isSample ? 'Bundled example' : source.origin === 'note' ? 'Note created in Athena' : source.title }, persistence: source.persistence || (source.isSample ? 'bundled' : source.origin === 'note' ? 'device' : 'session'), extraction: source.extraction || { status: source.format === 'PDF' ? 'not_requested' : 'ready', version: String(source.sourceVersion || '1'), method: source.format === 'PDF' ? null : 'plain-text' }, review: source.review || { status: 'unreviewed', version: String(source.sourceVersion || '1') }, versions: source.versions || [] });
-    const initialSources = project => project === 'project-rc' ? SAMPLES.map((source, index) => sourceDefaults({ ...source, origin: 'sample', isSample: true, sessionOnly: false, pinned: index === 0, createdAt: '', order: index }, project)) : [];
+    let runtimeMode = Boolean(options.hosted);
+    const initialSources = project => !runtimeMode && project === 'project-rc' ? SAMPLES.map((source, index) => sourceDefaults({ ...source, origin: 'sample', isSample: true, sessionOnly: false, pinned: index === 0, createdAt: '', order: index }, project)) : [];
     let sources = initialSources(projectId);
     const storageKey = () => STORAGE_KEY + ':' + encodeURIComponent(projectId);
     function loadProjectStorage() {
@@ -516,6 +517,13 @@
       },
       focus() { if (!destroyed) searchInput.focus({ preventScroll: true }); },
       setProject, attachRecords, detachRecords, refreshSources,
+      setRuntimeMode(active) {
+        if (runtimeMode === active) return;
+        runtimeMode = active;
+        sources = [...initialSources(projectId), ...sources.filter(source => !source.isSample)];
+        if (runtimeMode) for (const bucket of projectBuckets.values()) bucket.sources = bucket.sources.filter(source => !source.isSample);
+        renderCollection();
+      },
       getOriginalFile(sourceId, version) { return fileVersions.get(sourceId) === String(version) ? files.get(sourceId) || null : null; },
       getState: () => ({ projectId, recordsConnected: Boolean(service), pendingSourceIds: [...sourceOperations], query, filter, pinnedOnly, selectedId, storageMode, importBusy, noteDraft: { title: noteTitle.value, text: noteBody.value }, sources: sources.map(publicSource) }),
       destroy() {

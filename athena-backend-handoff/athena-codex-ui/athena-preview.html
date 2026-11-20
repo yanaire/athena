@@ -958,6 +958,7 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .awv-action-row:empty{display:none}
 #athena-codex .awv-button,#athena-codex .awv-copy-dialog .awv-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:5px 9px;border:1px solid #d9d6ca;border-radius:6px;background:#fffef9;font-size:10px;line-height:1.6;text-decoration:none;white-space:normal;text-align:center}
 #athena-codex .awv-button:hover{background:#eeece2}
+#athena-codex a.awv-button{color:var(--awv-ink)}
 #athena-codex .awv-button-accent{background:#efe8d9;border-color:#ded1b8;color:#876d47}
 #athena-codex .awv-button svg{width:12px;height:12px}
 #athena-codex .awv-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin:12px 0 8px;min-width:0}
@@ -991,9 +992,9 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .awv-task-detail{margin-top:20px;border-top:1px solid var(--awv-line);padding-top:16px}
 #athena-codex .awv-kicker{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#9b9079}
 #athena-codex .awv-task-detail>h3{margin:9px 0 2px;font-size:14px}
-#athena-codex .awv-detail-list{display:grid;gap:14px;margin:17px 0 0}
+#athena-codex .awv-detail-list{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:17px 0 0}
 #athena-codex .awv-detail-list dt{font-size:10px;color:#938875;margin-bottom:5px}
-#athena-codex .awv-detail-list dd{margin:0;display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+#athena-codex .awv-detail-list dd{margin:0;display:flex;flex-wrap:wrap;gap:4px;min-width:0;overflow-wrap:anywhere}
 #athena-codex .awv-link-chip{font-size:9px;padding:4px 6px;border:1px solid #ddd7c6;border-radius:4px;background:#f5f2e8;line-height:1.6;text-align:left;white-space:normal;overflow-wrap:anywhere}
 #athena-codex .awv-link-chip:hover{background:#eae5d7}
 #athena-codex .awv-link-row{display:flex;align-items:center;gap:7px;min-width:0;width:100%;text-align:left;padding:8px 4px;border:0;border-bottom:1px solid #eae6dc;background:transparent;font-size:10px}
@@ -1019,7 +1020,7 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .awv-artifact-provenance{padding:10px 11px;background:#efeee3;border:1px solid #e4e1d2;border-radius:6px;margin-bottom:18px}
 #athena-codex .awv-provenance-label{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:500;color:#86816a}
 #athena-codex .awv-provenance-label svg{width:12px;height:12px}
-#athena-codex .awv-artifact-provenance p{font-size:9px;line-height:1.7;margin:4px 0 0;color:#96907b}
+#athena-codex .awv-artifact-provenance p{font-size:9px;line-height:1.7;margin:4px 0 0;color:#96907b;overflow-wrap:anywhere}
 #athena-codex .awv-artifact-content{min-width:0}
 #athena-codex .awv-series-controls{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin:16px 0 8px;font-size:10px;color:#8b7e68}
 #athena-codex .awv-series-controls label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;max-width:100%}
@@ -1767,7 +1768,7 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .ac-overlay-scrim { z-index: 16; }
 #athena-codex[data-left-open="true"]:not([data-left-drawer="true"]) .ac-overlay-scrim { left: var(--ac-left-width); }
 #athena-codex[data-left-drawer="true"] .ac-overlay-scrim { inset: 0; opacity: 1; }
-#athena-codex .ac-toast { z-index: 100; bottom: 18px; }
+#athena-codex .ac-toast { z-index: 100; bottom: 18px; pointer-events: none; }
 @media (max-width: 1180px) {
   #athena-codex .ac-header-title > span { display: none; }
   #athena-codex .ac-sidebar { padding-inline: 10px; }
@@ -5682,11 +5683,11 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
   const rows = value => Array.isArray(value) ? value : [];
   const id = value => typeof value === 'string' && value.length ? value : null;
   const model = value => value && (value.id || value.modelId) && value.provider ? { provider: value.provider, modelId: value.modelId || value.id, ...(value.thinkingLevel != null ? { thinkingLevel: value.thinkingLevel } : {}) } : null;
-  const empty = () => ({ mode: 'runtime', connected: false, taskManagerConnected: false, projectId: null, sessionId: null, revision: -1, projects: [], sessions: [], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, configuration: {}, tasks: [], agents: [], tools: [], artifacts: [], events: [], approvals: [], error: null });
+  const empty = () => ({ mode: 'runtime', connected: false, taskManagerConnected: false, projectId: null, sessionId: null, revision: -1, projects: [], sessions: [], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, configuration: {}, tasks: [], agents: [], attempts: [], processes: [], tools: [], artifacts: [], events: [], approvals: [], error: null });
 
   function create({ demo, runtime, onError, hosted = false } = {}) {
     if (!demo || !runtime) throw new TypeError('Workspace session needs the demo store and runtime bridge.');
-    let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false;
+    let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false, hydration = 0;
     let live = empty(), pi = runtime.getState(), activity = null, observedTools = [], observedEvents = [], appDefault = null, lockedModel = null, selectedSession = null;
     const listeners = new Set(), manualTools = new Map(), runModels = new Map();
     const isLive = () => Boolean(hosted || host || pi.connected || selectedSession);
@@ -5700,24 +5701,27 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       const sessionBound = Boolean(pi.connected && sessionId && piSessionId === sessionId);
       const inScope = item => (!item.sessionId || item.sessionId === sessionId) && (!item.projectId || item.projectId === projectId);
       const tools = new Map(live.tools.filter(inScope).map(item => [item.id, { ...item, source: 'task-manager' }]));
-      for (const item of [...observedTools, ...manualTools.values()].filter(inScope)) tools.set(item.id, { ...tools.get(item.id), ...item, taskId: item.taskId || tools.get(item.id)?.taskId || null, source: 'pi' });
+      for (const item of [...observedTools, ...manualTools.values()].filter(inScope)) {
+        const recorded = tools.get(item.id);
+        tools.set(item.id, { ...item, ...recorded, taskId: recorded?.taskId || item.taskId || null, source: recorded ? 'task-manager' : 'pi' });
+      }
       const project = live.projects.find(item => item.id === projectId);
       const sessions = [...live.sessions];
       if (selectedSession && !sessions.some(item => item.id === selectedSession.id)) sessions.push(selectedSession);
-      return copy({ ...live, sessions, mode: 'runtime', sessionBound, workspaceBound, connected: Boolean(pi.connected || host && live.revision >= 0), taskManagerConnected: Boolean(host && live.revision >= 0), taskManagerStatus: !host ? 'disconnected' : live.error ? 'error' : live.revision >= 0 ? 'connected' : 'connecting', projectId, sessionId,
+      return copy({ ...live, sessions, hydration, mode: 'runtime', sessionBound, workspaceBound, connected: Boolean(pi.connected || host && live.revision >= 0), taskManagerConnected: Boolean(host && live.revision >= 0), taskManagerStatus: !host ? 'disconnected' : live.error ? 'error' : live.revision >= 0 ? 'connected' : 'connecting', projectId, sessionId,
         run: host && workspaceBound ? live.run : sessionBound ? { id: pi.session?.runId || null, status: pi.session?.isStreaming ? 'running' : activity?.settled ? activity.phase === 'error' ? 'failed' : activity.phase === 'stopped' ? 'cancelled' : 'succeeded' : 'ready', startedAt: activity?.startedAt || null, elapsedMs: activity?.elapsedMs || 0, model: lockedModel } : empty().run,
-        tasks: live.tasks.filter(inScope), agents: live.agents.filter(inScope), artifacts: live.artifacts.filter(inScope), approvals: live.approvals.filter(inScope), tools: [...tools.values()],
+        tasks: workspaceBound ? live.tasks.filter(inScope) : [], agents: workspaceBound ? live.agents.filter(inScope) : [], attempts: workspaceBound ? live.attempts.filter(inScope) : [], processes: workspaceBound ? live.processes.filter(inScope) : [], artifacts: workspaceBound ? live.artifacts.filter(inScope) : [], approvals: workspaceBound ? live.approvals.filter(inScope) : [], tools: [...tools.values()],
         events: [...live.events.filter(inScope), ...observedEvents.filter(inScope)].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index),
         modelScopes: { appDefault, projectDefault: model(project?.defaultModel), conversation: sessionBound && model(pi.model) ? { ...model(pi.model), thinkingLevel: pi.thinkingLevel } : null, runLocked: host && workspaceBound ? live.run?.model : sessionBound ? lockedModel : null },
-        capabilities: { createProject: available('create_project', 'createProject'), createSession: available('create_session', 'createSession'), openSession: available('open_session', 'openSession'), setProjectModel: Boolean(projectId) && available('set_project_model', 'setProjectDefaultModel'), retryTask: workspaceBound && available('retry_task', 'retryTask'), cancelRun: workspaceBound && available('cancel_run', 'cancelRun'), decideApproval: workspaceBound && available('decide_approval', 'decideApproval') }
+        capabilities: { createProject: available('create_project', 'createProject'), createSession: available('create_session', 'createSession'), openSession: available('open_session', 'openSession'), setProjectModel: Boolean(projectId) && available('set_project_model', 'setProjectDefaultModel'), retryTask: workspaceBound && available('retry_task', 'retryTask'), cancelRun: workspaceBound && available('cancel_run', 'cancelRun'), cancelTask: workspaceBound && available('cancel_task', 'cancelTask'), agentHistory: workspaceBound && available('get_agent_history', 'getAgentHistory'), decideApproval: workspaceBound && available('decide_approval', 'decideApproval') }
       });
     }
     function publish() { if (!destroyed) { const state = getState(); for (const fn of listeners) fn(state); } }
-    function ingest(input) {
+    function ingest(input, rehydrate = false) {
       const snapshot = input ? copy(input) : input;
-      if (!host || destroyed || !snapshot || !Number.isSafeInteger(snapshot.revision) || snapshot.revision <= live.revision) return false;
+      if (!host || destroyed || !snapshot || !Number.isSafeInteger(snapshot.revision) || (!rehydrate && snapshot.revision <= live.revision)) return false;
       if (!id(snapshot.sessionId) && rows(snapshot.tasks).length) throw new Error('Task snapshots must identify their session.');
-      for (const name of ['projects', 'sessions', 'tasks', 'agents', 'tools', 'artifacts', 'events', 'approvals']) {
+      for (const name of ['projects', 'sessions', 'tasks', 'agents', 'attempts', 'processes', 'tools', 'artifacts', 'events', 'approvals']) {
         if (rows(snapshot[name]).some(item => !id(item?.id))) throw new Error(name + ' must retain host-issued identifiers.');
       }
       if (live.sessionId && snapshot.sessionId !== live.sessionId) { activity = null; observedTools = []; manualTools.clear(); observedEvents = []; lockedModel = null; }
@@ -5728,7 +5732,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if (snapshot.run?.id && supplied && !remembered) runModels.set(runKey, copy(supplied));
       live = { ...empty(), ...snapshot, mode: 'runtime', connected: true, taskManagerConnected: true,
         projects: rows(snapshot.projects), sessions: rows(snapshot.sessions), tasks: rows(snapshot.tasks).map(item => ({ ...item, dependencies: rows(item.dependencies), toolIds: rows(item.toolIds), artifactIds: rows(item.artifactIds) })),
-        agents: rows(snapshot.agents), tools: rows(snapshot.tools).map(item => ({ ...item, logs: rows(item.logs), args: item.args || {} })), artifacts: rows(snapshot.artifacts), events: rows(snapshot.events), approvals: rows(snapshot.approvals),
+        agents: rows(snapshot.agents), attempts: rows(snapshot.attempts), processes: rows(snapshot.processes), tools: rows(snapshot.tools).map(item => ({ ...item, logs: rows(item.logs), args: item.args || {} })), artifacts: rows(snapshot.artifacts), events: rows(snapshot.events), approvals: rows(snapshot.approvals),
         run: { ...empty().run, ...(snapshot.run || {}), model: remembered || supplied || null }, error: runError };
       if (selectedSession?.id === live.sessionId) selectedSession = null;
       publish(); return true;
@@ -5736,6 +5740,11 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     function report(error) { live.error = String(error?.message || error); onError?.(live.error); publish(); }
     async function attach(adapter) {
       if (!adapter || typeof adapter.subscribe !== 'function' || typeof adapter.getSnapshot !== 'function') throw new TypeError('TaskManager needs getSnapshot() and subscribe().');
+      if (host === adapter) {
+        const bound = epoch, snapshot = await adapter.getSnapshot();
+        if (bound === epoch && host === adapter) { hydration++; ingest(snapshot, true); }
+        return getState();
+      }
       detach(); host = adapter; development = false; demo.cancel(); live = empty(); live.taskManagerConnected = false;
       const bound = epoch;
       hostUnsubscribe = adapter.subscribe(next => { if (bound === epoch && host === adapter) try { ingest(next); } catch (error) { report(error); } });
@@ -5801,8 +5810,17 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       setDevelopment(enabled) { if (isLive()) return false; development = Boolean(enabled); if (!development) demo.cancel(); publish(); return true; },
       createProject: input => command('create_project', 'createProject', [input]), createSession: input => command('create_session', 'createSession', [input]), openSession: sessionId => command('open_session', 'openSession', [sessionId]),
       setProjectDefaultModel: value => command('set_project_model', 'setProjectDefaultModel', [getState().projectId, value]),
+      async getAgentHistory(conversationId, agentSessionId) {
+        const current = getState();
+        if (!current.capabilities?.agentHistory || current.sessionId !== conversationId || !current.agents.some(agent => agent.agentSessionId === agentSessionId)) throw new Error('Agent history is not available in this conversation.');
+        const result = await command('get_agent_history', 'getAgentHistory', [conversationId, agentSessionId]);
+        if (getState().sessionId !== conversationId) throw new Error('The active conversation changed.');
+        if (!Array.isArray(result?.messages) || result.agentSessionId !== agentSessionId || (result.conversationId ?? result.sessionId) !== conversationId) throw new Error('The host returned history for a different agent or conversation.');
+        return result.messages;
+      },
       retryTask: taskId => isLive() ? command('retry_task', 'retryTask', [taskId]).catch(report) : demo.retryTask(taskId),
-      cancel: () => isLive() ? command('cancel_run', 'cancelRun', [live.run.id]).catch(report) : demo.cancel(),
+      cancelTask: taskId => command('cancel_task', 'cancelTask', [taskId]).catch(report),
+      cancel: (runId = live.run.id) => isLive() ? command('cancel_run', 'cancelRun', [runId]).catch(report) : demo.cancel(),
       decideApproval: (approvalId, decision) => isLive() ? command('decide_approval', 'decideApproval', [approvalId, decision]).catch(report) : demo.decideApproval(approvalId, decision),
       start: local('start'), pause: local('pause'), resume: local('resume'), reset: local('reset'), setScenario: local('setScenario'), configure: config => { if (!isLive()) return demo.configure(config); return false; },
       destroy() { if (destroyed) return; hostUnsubscribe?.(); runtimeOff(); eventOff(); demoOff(); listeners.clear(); destroyed = true; epoch++; }
@@ -5994,6 +6012,24 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
 
 </script>
 <script>
+/* Download paths are derived from host-issued scoped IDs, never local file paths. */
+(() => {
+  'use strict';
+  const validId = value => typeof value === 'string' && /^[\w-]+$/.test(value);
+
+  function href(conversationId, artifact) {
+    if (!validId(conversationId) || !validId(artifact?.id) || artifact.status === 'unavailable' || (artifact.sessionId && artifact.sessionId !== conversationId)) return null;
+    const path = '/api/artifacts/' + encodeURIComponent(conversationId) + '/' + encodeURIComponent(artifact.id);
+    const location = typeof artifact.location === 'string' ? artifact.location : artifact.location?.uri;
+    const hasFileMetadata = typeof artifact.name === 'string' && Number.isSafeInteger(artifact.bytes) && artifact.bytes >= 0 && /^[a-f0-9]{64}$/.test(artifact.sha256);
+    return location === path || artifact.file?.id === artifact.id || hasFileMetadata ? path : null;
+  }
+
+  window.AthenaResultFiles = Object.freeze({ href });
+})();
+
+</script>
+<script>
 /* Athena research workspace views. Runtime projections and separate authored examples; never a process runner.
  * Store subscriptions update individual regions; mounted filters survive clock ticks.
  * Public API: AthenaWorkspaceViews.mount(host, { store, icons, toast, onNavigate,
@@ -6008,7 +6044,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     artifacts: ['Artifacts', 'Inspect the authored examples and local demo outputs.', 'files'],
     timeline: ['Timeline', 'Task, agent, and tool events in chronological order.', 'history']
   };
-  const STATUS = { ready: 'Ready', queued: 'Queued', running: 'Running', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Failed', cancelled: 'Cancelled' };
+  const STATUS = { ready: 'Ready', queued: 'Queued', running: 'Running', cancelling: 'Cancelling', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Failed', cancelled: 'Cancelled', timed_out: 'Timed out', interrupted: 'Interrupted' };
   const ARTIFACTS = [
     { id: 'response-plot', title: 'Frequency response', kind: 'plot', taskId: 'analyze', icon: 'chart-no-axes-combined', filename: 'sample-response.csv', description: 'Calculated response and component tolerance envelope.' },
     { id: 'validation-table', title: 'Evidence & validation', kind: 'evidence', taskId: 'review', icon: 'table-2', filename: 'sample-validation.csv', description: 'Claims connected to inspectable, local supporting material.' },
@@ -6108,8 +6144,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const store = options.store;
     const abort = new AbortController();
     const urls = new Set(), timers = new Set();
-    const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, timelineTask: 'all', timelineType: 'all' };
+    const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
     let snapshot = store.getState(), destroyed = false, unsubscribe = null, recordUnsubscribe = null, resizeObserver = null;
+    let history = { key: '', messages: [], status: '', error: '' };
     const q = selector => host.querySelector(selector);
     const qa = selector => Array.from(host.querySelectorAll(selector));
     const notify = message => options.toast?.(message);
@@ -6179,7 +6216,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function timelineShell() {
-      return '<div class="awv-scroll"><div class="awv-fields"><label><span>Task</span><select data-awv-timeline-task aria-label="Filter timeline by task"></select></label><label><span>Event type</span><select data-awv-timeline-type aria-label="Filter timeline by event type"><option value="all">All events</option><option value="run">Run</option><option value="task">Task</option><option value="agent">Agent</option><option value="tool">Tool</option><option value="approval">Approval</option><option value="artifact">Artifact</option></select></label></div><div class="awv-toolbar awv-timeline-toolbar"><span class="awv-caption" data-awv-event-count></span><div class="awv-toolbar-actions"><button class="awv-text-button" type="button" data-awv-action="latest-event" title="Scroll to the latest visible event">Latest' + icon('arrow-down') + '</button><button class="awv-icon-button" type="button" data-awv-action="download-events" title="Download filtered events as JSON" aria-label="Download filtered events as JSON">' + icon('download') + '</button></div></div><ol class="awv-timeline" data-awv-events aria-label="Chronological activity"></ol></div>';
+      return '<div class="awv-scroll"><section class="awv-task-detail" aria-label="Agent history" data-awv-agent-history hidden><label class="awv-artifact-selector"><span>Agent conversation</span><select data-awv-agent-select></select></label><p class="awv-caption awv-record-identity" data-awv-agent-status role="status"></p><ul class="awv-events" data-awv-agent-messages></ul></section><div class="awv-fields"><label><span>Task</span><select data-awv-timeline-task aria-label="Filter timeline by task"></select></label><label><span>Event type</span><select data-awv-timeline-type aria-label="Filter timeline by event type"><option value="all">All events</option><option value="run">Run</option><option value="task">Task</option><option value="agent">Agent</option><option value="tool">Tool</option><option value="approval">Approval</option><option value="artifact">Artifact</option></select></label></div><div class="awv-toolbar awv-timeline-toolbar"><span class="awv-caption" data-awv-event-count></span><div class="awv-toolbar-actions"><button class="awv-text-button" type="button" data-awv-action="latest-event" title="Scroll to the latest visible event">Latest' + icon('arrow-down') + '</button><button class="awv-icon-button" type="button" data-awv-action="download-events" title="Download filtered events as JSON" aria-label="Download filtered events as JSON">' + icon('download') + '</button></div></div><ol class="awv-timeline" data-awv-events aria-label="Chronological activity"></ol></div>';
     }
 
     function shell() {
@@ -6214,7 +6251,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const pending = (snapshot.approvals || []).find(a => a.taskId === item.id && a.status === 'pending');
       let result = pending && can('decideApproval') ? '<button type="button" class="awv-button awv-button-accent" data-awv-approval="' + esc(pending.id) + '" data-awv-focus="approval-' + esc(pending.id) + '">' + icon('shield-check') + 'Review approval</button>' : '';
       if (can('retryTask') && (['failed', 'cancelled'].includes(item.status) || item.status === 'blocked' && !pending)) result += '<button type="button" class="awv-button" data-awv-retry="' + esc(item.id) + '" data-awv-focus="retry-' + esc(item.id) + '">' + icon('rotate-ccw') + 'Retry task</button>';
-      if (can('cancelRun') && ['running', 'paused', 'blocked'].includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
+      if (live() && can('cancelTask') && ['queued', 'running', 'blocked', 'paused'].includes(item.status)) result += '<button type="button" class="awv-button" data-awv-cancel-task="' + esc(item.id) + '" data-awv-focus="cancel-' + esc(item.id) + '">' + icon('square') + 'Cancel task</button>';
+      if (can('cancelRun') && ['queued', 'running', 'paused', 'blocked'].includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
       return result;
     }
 
@@ -6238,6 +6276,19 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return '<div class="awv-graph" aria-label="Dependency graph"><div class="awv-graph-start">' + first.map(item => taskNode(item, true)).join('') + '</div>' + rest.map((item, index) => '<div class="awv-graph-connector' + (index === 0 && first.length > 1 ? ' awv-graph-join' : '') + '" aria-hidden="true"><span></span></div><div class="awv-graph-step"><span class="awv-sr-only">Depends on ' + esc(item.dependencies.map(id => task(id)?.title || id).join(' and ')) + '.</span>' + taskNode(item, true) + '</div>').join('') + '</div><p class="awv-caption awv-graph-caption">' + (first.length > 1 ? 'The first two tasks can run together. Both finish before analysis begins.' : 'Lines show which tasks must finish first.') + '</p>';
     }
 
+    function orchestrationDetails(item) {
+      if (!live()) return '';
+      const row = (title, body) => '<div><dt>' + title + '</dt><dd class="awv-record-identity">' + body + '</dd></div>';
+      const attempts = (snapshot.attempts || []).filter(attempt => attempt.taskId === item.id);
+      const processes = (snapshot.processes || []).filter(process => process.taskId === item.id);
+      const agentSessionId = item.agentSessionId || (snapshot.agents || []).find(agent => agent.taskId === item.id && (!item.attemptId || agent.attemptId === item.attemptId))?.agentSessionId;
+      return (item.parentTaskId ? row('Parent task', task(item.parentTaskId) ? '<button type="button" class="awv-link-chip" data-awv-task="' + esc(item.parentTaskId) + '" data-awv-focus="parent-' + esc(item.parentTaskId) + '">' + esc(task(item.parentTaskId).title) + '</button>' : esc(item.parentTaskId)) : '')
+        + (item.attemptId ? row('Current attempt', esc(item.attemptId)) : '')
+        + (agentSessionId ? row('Agent session', can('agentHistory') ? '<button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(agentSessionId) + '">' + esc(agentSessionId) + '</button>' : esc(agentSessionId)) : '')
+        + (attempts.length ? row('Attempts', attempts.map(attempt => '<p>' + esc(attempt.id) + ' · ' + esc(label(attempt.status)) + (attempt.agentSessionId && attempt.agentSessionId !== agentSessionId && can('agentHistory') ? ' <button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(attempt.agentSessionId) + '">Agent history</button>' : '') + '</p>').join('')) : '')
+        + (processes.length ? row('Processes', processes.map(process => '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(process.program || process.job?.program || process.processId) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('')) : '');
+    }
+
     function updateWorkflow() {
       if (!task(state.taskId)) state.taskId = tasks()[0]?.id || null;
       press('[data-awv-action="workflow-mode"]', state.workflowMode);
@@ -6250,7 +6301,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const outputs = artifactList().filter(a => a.taskId === item.id);
       const counts = taskProgress(item);
       const progressLabel = counts ? counts.progress + ' of ' + counts.total + ' steps' : 'Progress not reported';
-      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(item.title) + '</h3><p class="awv-caption">' + esc(item.agentName || item.role || 'Agent not assigned') + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div><div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(tool.name) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(tool.name) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(a.title || a.id) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
+      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(item.title) + '</h3><p class="awv-caption">' + esc(item.agentName || item.role || 'Agent not assigned') + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(tool.name) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(tool.name) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(a.title || a.id) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
     }
 
     function plotWidth() {
@@ -6375,10 +6426,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function liveArtifactHTML(item) {
       const body = typeof item.text === 'string' ? item.text : null, location = safeLocation(item);
+      const download = window.AthenaResultFiles?.href(snapshot.sessionId, item);
       const reviewedVersion = item.documentVersion ?? item.version;
       const review = item.review && String(item.review.version) === String(reviewedVersion) ? item.review.status || 'unreviewed' : 'unreviewed';
       const evidence = Array.isArray(item.evidence) ? item.evidence : [];
-      return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(item.title || item.id) + '</h3>' + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button><button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button></div>' : '') + '</div><dl class="awv-detail-list"><div><dt>Artifact</dt><dd>' + esc(item.id) + '</dd></div><div><dt>Version</dt><dd>' + esc(artifactVersion(item) || 'Not reported') + '</dd></div><div><dt>Task</dt><dd>' + esc(item.taskId || 'Not reported') + '</dd></div>' + (item.documentId ? '<div><dt>Document</dt><dd>' + esc(item.documentId) + ' · v' + esc(item.documentVersion ?? 'Not reported') + '</dd></div>' : '') + '<div><dt>Review</dt><dd>' + esc(String(review).replaceAll('_', ' ')) + '</dd></div><div><dt>Original</dt><dd>' + esc(typeof item.location === 'string' ? item.location : item.location?.uri || 'Not provided') + '</dd></div></dl>' + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>') + (location ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '') + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '') + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
+      return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(item.title || item.id) + '</h3>' + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button><button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button></div>' : '') + '</div><dl class="awv-detail-list"><div><dt>Artifact</dt><dd>' + esc(item.id) + '</dd></div><div><dt>Version</dt><dd>' + esc(artifactVersion(item) || 'Not reported') + '</dd></div><div><dt>Task</dt><dd>' + esc(item.taskId || 'Not reported') + '</dd></div>' + (item.documentId ? '<div><dt>Document</dt><dd>' + esc(item.documentId) + ' · v' + esc(item.documentVersion ?? 'Not reported') + '</dd></div>' : '') + '<div><dt>Review</dt><dd>' + esc(String(review).replaceAll('_', ' ')) + '</dd></div><div><dt>Original</dt><dd>' + esc(typeof item.location === 'string' ? item.location : item.location?.uri || 'Not provided') + '</dd></div></dl>' + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : download ? '' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>') + (download ? '<a class="awv-button" href="' + esc(download) + '" download>Download result file' + icon('download') + '</a>' : '') + (location && !download ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '') + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '') + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
     }
 
     function updateArtifacts(force = false) {
@@ -6421,6 +6473,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function updateTimeline() {
+      updateAgentHistory();
       syncSelect('[data-awv-timeline-task]', [['all', 'All tasks'], ...tasks().map(t => [t.id, t.title])], state.timelineTask);
       const typeSelect = q('[data-awv-timeline-type]'); if (typeSelect && typeSelect.value !== state.timelineType) typeSelect.value = state.timelineType;
       const events = filteredEvents();
@@ -6434,6 +6487,38 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       setHTML('[data-awv-events]', html || '<li class="awv-empty">' + icon('history') + '<h3>' + ((snapshot.events || []).length ? 'No matching events' : 'The timeline is ready') + '</h3><p>' + ((snapshot.events || []).length ? 'Change the task or event type to see more activity.' : live() ? 'The connected runtime has not reported events for this session.' : 'Start the local demo to record task, agent, and tool activity here.') + '</p>' + (state.timelineTask !== 'all' || state.timelineType !== 'all' ? '<button type="button" class="awv-button" data-awv-action="reset-filters">Reset filters</button>' : '') + '</li>');
       q('[data-awv-action="latest-event"]').disabled = !events.length;
       q('[data-awv-action="download-events"]').disabled = !events.length;
+    }
+
+    function updateAgentHistory() {
+      const section = q('[data-awv-agent-history]');
+      if (!section) return;
+      const agents = (snapshot.agents || []).filter(agent => agent.agentSessionId);
+      section.hidden = !live() || !snapshot.capabilities?.agentHistory;
+      if (section.hidden) { history = { key: '', messages: [], status: '', error: '' }; return; }
+      const selected = agents.find(agent => agent.agentSessionId === state.agentSessionId);
+      syncSelect('[data-awv-agent-select]', [['', 'Choose an agent'], ...agents.map(agent => [agent.agentSessionId, (agent.name || agent.role || agent.id) + ' · ' + (task(agent.taskId)?.title || agent.taskId)])], selected?.agentSessionId || '');
+      q('[data-awv-agent-select]').disabled = !agents.length;
+      if (!selected) { history = { key: '', messages: [], status: '', error: '' }; setText('[data-awv-agent-status]', agents.length ? 'Choose an agent to read its conversation.' : 'No agent sessions reported yet.'); setHTML('[data-awv-agent-messages]', ''); return; }
+      const conversationId = snapshot.sessionId;
+      const key = JSON.stringify([scopeKey(snapshot), selected.agentSessionId, snapshot.hydration, snapshot.revision]);
+      if (history.key !== key) {
+        const sameAgent = history.agentSessionId === selected.agentSessionId && history.conversationId === conversationId;
+        const request = { key, conversationId, agentSessionId: selected.agentSessionId, messages: sameAgent ? history.messages : [], status: 'loading', error: '' };
+        history = request;
+        const settle = (status, messages, error = '') => {
+          if (destroyed || history !== request) return;
+          history = { ...request, status, messages, error };
+          if (state.view === 'timeline') updateAgentHistory();
+        };
+        store.getAgentHistory(conversationId, selected.agentSessionId).then(messages => settle('ready', messages), error => settle('error', [], String(error?.message || error)));
+      }
+      const messages = history.messages.flatMap(message => {
+        if (!['user', 'assistant', 'toolResult'].includes(message?.role)) return [];
+        const body = typeof message.content === 'string' ? message.content : (Array.isArray(message.content) ? message.content : []).filter(block => block?.type === 'text').map(block => block.text || '').join('\n');
+        return body ? ['<li><strong>' + esc(message.role === 'toolResult' ? message.toolName || 'Tool result' : message.role === 'assistant' ? 'Agent' : 'Request') + '</strong><div class="awv-record-text">' + esc(body) + '</div></li>'] : [];
+      });
+      setText('[data-awv-agent-status]', history.error || (history.status === 'loading' ? 'Loading agent history…' : messages.length ? selected.agentSessionId : 'No messages recorded for this agent.'));
+      setHTML('[data-awv-agent-messages]', messages.join(''));
     }
 
     function update(force = false) {
@@ -6458,6 +6543,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (chosen.citation !== undefined) state.citation = chosen.citation;
       else if (view === 'artifacts') state.citation = null;
       if (view === 'timeline' && (chosen.taskId || tasks().some(item => item.id === id))) state.timelineTask = chosen.taskId || id;
+      if (view === 'timeline' && chosen.agentSessionId) state.agentSessionId = chosen.agentSessionId;
       state.view = view;
       shell();
       if (chosen.eventId) qa('[data-awv-event-id]').find(el => el.dataset.awvEventId === chosen.eventId)?.scrollIntoView?.({ block: 'nearest' });
@@ -6543,6 +6629,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         navigate('execution', { toolId: button.dataset.awvOpenTool, taskId: tool?.taskId });
         return;
       }
+      if (button.dataset.awvOpenProcess) { navigate('execution', { processId: button.dataset.awvOpenProcess, taskId: state.taskId }); return; }
+      if (button.dataset.awvOpenAgent) { navigate('timeline', { agentSessionId: button.dataset.awvOpenAgent, taskId: state.taskId }); return; }
+      if (button.dataset.awvCancelTask) { if (can('cancelTask')) store.cancelTask(button.dataset.awvCancelTask); return; }
       if (button.dataset.awvOpenArtifact) { navigate('artifacts', { artifactId: button.dataset.awvOpenArtifact, ...(button.dataset.awvVersion ? { version: button.dataset.awvVersion } : {}) }); return; }
       if (button.dataset.awvApproval) { options.onApproval?.(button.dataset.awvApproval); return; }
       if (button.dataset.awvRetry) { if (can('retryTask')) store.retryTask(button.dataset.awvRetry); return; }
@@ -6591,6 +6680,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!live() && el.matches('[data-awv-document-version]')) { state.documentVersion = el.value; updateArtifacts(true); }
       if (el.matches('[data-awv-highlights]')) { state.highlights = el.checked; updateDocument(); }
       if (el.matches('[data-awv-timeline-task]')) { state.timelineTask = el.value; updateTimeline(); }
+      if (el.matches('[data-awv-agent-select]')) { state.agentSessionId = el.value; updateAgentHistory(); }
       if (el.matches('[data-awv-timeline-type]')) { state.timelineType = el.value; updateTimeline(); }
       refreshIcons();
     }, { signal: abort.signal });
@@ -6610,7 +6700,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       resizeObserver = new window.ResizeObserver(() => { if (!destroyed) redrawPlot(); });
       resizeObserver.observe(host);
     }
-    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { lastScope = scope; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
+    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { lastScope = scope; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
     recordUnsubscribe = options.records?.subscribe(() => { if (!destroyed && state.view === 'artifacts') { updateArtifacts(true); refreshIcons(); } });
     return {
       open,
@@ -7177,7 +7267,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const projectBuckets = new Map(), sourceOperations = new Set();
     let selectedId = projectId === 'project-rc' ? 'sample-brief' : null;
     const sourceDefaults = (source, project = projectId) => ({ ...source, projectId: project, sourceVersion: String(source.sourceVersion || '1'), originalLocation: source.originalLocation || { uri: null, label: source.isSample ? 'Bundled example' : source.origin === 'note' ? 'Note created in Athena' : source.title }, persistence: source.persistence || (source.isSample ? 'bundled' : source.origin === 'note' ? 'device' : 'session'), extraction: source.extraction || { status: source.format === 'PDF' ? 'not_requested' : 'ready', version: String(source.sourceVersion || '1'), method: source.format === 'PDF' ? null : 'plain-text' }, review: source.review || { status: 'unreviewed', version: String(source.sourceVersion || '1') }, versions: source.versions || [] });
-    const initialSources = project => project === 'project-rc' ? SAMPLES.map((source, index) => sourceDefaults({ ...source, origin: 'sample', isSample: true, sessionOnly: false, pinned: index === 0, createdAt: '', order: index }, project)) : [];
+    let runtimeMode = Boolean(options.hosted);
+    const initialSources = project => !runtimeMode && project === 'project-rc' ? SAMPLES.map((source, index) => sourceDefaults({ ...source, origin: 'sample', isSample: true, sessionOnly: false, pinned: index === 0, createdAt: '', order: index }, project)) : [];
     let sources = initialSources(projectId);
     const storageKey = () => STORAGE_KEY + ':' + encodeURIComponent(projectId);
     function loadProjectStorage() {
@@ -7632,6 +7723,13 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       },
       focus() { if (!destroyed) searchInput.focus({ preventScroll: true }); },
       setProject, attachRecords, detachRecords, refreshSources,
+      setRuntimeMode(active) {
+        if (runtimeMode === active) return;
+        runtimeMode = active;
+        sources = [...initialSources(projectId), ...sources.filter(source => !source.isSample)];
+        if (runtimeMode) for (const bucket of projectBuckets.values()) bucket.sources = bucket.sources.filter(source => !source.isSample);
+        renderCollection();
+      },
       getOriginalFile(sourceId, version) { return fileVersions.get(sourceId) === String(version) ? files.get(sourceId) || null : null; },
       getState: () => ({ projectId, recordsConnected: Boolean(service), pendingSourceIds: [...sourceOperations], query, filter, pinnedOnly, selectedId, storageMode, importBusy, noteDraft: { title: noteTitle.value, text: noteBody.value }, sources: sources.map(publicSource) }),
       destroy() {
@@ -7658,8 +7756,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
 </script>
 <script>
-/* Inline, event-driven agent and tool activity with per-action approval.
- * This module only operates the local demonstration store. */
+/* Inline agent, tool, and process activity for runtime and preview snapshots. */
 (() => {
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -7674,6 +7771,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const listen = (element, type, callback, settings = {}) => element.addEventListener(type, callback, { ...settings, signal });
     const expanded = new Set();
     const expandedTools = new Set();
+    const expandedProcesses = new Set();
     const requestedTools = new Set();
     const outputModes = new Map();
     const copyFallbacks = new Map();
@@ -7709,7 +7807,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!element) return null;
       if (element.dataset?.awToolAction) return { attribute: 'data-aw-tool-action', value: element.dataset.awToolAction, tool: element.dataset.awTool };
       if (element.dataset?.awOutputMode) return { attribute: 'data-aw-output-mode', value: element.dataset.awOutputMode, tool: element.dataset.awTool };
-      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-awv-focus', 'data-awv-action']) {
+      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-awv-focus', 'data-awv-action']) {
         const value = element.getAttribute?.(attribute);
         if (value != null) return { attribute, value };
       }
@@ -7763,13 +7861,13 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function toolDetailsHTML(tool, task, state) {
-      const result = task.id && state.artifacts.find(item => item.taskId === task.id);
+      const results = task.id ? state.artifacts.filter(item => item.toolId ? item.toolId === tool.id : item.taskId === task.id && (!item.attemptId || item.attemptId === tool.attemptId)) : [];
       const approval = task.id && state.approvals.find(item => item.taskId === task.id && item.status === 'pending');
       const mode = outputModes.get(tool.id) || 'log';
       const fallback = copyFallbacks.get(tool.id);
       const progress = state.mode === 'runtime' ? Number.isFinite(task.progress) && Number.isFinite(task.total) && task.total > 0 ? task.progress + ' / ' + task.total + ' reported steps' : 'Progress not reported' : task.progress + ' / ' + task.total + ' demo steps';
       const action = (name, label, glyph) => '<button type="button" class="aw-text-button cursor-interaction" data-aw-tool-action="' + name + '" data-aw-tool="' + esc(tool.id) + '">' + icon(glyph) + label + '</button>';
-      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(task.title) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(tool.name) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + (result ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(result.title) + '</button>' : '') + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + '</div>';
+      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(task.title) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(tool.name) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + results.map(result => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(result.title) + '</button>').join('') + resultFilesHTML(results) + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + '</div>';
     }
 
     function toolEventHTML(tool, state, agent = null) {
@@ -7796,6 +7894,17 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function revealTool(selection = {}) {
       if (destroyed) return false;
       if (typeof selection === 'string') selection = { taskId: selection };
+      const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
+      if (process) {
+        expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
+        const row = [...host.querySelectorAll('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
+        if (!row) return false;
+        row.open = true;
+        row.querySelector('summary').focus({ preventScroll: true });
+        row.scrollIntoView?.({ block: 'nearest' });
+        return true;
+      }
+      if (selection.processId) return false;
       const tool = (selection.toolId && snapshot.tools.find(item => item.id === selection.toolId)) || (selection.taskId && snapshot.tools.find(item => item.taskId === selection.taskId)) || snapshot.tools.find(item => ['running', 'blocked', 'failed', 'paused'].includes(item.status)) || snapshot.tools[0];
       if (!tool) return false;
       requestedTools.add(tool.id); expandedTools.add(tool.id); thinkingOpen = true;
@@ -7830,19 +7939,37 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       downloadTimers.set(timer, url);
     }
 
+    function resultFilesHTML(results) {
+      return results.map(item => {
+        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.filename || item.title || 'Download result file') + '</a>' : '';
+      }).join('');
+    }
+
+    function processHTML(process) {
+      const job = process.job || process;
+      const status = LABELS[process.status] || String(process.status || '').replaceAll('_', ' ');
+      const command = [job.program, ...(Array.isArray(job.args) ? job.args : [])].filter(Boolean).join(' ');
+      const files = snapshot.artifacts.filter(item => (process.processId && item.processId === process.processId) || item.id === job.artifact?.id);
+      const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(job.program || 'Process') + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context"><div><dt>Exit code</dt><dd>' + esc(job.exitCode ?? '—') + '</dd></div><div><dt>Signal</dt><dd>' + esc(job.signal ?? '—') + '</dd></div></dl>'
+        + (command ? '<code class="aw-tool-command">' + esc(command) + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
+    }
+
     function render(state) {
       if (destroyed) return;
       snapshot = state;
-      if (currentRunId && currentRunId !== state.run.id) { expanded.clear(); expandedTools.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
+      if (currentRunId && currentRunId !== state.run.id) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
       currentRunId = state.run.id;
       if(state.mode==='runtime'){
-        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.agents,state.tools,state.approvals,[...requestedTools],[...expandedTools]]);
+        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.agents,state.tools,state.processes,state.artifacts,state.approvals,[...requestedTools],[...expandedTools]]);
         if(signature!==renderSignature){
           renderSignature=signature;
           const previous=host.contains(document.activeElement)?captureKey(document.activeElement):null;
           const tools=state.tools.filter(tool=>tool.source!=='pi'||requestedTools.has(tool.id));
           const pending=state.approvals.filter(request=>request.status==='pending');
-          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(state.sessionId||'Waiting for a session identifier')+(state.run.id?' · '+esc(state.run.id):'')+'</p>'+agentGroupHTML(state)+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+'</div></details>');
+          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(state.sessionId||'Waiting for a session identifier')+(state.run.id?' · '+esc(state.run.id):'')+'</p>'+agentGroupHTML(state)+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+'</div></details>');
           for(const line of host.querySelectorAll('.aw-tool-task'))line.textContent=line.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*demo steps/,'');
           if(!state.capabilities?.retryTask)host.querySelectorAll('[data-aw-retry]').forEach(button=>button.disabled=true);
           refreshIcons();if(previous&&!openedApproval)resolveKey(previous)?.focus({preventScroll:true});
@@ -7882,6 +8009,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     listen(host, 'toggle', event => {
       if (event.target.matches?.('.aw-demo-options')) { demoOptionsOpen = event.target.open; return; }
       if (event.target.matches?.('[data-aw-thinking]')) { thinkingOpen = event.target.open; return; }
+      if (event.target.matches?.('[data-aw-process]')) {
+        if (event.target.open) expandedProcesses.add(event.target.dataset.awProcess);
+        else expandedProcesses.delete(event.target.dataset.awProcess);
+        return;
+      }
       if (!event.target.matches?.('[data-aw-event-tool]')) return;
       const id = event.target.dataset.awAgent, toolId = event.target.dataset.awEventTool;
       if (event.target.open) { if (id) expanded.add(id); expandedTools.add(toolId); }
@@ -7898,7 +8030,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const button = event.target.closest('button');
       if (!button || button.disabled || !host.contains(button)) return;
       if (button.dataset.awApprovalOpen) { openApproval(button.dataset.awApprovalOpen); return; }
-      if (button.dataset.awAgentReveal) { const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal); if (agent) revealTool({ taskId: agent.taskId }); return; }
+      if (button.dataset.awAgentReveal) {
+        const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal);
+        if (agent?.agentSessionId && snapshot.capabilities?.agentHistory) options.onNavigate?.('timeline', { taskId: agent.taskId, agentSessionId: agent.agentSessionId });
+        else if (agent) revealTool({ taskId: agent.taskId });
+        return;
+      }
       if (button.dataset.awOutputMode) {
         outputModes.set(button.dataset.awTool, button.dataset.awOutputMode); renderSignature = ''; render(snapshot); return;
       }
@@ -10170,7 +10307,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   if(view==='execution'){
    composer.closeMenu?.();closePanel(false);overlay();
    const toolId=selection?.toolId;
-   if(!toolId||!(piView?.revealTool(toolId)||piManualView?.revealTool(toolId)))workspaceChrome?.revealTool(selection||{});
+   if(selection?.processId||!toolId||!(piView?.revealTool(toolId)||piManualView?.revealTool(toolId)))workspaceChrome?.revealTool(selection||{});
    announce('Tool details expanded in the conversation.');return;
   }
   if(!WORKSPACE_VIEWS.includes(view))return;
@@ -10184,7 +10321,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  }
  function openAgents(id=null,from=null){
   const agent=workspaceStore?.getState().agents.find(item=>item.id===id);
-  openWorkspace('timeline',agent?{taskId:agent.taskId}:null,from);
+  openWorkspace('timeline',agent?{taskId:agent.taskId,agentSessionId:agent.agentSessionId}:null,from);
  }
  function openApproval(id){
   settings?.close(false);
@@ -10275,6 +10412,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
   surfaces?.setRuntimeMode?.(live);
+  knowledge?.setRuntimeMode?.(live);
   for(const [key,value] of [['projectId',snapshot.projectId],['sessionId',snapshot.sessionId],['runId',snapshot.run?.id]])root.dataset[key]=value||'';
   const activity=q('#aw-activity');
   if(live&&activity.parentElement!==q('#ac-connected-activity'))q('#ac-connected-activity').appendChild(activity);
@@ -10732,10 +10870,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  workspaceStore=window.AthenaWorkspaceSession.create({demo:demoStore,runtime:piRuntime,onError:toast,hosted});
  connectionManager=window.AthenaConnectionManager.create();
  records=window.AthenaResearchRecords.create({projectId:'project-rc',onError:error=>toast(String(error.message||error))});
- records.ensureDocument({documentId:'research-note',title:'RC low-pass filter: frequency response validation',text:note,version:'1',originalSample:true,evidence:[{sourceId:'baseline.cir',version:'1'}]});
+ if(!hosted)records.ensureDocument({documentId:'research-note',title:'RC low-pass filter: frequency response validation',text:note,version:'1',originalSample:true,evidence:[{sourceId:'baseline.cir',version:'1'}]});
  surfaces=window.AthenaSurfaces.mount(q('#ac-surface-slot'),{files,icons,toast,onResearch:tab=>openPanel(tab||'results'),onWorkspace:(view,selection)=>openWorkspace(view,selection),onAgents:()=>openWorkspace('timeline'),onClose:()=>closePanel()});
  workspaceViews=window.AthenaWorkspaceViews.mount(q('#ac-workbench-slot'),{store:workspaceStore,records,icons,toast,onNavigate:(view,selection)=>openWorkspace(view,selection),onApproval:openApproval});
- knowledge=window.AthenaKnowledge.mount(q('#ac-knowledge-slot'),{icons,toast,onUseSource(item){
+ knowledge=window.AthenaKnowledge.mount(q('#ac-knowledge-slot'),{icons,toast,hosted,onUseSource(item){
   const snippet='['+item.title+']\n'+String(item.excerpt||'');
   composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+snippet);
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();

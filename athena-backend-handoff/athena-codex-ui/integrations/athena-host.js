@@ -4,7 +4,7 @@
   window.AthenaHosted = true;
   let app, events, snapshot, connection, inputContract, retryButton, capabilities = [], piCapabilities = [];
   let generation = 0, activeSession = null, loading = null, destroyed = false;
-  let streamEpoch = 0, reload = false;
+  let streamEpoch = 0, reload = false, cursor = null;
   const buffered = [];
   const workspaceListeners = new Set(), connectionListeners = new Set(), piListeners = new Set();
   const notify = (listeners, value) => { for (const fn of listeners) fn(value); };
@@ -81,6 +81,8 @@
     },
     createSession: input => activate('createSession', [input]),
     openSession: id => activate('openSession', [id]),
+    getAgentHistory: (conversationId, agentSessionId) => rpc('getAgentHistory', [conversationId, agentSessionId]),
+    cancelTask: taskId => rpc('cancelTask', [taskId]),
     cancelRun: runId => rpc('cancelRun', [runId]),
     async setProjectDefaultModel(id, model) {
       const result = await rpc('setProjectDefaultModel', [id, model]);
@@ -103,6 +105,7 @@
     const status = document.getElementById('ac-pi-session-status');
     if (status) status.textContent = 'Workspace disconnected. Reconnecting will restore saved history. ' + String(error.message || error);
   }
+  const validCursor = value => typeof value?.epoch === 'string' && value.epoch.length > 0 && Number.isSafeInteger(value.sequence) && value.sequence >= 0;
   async function bootstrap() {
     if (destroyed) return;
     if (loading) { reload = true; return loading; }
@@ -111,20 +114,27 @@
       try {
         const data = await json('/api/bootstrap');
         if (destroyed || streamBound !== streamEpoch) return;
+        const nextCursor = validCursor(data.cursor) ? data.cursor : null;
         capabilities = data.capabilities; piCapabilities = data.piCapabilities; inputContract = data.inputContract;
-        snapshot = undefined; connection = data.connection;
+        snapshot = data.snapshot; connection = data.connection;
         unbind();
-        acceptSnapshot(data.snapshot, false);
         await app.attachTaskManager(manager);
         if (destroyed || streamBound !== streamEpoch) return;
         app.attachConnectionManager(connections);
         if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
         await app.refreshPi();
         if (destroyed || streamBound !== streamEpoch) return;
-        for (const data of buffered.splice(0)) receive(data);
+        if (nextCursor) {
+          buffered.length = 0;
+          cursor = nextCursor;
+          connectEvents(cursor);
+        } else {
+          for (const data of buffered.splice(0)) receive(data);
+          if (!events || events.readyState === 2) connectEvents();
+        }
         retryButton.hidden = true;
       } catch (error) { if (!destroyed) failure(error); }
-      finally { loading = null; if (reload && !destroyed && events.readyState === 1) { reload = false; bootstrap(); } }
+      finally { loading = null; if (reload && !destroyed) { reload = false; bootstrap(); } }
     })();
     return loading;
   }
@@ -136,15 +146,44 @@
       default: throw new Error('The host sent an unknown event.');
     }
   }
-  function connectEvents() {
-    events = new EventSource('/api/events');
-    events.onopen = () => { streamEpoch++; buffered.length = 0; bootstrap(); };
-    events.onerror = () => { streamEpoch++; buffered.length = 0; failure(new Error('The event stream was interrupted.')); };
-    events.onmessage = message => {
+  function resetStream() {
+    events?.close(); cursor = null; streamEpoch++; buffered.length = 0;
+    void bootstrap();
+  }
+  function connectEvents(resume = null) {
+    events?.close();
+    const query = resume ? '?' + new URLSearchParams({ epoch: resume.epoch, after: String(resume.sequence) }) : '';
+    const stream = new EventSource('/api/events' + query);
+    events = stream;
+    stream.onopen = () => {
+      if (destroyed || stream !== events) return;
+      if (!resume) { streamEpoch++; buffered.length = 0; void bootstrap(); }
+      else if (!retryButton.hidden) { retryButton.hidden = true; void app.refreshPi(); }
+    };
+    stream.onerror = () => {
+      if (destroyed || stream !== events) return;
+      if (resume) {
+        retryButton.hidden = false;
+        app.reportHostError('The event stream was interrupted. Reconnecting…');
+      } else {
+        streamEpoch++; buffered.length = 0;
+        failure(new Error('The event stream was interrupted.'));
+      }
+    };
+    stream.onmessage = message => {
+      if (destroyed || stream !== events) return;
       try {
         const data = JSON.parse(message.data);
-        if (loading) buffered.push(data); else receive(data);
-      } catch (error) { failure(error); }
+        if (data.type === 'reset') { if (resume) resetStream(); return; }
+        if (!resume) { if (loading) buffered.push(data); else receive(data); return; }
+        if (!validCursor(data) || message.lastEventId !== data.epoch + ':' + data.sequence || data.epoch !== cursor.epoch) { resetStream(); return; }
+        if (data.sequence <= cursor.sequence) return;
+        if (data.sequence !== cursor.sequence + 1) { resetStream(); return; }
+        receive(data);
+        cursor = { epoch: data.epoch, sequence: data.sequence };
+      } catch (error) {
+        if (resume) resetStream(); else failure(error);
+      }
     };
   }
   function start() {
@@ -159,8 +198,9 @@
     connectEvents();
     window.AthenaHost = Object.freeze({
       reconnect() {
-        if (events.readyState === 1) return bootstrap();
-        events.close(); connectEvents();
+        if (cursor) { connectEvents(cursor); return; }
+        if (events.readyState === 1 || events.readyState === 2 && !snapshot) return bootstrap();
+        connectEvents();
       },
       destroy() { destroyed = true; events.close(); unbind(); workspaceListeners.clear(); connectionListeners.clear(); }
     });

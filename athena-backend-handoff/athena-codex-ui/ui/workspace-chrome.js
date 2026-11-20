@@ -1,5 +1,4 @@
-/* Inline, event-driven agent and tool activity with per-action approval.
- * This module only operates the local demonstration store. */
+/* Inline agent, tool, and process activity for runtime and preview snapshots. */
 (() => {
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
@@ -14,6 +13,7 @@
     const listen = (element, type, callback, settings = {}) => element.addEventListener(type, callback, { ...settings, signal });
     const expanded = new Set();
     const expandedTools = new Set();
+    const expandedProcesses = new Set();
     const requestedTools = new Set();
     const outputModes = new Map();
     const copyFallbacks = new Map();
@@ -49,7 +49,7 @@
       if (!element) return null;
       if (element.dataset?.awToolAction) return { attribute: 'data-aw-tool-action', value: element.dataset.awToolAction, tool: element.dataset.awTool };
       if (element.dataset?.awOutputMode) return { attribute: 'data-aw-output-mode', value: element.dataset.awOutputMode, tool: element.dataset.awTool };
-      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-awv-focus', 'data-awv-action']) {
+      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-awv-focus', 'data-awv-action']) {
         const value = element.getAttribute?.(attribute);
         if (value != null) return { attribute, value };
       }
@@ -103,13 +103,13 @@
     }
 
     function toolDetailsHTML(tool, task, state) {
-      const result = task.id && state.artifacts.find(item => item.taskId === task.id);
+      const results = task.id ? state.artifacts.filter(item => item.toolId ? item.toolId === tool.id : item.taskId === task.id && (!item.attemptId || item.attemptId === tool.attemptId)) : [];
       const approval = task.id && state.approvals.find(item => item.taskId === task.id && item.status === 'pending');
       const mode = outputModes.get(tool.id) || 'log';
       const fallback = copyFallbacks.get(tool.id);
       const progress = state.mode === 'runtime' ? Number.isFinite(task.progress) && Number.isFinite(task.total) && task.total > 0 ? task.progress + ' / ' + task.total + ' reported steps' : 'Progress not reported' : task.progress + ' / ' + task.total + ' demo steps';
       const action = (name, label, glyph) => '<button type="button" class="aw-text-button cursor-interaction" data-aw-tool-action="' + name + '" data-aw-tool="' + esc(tool.id) + '">' + icon(glyph) + label + '</button>';
-      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(task.title) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(tool.name) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + (result ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(result.title) + '</button>' : '') + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + '</div>';
+      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(task.title) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(tool.name) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + results.map(result => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(result.title) + '</button>').join('') + resultFilesHTML(results) + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + '</div>';
     }
 
     function toolEventHTML(tool, state, agent = null) {
@@ -136,6 +136,17 @@
     function revealTool(selection = {}) {
       if (destroyed) return false;
       if (typeof selection === 'string') selection = { taskId: selection };
+      const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
+      if (process) {
+        expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
+        const row = [...host.querySelectorAll('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
+        if (!row) return false;
+        row.open = true;
+        row.querySelector('summary').focus({ preventScroll: true });
+        row.scrollIntoView?.({ block: 'nearest' });
+        return true;
+      }
+      if (selection.processId) return false;
       const tool = (selection.toolId && snapshot.tools.find(item => item.id === selection.toolId)) || (selection.taskId && snapshot.tools.find(item => item.taskId === selection.taskId)) || snapshot.tools.find(item => ['running', 'blocked', 'failed', 'paused'].includes(item.status)) || snapshot.tools[0];
       if (!tool) return false;
       requestedTools.add(tool.id); expandedTools.add(tool.id); thinkingOpen = true;
@@ -170,19 +181,37 @@
       downloadTimers.set(timer, url);
     }
 
+    function resultFilesHTML(results) {
+      return results.map(item => {
+        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.filename || item.title || 'Download result file') + '</a>' : '';
+      }).join('');
+    }
+
+    function processHTML(process) {
+      const job = process.job || process;
+      const status = LABELS[process.status] || String(process.status || '').replaceAll('_', ' ');
+      const command = [job.program, ...(Array.isArray(job.args) ? job.args : [])].filter(Boolean).join(' ');
+      const files = snapshot.artifacts.filter(item => (process.processId && item.processId === process.processId) || item.id === job.artifact?.id);
+      const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(job.program || 'Process') + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context"><div><dt>Exit code</dt><dd>' + esc(job.exitCode ?? '—') + '</dd></div><div><dt>Signal</dt><dd>' + esc(job.signal ?? '—') + '</dd></div></dl>'
+        + (command ? '<code class="aw-tool-command">' + esc(command) + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
+    }
+
     function render(state) {
       if (destroyed) return;
       snapshot = state;
-      if (currentRunId && currentRunId !== state.run.id) { expanded.clear(); expandedTools.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
+      if (currentRunId && currentRunId !== state.run.id) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
       currentRunId = state.run.id;
       if(state.mode==='runtime'){
-        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.agents,state.tools,state.approvals,[...requestedTools],[...expandedTools]]);
+        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.agents,state.tools,state.processes,state.artifacts,state.approvals,[...requestedTools],[...expandedTools]]);
         if(signature!==renderSignature){
           renderSignature=signature;
           const previous=host.contains(document.activeElement)?captureKey(document.activeElement):null;
           const tools=state.tools.filter(tool=>tool.source!=='pi'||requestedTools.has(tool.id));
           const pending=state.approvals.filter(request=>request.status==='pending');
-          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(state.sessionId||'Waiting for a session identifier')+(state.run.id?' · '+esc(state.run.id):'')+'</p>'+agentGroupHTML(state)+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+'</div></details>');
+          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(state.sessionId||'Waiting for a session identifier')+(state.run.id?' · '+esc(state.run.id):'')+'</p>'+agentGroupHTML(state)+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+'</div></details>');
           for(const line of host.querySelectorAll('.aw-tool-task'))line.textContent=line.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*demo steps/,'');
           if(!state.capabilities?.retryTask)host.querySelectorAll('[data-aw-retry]').forEach(button=>button.disabled=true);
           refreshIcons();if(previous&&!openedApproval)resolveKey(previous)?.focus({preventScroll:true});
@@ -222,6 +251,11 @@
     listen(host, 'toggle', event => {
       if (event.target.matches?.('.aw-demo-options')) { demoOptionsOpen = event.target.open; return; }
       if (event.target.matches?.('[data-aw-thinking]')) { thinkingOpen = event.target.open; return; }
+      if (event.target.matches?.('[data-aw-process]')) {
+        if (event.target.open) expandedProcesses.add(event.target.dataset.awProcess);
+        else expandedProcesses.delete(event.target.dataset.awProcess);
+        return;
+      }
       if (!event.target.matches?.('[data-aw-event-tool]')) return;
       const id = event.target.dataset.awAgent, toolId = event.target.dataset.awEventTool;
       if (event.target.open) { if (id) expanded.add(id); expandedTools.add(toolId); }
@@ -238,7 +272,12 @@
       const button = event.target.closest('button');
       if (!button || button.disabled || !host.contains(button)) return;
       if (button.dataset.awApprovalOpen) { openApproval(button.dataset.awApprovalOpen); return; }
-      if (button.dataset.awAgentReveal) { const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal); if (agent) revealTool({ taskId: agent.taskId }); return; }
+      if (button.dataset.awAgentReveal) {
+        const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal);
+        if (agent?.agentSessionId && snapshot.capabilities?.agentHistory) options.onNavigate?.('timeline', { taskId: agent.taskId, agentSessionId: agent.agentSessionId });
+        else if (agent) revealTool({ taskId: agent.taskId });
+        return;
+      }
       if (button.dataset.awOutputMode) {
         outputModes.set(button.dataset.awTool, button.dataset.awOutputMode); renderSignature = ''; render(snapshot); return;
       }

@@ -108,7 +108,11 @@ reset()
 destroy()
 ```
 
-Snapshots include `run`, `configuration`, `tasks`, `tools`, `agents`, `approvals`, `events`, and `artifacts`. Cross-view navigation uses IDs, not display labels or array positions. Artifact-available events include exact `artifactId` values.
+Snapshots include `run`, `configuration`, `tasks`, `tools`, `agents`, `approvals`, `events`, and `artifacts`. M2 also supplies `attempts` and `processes`. Workflow shows explicit parent, attempt, and agent session IDs; Execution shows the host process output and its result files. Cross-view navigation uses IDs, not display labels or array positions. Artifact-available events include exact `artifactId` values.
+
+The Agents timeline reads `getAgentHistory(conversationId, agentSessionId)` separately from the writable conversation transport. The UI sends `cancelTask(taskId)` and `cancelRun(runId)` only when the corresponding capability is advertised, and displays cancellation status from the host snapshot. Downloadable files are served at `/api/artifacts/<conversationId>/<artifactId>`.
+
+The hosted browser hydrates from bootstrap and replays `/api/events?epoch=X&after=N` using the bootstrap cursor. Each SSE ID is `epoch:sequence`. An expired cursor or a host restart produces a reset, which reloads the workspace, main history, and the selected agent history when it still belongs to that conversation. M1 fixtures with no cursor retain their original stream behavior.
 
 Task/tool states are `queued`, `running`, `paused`, `blocked`, `succeeded`, `failed`, and `cancelled`. New runs are `ready`. Approval states are `pending`, `approved`, and `rejected`.
 
