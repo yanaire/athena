@@ -58,8 +58,9 @@ try {
       let at;
       while ((at = buf.indexOf('\n\n')) >= 0) {
         const frame = buf.slice(0, at); buf = buf.slice(at + 2);
-        if (!frame.startsWith('data: ')) continue;
-        const packet = JSON.parse(frame.slice(6));
+        const data = frame.split('\n').find(line => line.startsWith('data: '));
+        if (!data) continue;
+        const packet = JSON.parse(data.slice(6));
         if (packet.type === 'pi' && packet.sessionId === sessionId && packet.event.assistantMessageEvent?.type === 'text_delta') deltas++;
         if (packet.type === 'snapshot' && packet.snapshot.sessionId === sessionId && ['succeeded', 'failed', 'cancelled', 'paused'].includes(packet.snapshot.run?.status)) return packet.snapshot;
       }

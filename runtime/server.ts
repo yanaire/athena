@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Connections, object } from './connections.ts';
 import { TaskManager } from './manager.ts';
+import { WorkspaceFeed } from './feed.ts';
 
 const directory = resolve(process.env.ATHENA_DATA_DIR || join(homedir(), '.athena', 'workspace'));
 const port = Number(process.env.ATHENA_PORT ?? 4317);
@@ -23,9 +24,9 @@ const web = new URL('../athena-backend-handoff/athena-codex-ui/', import.meta.ur
 const html = (await readFile(new URL('athena-preview.html', web), 'utf8')).replace('</body>', '<script src="/athena-host.js"></script></body>');
 const bridge = await readFile(new URL('integrations/athena-host.js', web));
 const streams = new Set<ServerResponse>();
+const feed = new WorkspaceFeed();
 function publish(event: object) {
-  if (!streams.size) return;
-  const frame = `data: ${JSON.stringify(event)}\n\n`;
+  const frame = feed.append(event);
   for (const client of streams) {
     if (client.writableLength > 4 * 1024 * 1024) client.destroy(); // reconnect and hydrate from disk
     else client.write(frame);
@@ -55,6 +56,8 @@ async function rpc(method: string, args: unknown[]) {
       return manager.createSession({ projectId: string(input.projectId), title: string(input.title ?? 'New research'), model: model(input.model) });
     }
     case 'openSession': return manager.openSession(string(input));
+    case 'getAgentHistory': return manager.getAgentHistory(string(input), string(second));
+    case 'cancelTask': return manager.cancelTask(string(input));
     case 'cancelRun': return manager.cancelRun(string(input));
     case 'setProjectDefaultModel': return manager.setProjectDefaultModel(string(input), model(second));
     case 'pi': {
@@ -99,13 +102,28 @@ const server = createServer(async (req, res) => {
   if (req.headers.host !== host || (req.headers.origin && req.headers.origin !== `http://${host}`) || req.headers['sec-fetch-site'] === 'cross-site') { json(403, { error: 'Local same-origin requests only.' }); return; }
   try {
     if (req.method === 'GET') {
-      switch (req.url) {
+      const url = new URL(req.url ?? '/', `http://${host}`);
+      const artifact = /^\/api\/artifacts\/([\w-]+)\/([\w-]+)$/.exec(url.pathname);
+      if (artifact?.[1] && artifact[2]) {
+        const { bytes, name } = await manager.artifactDownload(artifact[1], artifact[2]);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': bytes.length,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }).end(bytes);
+        return;
+      }
+      switch (url.pathname) {
         case '/': res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html); return;
         case '/athena-host.js': res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(bridge); return;
         case '/favicon.ico': res.writeHead(204).end(); return;
-        case '/api/bootstrap': json(200, { snapshot: manager.getSnapshot(), connection: connections.getState(), capabilities: manager.capabilities, piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+        case '/api/bootstrap': json(200, { snapshot: manager.getSnapshot(), cursor: feed.cursor, connection: connections.getState(), capabilities: manager.capabilities, piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
         case '/api/events': {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
+          const last = req.headers['last-event-id'];
+          const parts = typeof last === 'string' ? last.split(':') : null;
+          if (parts || url.searchParams.has('epoch') || url.searchParams.has('after')) {
+            const frames = feed.replay(parts ? parts[0] ?? null : url.searchParams.get('epoch'), parts ? parts[1] ?? null : url.searchParams.get('after'));
+            if (!frames) { res.end(`data: ${JSON.stringify({ type: 'reset', ...feed.cursor })}\n\n`); return; }
+            for (const frame of frames) res.write(frame);
+          }
           streams.add(res); res.write(': subscribed\n\n');
           const timer = setInterval(() => res.write(': keepalive\n\n'), 15000);
           res.on('close', () => { clearInterval(timer); streams.delete(res); });
