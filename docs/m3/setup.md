@@ -13,6 +13,6 @@ Node.js 24 이상에서 `npm ci`, `npm start`를 실행하고 `http://127.0.0.1:
 - **Keychain**: macOS에서는 운영자가 서비스 `Athena provider vault v1`, 계정은 실제 `ATHENA_DATA_DIR` 절대 경로 문자열의 SHA-256으로 등록한 키를 읽는다. 저장 파일에는 자격 증명을 암호화해서 보관한다. 키 값은 Athena가 명령 인자로 전달하지 않는다.
 - **Memory**: 키가 없고 기존 암호화 저장소도 없으면 휘발성 모드다. 이 경우 프로필과 이력은 보존되지만 UI에서 입력한 키와 OAuth 세션은 재시작하면 다시 설정해야 한다. 기존 암호화 저장소의 키가 틀리면 호스트가 열기를 중단한다.
 
-OpenAI 키는 OpenAI API 요청에 사용된다. **Continue with ChatGPT**는 별도의 [OpenAI 공식 오픈소스 로그인](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)이다. 인증 브라우저가 Athena 호스트와 같은 컴퓨터에서 루프백 콜백 URL에 접속할 수 있어야 한다. 계정에서 허용하지 않는 모델은 호출에 실패할 수 있다. `openai-codex`에는 Athena가 쓸 수 있는 독립 OAuth 등록이 없어 카탈로그만 제공한다. Claude는 Console API 키 또는 지원하는 클라우드 제공자를 사용한다. [Anthropic 정책](https://code.claude.com/docs/en/legal-and-compliance)에 따라 Claude 구독 OAuth는 노출하지 않는다.
+OpenAI 키는 OpenAI API 요청에 사용된다. **Continue with ChatGPT**는 별도의 [OpenAI 공식 오픈소스 로그인](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)이다. M3.1 배포에서는 로그인과 계정 요청을 비활성화했다. [현재 지원 범위](../m31/chatgpt-codex.md)를 참고한다. `openai-codex`에는 Athena가 쓸 수 있는 독립 OAuth 등록이 없어 실행할 수 없다. Claude는 Console API 키 또는 지원하는 클라우드 제공자를 사용한다. [Anthropic 정책](https://code.claude.com/docs/en/legal-and-compliance)에 따라 Claude 구독 OAuth는 노출하지 않는다.
 
 UI 로그아웃은 Athena가 해당 제공자에 저장한 자격 증명을 지운다. 운영자가 호스트에 주입한 환경 자격 증명이나 공급자 계정에서 발급된 토큰까지 철회하지는 않는다. 활성 연구 또는 OAuth가 있으면 해당 연구나 로그인부터 종료해야 자격 증명을 바꿀 수 있다.

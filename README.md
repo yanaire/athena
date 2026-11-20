@@ -6,6 +6,8 @@ Athena의 로컬 Node 호스트는 기존 UI, 자체 TaskManager, 공식 Pi SDK�
 
 **M2.1 분석 코드 실행** — 허용한 프로젝트의 자식은 분석 소스를 작성하고 Node 또는 Python으로 실행해 여러 결과 파일을 만들 수 있습니다. [프로젝트별 활성화와 실행 예시](docs/m21/setup.md), [실모델 브라우저 인수 기록](docs/m21/acceptance.md)을 참고하세요. 기존 `read`와 `calculate_csv`에는 분석 이미지가 필요하지 않습니다.
 
+**M3.1 ChatGPT 플랜 모델** — 계정별 카탈로그와 Pi 실행을 통제된 OpenAI 응답으로 검증했습니다. 이 배포에서는 ChatGPT 로그인이 비활성화되어 있습니다. OpenAI API 키와 다른 제공자는 계속 사용할 수 있습니다. [구현 범위와 실계정 검증 조건](docs/m31/chatgpt-codex.md)을 참고하세요.
+
 **실행** — Node.js 24.22.3에서 검증합니다. 먼저 도구 호출과 OpenAI 호환 스트리밍을 지원하는 모델 서버를 실행하세요. 모델 가중치 및 자격 증명은 저장소에 포함하지 않습니다.
 
 ```sh
