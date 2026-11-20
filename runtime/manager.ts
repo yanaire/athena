@@ -679,7 +679,8 @@ export class TaskManager implements AthenaTaskManager {
       if(name==='write_file') {
         if(typeof args.content!=='string' || Object.keys(args).length!==2)throw new ManagerError('INVALID_INPUT','Supply a filename and UTF-8 content.');
         const filename=text(args.name,'Name');this.#requirePrivateNames(a,[filename]);await this.#files.write(a,filename,args.content);
-        return {name:filename,bytes:Buffer.byteLength(args.content),sha256:hash(args.content)};
+        return {name:filename,bytes:Buffer.byteLength(args.content),sha256:hash(args.content),scope:'private workspace',
+          execution:'not executed',published:false};
       }
       if(Object.keys(args).length!==1)throw new ManagerError('INVALID_INPUT','Choose exactly one file source.');
       if(typeof args.fileId==='string')return this.#upload(a,args.fileId).bytes.toString('utf8');
