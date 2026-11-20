@@ -32,6 +32,8 @@ ATHENA_ENDPOINT=http://127.0.0.1:62279/v1 ATHENA_MODEL=m1-qwen3-1.7b \
 
 [재시작한 실제 호스트의 화면](../athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/real-host-restart.png)에서 위 답변과 `File read · Complete`, 같은 session/run ID를 확인했다. 별도의 Chrome 대화 `Bench notes / Calibration review`에서도 업로드한 `bench-reading.txt`를 읽고 `The calibration serial number is BENCH-581D.`를 받았다. 지원하지 않는 `voltage.bin`은 전송 전에 거부됐고 원문 초안과 첨부가 입력창에 남았다.
 
+프런트엔드 회귀 검사: DOM 통합 **102/102**, 계약 검사 **52/52**. [브라우저 QA 기록 및 화면 목록](../athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/report.json)에서 데스크톱·모바일 fixture와 실모델 대화 화면을 구분한다.
+
 | 인수 항목 | 결과 및 경계 |
 |---|---|
 | A02/A03/A06 | 고정된 실모델 서버에서 모델 목록 확인, 설정 저장, 재기동 확인 **PASS**. 인증 거부와 다른 주소로 키 전송 차단은 로컬 HTTP fixture에서 확인. 인증 유료 공급자는 실검증하지 않았다. |
