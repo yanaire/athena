@@ -163,7 +163,7 @@
           addOption('inherit\u241f', 'Inherit default', fallback, 'circle-dashed', !profileContext?.profileId);
           const matches = profiles.filter(match);
           for (const profile of matches) {
-            const details = [profile.provider, profile.modelId, 'reasoning ' + levelInfo(profile.thinkingLevel)[0]].filter(Boolean).join(' · ');
+            const details = [profile.provider, profile.modelId, profile.authMode === 'chatgpt' ? 'ChatGPT plan usage' : profile.provider === 'openai-codex' ? 'Legacy Codex' : 'API key', 'reasoning ' + levelInfo(profile.thinkingLevel)[0]].filter(Boolean).join(' · ');
             addOption(profileKey(profile), profile.name || profile.id, details, profile.id === profilesList?.appDefaultProfileId ? 'star' : 'cpu', profile.id === profileContext?.profileId);
           }
           if (!matches.length) emptyState(terms.length ? 'No matching profiles' : profilesError ? 'Profiles unavailable' : 'No saved profiles', terms.length ? 'Try another profile, provider, or model name.' : profilesError || 'Create a profile in Settings → Models & connections.');
@@ -298,7 +298,15 @@
       if (value === profile.thinkingLevel) { close(); return; }
       const version = ++actionVersion; pending = kind; error = ''; render();
       try {
-        await profilesAdapter.saveModelProfile({ id: profile.id, revision: profile.revision, name: profile.name, provider: profile.provider, modelId: profile.modelId, thinkingLevel: value });
+        const input = { id: profile.id, revision: profile.revision, name: profile.name, provider: profile.provider, modelId: profile.modelId, thinkingLevel: value };
+        /* A reasoning-only edit preserves the account binding and echoes the
+         * profile's own opaque reference; a freshly switched account is never
+         * accepted through this path. */
+        if (profile.authMode === 'chatgpt') {
+          input.authMode = 'chatgpt';
+          if (typeof profile.authRef === 'string' && profile.authRef.length) input.accountRef = profile.authRef;
+        }
+        await profilesAdapter.saveModelProfile(input);
         if (destroyed || version !== actionVersion) return;
         try { profilesList = await profilesAdapter.listModelProfiles(); } catch (_) { /* The level change was confirmed; refreshing the list is best-effort. */ }
         options.announce?.('Reasoning for ' + (profile.name || profile.id) + ' set to ' + levelInfo(value)[0] + '.');

@@ -1,7 +1,10 @@
 /* M3 provider credentials, SDK catalogs, and saved model profiles.
  * The host owns every real credential write; this panel only calls the
  * model-profiles RPC adapter. API keys are never rendered, stored in the DOM,
- * or echoed back; the OAuth surface shows only the safe authorization URL. */
+ * or echoed back; the OAuth surface shows only the safe authorization URL.
+ * ChatGPT-account catalogs are exclusive host output: this panel never adds
+ * fallback models and never states limits or prices the account did not
+ * supply. The opaque accountRef is echoed to the host on save only. */
 (() => {
   'use strict';
 
@@ -114,6 +117,7 @@
               <div class="amp-field"><label for="amp-profile-model">Model</label><select class="ams-input cursor-interaction" id="amp-profile-model" data-amp-profile-field="modelId"></select></div>
               <div class="amp-field"><label for="amp-profile-level">Reasoning level</label><select class="ams-input cursor-interaction" id="amp-profile-level" data-amp-profile-field="thinkingLevel"></select></div>
             </div>
+            <p class="amp-catalog-meta" data-amp-profile-auth-mode></p>
             <p class="amp-error" role="alert" data-amp-profile-form-error hidden></p>
             <div class="amp-actions">
               <button type="button" class="ams-button ams-primary cursor-interaction" data-amp-profile-save>${icon('check')}Save profile</button>
@@ -294,6 +298,24 @@
       if (!draft.provider || !draft.modelId) { note(errorNode, 'Choose a provider and a model.', 'error'); return; }
       const input = { name, provider: draft.provider, modelId: draft.modelId, thinkingLevel: draft.thinkingLevel };
       if (draft.id) { input.id = draft.id; input.revision = draft.revision; }
+      /* ChatGPT plan usage is attributed from the account catalog currently
+       * displayed in this form. An existing account profile never silently
+       * re-binds to a freshly switched account, nor converts to an API key
+       * while its account is stale or disconnected. The opaque accountRef is
+       * echoed to the host only and never rendered. */
+      const accountCatalog = profileCatalogSource === 'chatgpt_account';
+      if (draft.authMode === 'chatgpt') {
+        if (accountCatalog && profileCatalogAccountRef && draft.authRef && profileCatalogAccountRef !== draft.authRef) {
+          note(errorNode, 'This profile keeps its signed-in ChatGPT account, which no longer matches the account catalog. Save a new profile for the switched account instead.', 'error');
+          return;
+        }
+        input.authMode = 'chatgpt';
+        if (accountCatalog && profileCatalogAccountRef) input.accountRef = profileCatalogAccountRef;
+        else if (draft.authRef) input.accountRef = draft.authRef;
+      } else if (accountCatalog) {
+        input.authMode = 'chatgpt';
+        if (profileCatalogAccountRef) input.accountRef = profileCatalogAccountRef;
+      }
       await call('profile-save', () => adapter.saveModelProfile(input), () => { editing = null; });
       if (editing === null) await loadList();
     }
@@ -339,7 +361,7 @@
     function methodMarkup(provider) {
       return rows(provider.methods).map(method => {
         if (method.kind === 'api_key') return '<span class="amp-method">' + icon('key') + escapeHTML(text(method.label) || 'API key') + '</span>';
-        if (method.kind === 'oauth') return '<span class="amp-method">' + icon('log-in') + escapeHTML(text(method.label) || 'Sign in') + (method.enabled ? '' : ' · unavailable') + '</span>';
+        if (method.kind === 'oauth') return '<span class="amp-method">' + icon('log-in') + escapeHTML(text(method.label) || 'Sign in') + (method.enabled ? '' : provider.id === 'openai-codex' ? ' · legacy path · unavailable' : ' · unavailable') + '</span>';
         return '<span class="amp-method">' + icon('server') + escapeHTML(text(method.label) || 'Host setup') + '</span>';
       }).join('');
     }
@@ -401,7 +423,10 @@
         : list.credentialMode ? 'Host vault · ' + list.credentialMode.replace(/_/g, ' ') : 'Host credentials';
     }
 
-    function eligibilityLabel(model, availableIds, configured) {
+    function eligibilityLabel(model, availableIds, accountSource, configured) {
+      if (accountSource) return availableIds.includes(model.id)
+        ? '<span class="amp-badge amp-badge-eligible">' + icon('check') + 'On your ChatGPT plan · account-listed</span>'
+        : '<span class="amp-badge amp-badge-listed">' + icon('list') + 'Not offered on your ChatGPT plan</span>';
       if (availableIds.includes(model.id)) return '<span class="amp-badge amp-badge-eligible">' + icon('check') + 'Eligible · credential check passed</span>';
       if (!configured) return '<span class="amp-badge amp-badge-unknown">' + icon('circle-help') + 'Eligibility unknown · configure credentials first</span>';
       return '<span class="amp-badge amp-badge-listed">' + icon('list') + 'SDK catalog only · not returned as available</span>';
@@ -412,35 +437,50 @@
       const provider = catalog.provider || {};
       const availableIds = rows(catalog.availableModelIds);
       const configured = provider.auth === 'configured';
-      const sourceLabel = catalog.source === 'refreshed_catalog' ? 'Refreshed catalog' : 'SDK catalog';
-      meta.textContent = sourceLabel + ' for ' + (provider.name || provider.id) + ' · checked ' + elapsed(catalog.checkedAt) + (catalogError === 'refresh_failed' ? ' · catalog refresh failed; showing the last SDK catalog' : catalogError === 'availability_failed' ? ' · eligibility check failed' : '');
+      const accountSource = catalog.source === 'chatgpt_account';
+      const accountFailed = catalogError === 'account_catalog_failed';
+      const sourceLabel = accountSource ? 'ChatGPT account catalog' : catalog.source === 'refreshed_catalog' ? 'Refreshed catalog' : 'SDK catalog';
+      meta.textContent = sourceLabel + ' for ' + (provider.name || provider.id)
+        + (accountSource ? ' · ChatGPT plan usage · account models only' : '')
+        + ' · checked ' + elapsed(catalog.checkedAt)
+        + (accountFailed ? ' · the account model list could not be loaded'
+          : catalogError === 'refresh_failed' ? ' · catalog refresh failed; showing the last SDK catalog'
+            : catalogError === 'availability_failed' ? ' · eligibility check failed' : '');
+      /* An account-list failure is explicit and exclusive: no static fallback
+       * list is ever drawn for the account catalog. */
+      note(listNode('catalog-error'), accountFailed ? 'The ChatGPT account model list could not be loaded. No fallback models are shown; reconnect the account and refresh.' : '', 'error');
       const target = listNode('models');
       target.replaceChildren();
       const models = rows(catalog.models);
       if (!models.length) {
-        const empty = document.createElement('p'); empty.className = 'amp-empty'; empty.textContent = 'No catalog models match this view.';
+        const empty = document.createElement('p'); empty.className = 'amp-empty';
+        empty.textContent = accountFailed ? 'No account models are shown while the account list is unavailable.' : 'No catalog models match this view.';
         target.appendChild(empty);
       }
       for (const model of models) {
         const article = document.createElement('article');
         article.className = 'amp-model'; article.setAttribute('role', 'listitem');
-        const details = [model.api, model.id !== model.name ? model.id : '', rows(model.input).join('/'),
+        /* Account entries are named by the account's display name and keep
+         * their slug visible; capability metadata the account did not supply
+         * stays unstated rather than invented. */
+        const modelName = text(model.display_name) || text(model.name) || model.id;
+        const details = [model.api, model.id !== modelName ? model.id : '', rows(model.input).join('/'),
           model.contextWindow ? 'context ' + model.contextWindow.toLocaleString() : '',
           model.maxTokens ? 'output limit ' + model.maxTokens.toLocaleString() : '',
           rows(model.thinkingLevels).map(level => LEVEL_LABELS[level] || level).join('/')].filter(Boolean).join(' · ');
         const rate = model.cost && !text(model.provider).startsWith('compatible-')
           ? 'SDK rates (USD per 1M tokens): input ' + model.cost.input + ', output ' + model.cost.output
             + ', cache read ' + model.cost.cacheRead + ', cache write ' + model.cost.cacheWrite
-          : 'Price not supplied';
+          : accountSource ? 'ChatGPT plan usage · no per-token rates' : 'Price not supplied';
         article.innerHTML = `
           <div class="amp-model-copy">
-            <strong>${escapeHTML(model.name || model.id)}</strong>
+            <strong>${escapeHTML(modelName)}</strong>
             <small>${escapeHTML(details)}</small>
             <small>${escapeHTML(rate)}</small>
           </div>
           <div class="amp-model-badges">
-            <span class="amp-badge amp-badge-sdk">${icon('package')}SDK catalog</span>
-            ${eligibilityLabel(model, availableIds, configured)}
+            <span class="amp-badge amp-badge-sdk">${icon('package')}${accountSource ? 'Official account model' : 'SDK catalog'}</span>
+            ${eligibilityLabel(model, availableIds, accountSource, configured)}
           </div>`;
         target.appendChild(article);
       }
@@ -462,6 +502,11 @@
       if (project && idOf(project.defaultProfileId) === profile.id) badges.push('<span class="amp-badge amp-badge-default">' + icon('folder') + 'Project default</span>');
       const session = currentSession();
       if (session && idOf(session.profileId) === profile.id) badges.push('<span class="amp-badge amp-badge-default">' + icon('message-square') + 'This conversation</span>');
+      badges.push(profile.authMode === 'chatgpt'
+        ? '<span class="amp-badge amp-badge-eligible">' + icon('check') + 'ChatGPT plan usage</span>'
+        : profile.provider === 'openai-codex'
+          ? '<span class="amp-badge amp-badge-listed">' + icon('list') + 'Legacy Codex</span>'
+          : '<span class="amp-badge amp-badge-sdk">' + icon('key') + 'API key</span>');
       badges.push(probeBadges(profile));
       return badges.join('');
     }
@@ -528,13 +573,26 @@
         option.selected = provider.id === editing.provider;
         return option;
       }));
+      const modeNode = q('[data-amp-profile-auth-mode]');
+      if (modeNode) {
+        const accountCatalog = profileCatalogSource === 'chatgpt_account';
+        modeNode.textContent = editing.authMode === 'chatgpt'
+          ? 'ChatGPT plan usage · this profile keeps its signed-in account' + (accountCatalog ? '' : ' · account catalog currently unavailable')
+          : accountCatalog ? 'ChatGPT plan usage · account models save with this profile' : 'API key · SDK catalog models';
+      }
     }
     let profileModels = [];
-    function selectProfileModel(id) {
+    let profileCatalogSource = '', profileCatalogAccountRef = null;
+    function selectProfileModel(id, keepUnknown = false) {
       if (!editing) return;
       const model = profileModels.find(item => item.id === id);
-      editing.modelId = model?.id || '';
-      const levels = rows(model?.thinkingLevels).filter(level => LEVELS.includes(level));
+      editing.modelId = model?.id || (keepUnknown && id ? id : '');
+      let levels = rows(model?.thinkingLevels).filter(level => LEVELS.includes(level));
+      if (!model && keepUnknown && id && editing.thinkingLevel && !levels.includes(editing.thinkingLevel)) {
+        /* A saved model missing from the current account list keeps its
+         * selector; limits and levels are never invented for it. */
+        levels = [editing.thinkingLevel];
+      }
       editing.thinkingLevel = levels.includes(editing.thinkingLevel) ? editing.thinkingLevel
         : levels.includes('medium') ? 'medium' : levels[0] || 'off';
       q('[data-amp-profile-field="thinkingLevel"]').replaceChildren(...levels.map(level => {
@@ -553,22 +611,37 @@
       const modelSelect = q('[data-amp-profile-field="modelId"]');
       modelSelect.replaceChildren();
       profileModels = [];
+      profileCatalogSource = '';
+      profileCatalogAccountRef = null;
       selectProfileModel('');
       if (!provider) return;
       void call('profile-catalog', () => adapter.getProviderCatalog(provider, {}), result => {
         if (editing !== draft || draft.provider !== provider) return;
         profileModels = rows(result?.models);
+        profileCatalogSource = text(result?.source);
+        /* Opaque account reference: echoed to the host on save, never rendered. */
+        profileCatalogAccountRef = idOf(result?.accountRef);
         const selected = preferred ? profileModels.find(model => model.id === preferred) : profileModels[0];
+        const stale = Boolean(preferred) && !selected;
         const placeholder = document.createElement('option');
-        placeholder.value = ''; placeholder.textContent = 'Choose a model'; placeholder.selected = !selected;
+        placeholder.value = ''; placeholder.textContent = 'Choose a model'; placeholder.selected = !selected && !stale;
         modelSelect.replaceChildren(placeholder, ...profileModels.map(model => {
           const option = document.createElement('option');
-          option.value = model.id; option.textContent = model.name && model.name !== model.id ? model.name + ' · ' + model.id : model.id;
+          option.value = model.id;
+          const label = text(model.display_name) || text(model.name);
+          option.textContent = label && label !== model.id ? label + ' · ' + model.id : model.id;
           option.selected = model.id === selected?.id;
           return option;
         }));
+        if (stale) {
+          /* A re-edit keeps the saved selector when the account list no longer
+           * carries it; the profile is never silently re-bound instead. */
+          const saved = document.createElement('option');
+          saved.value = preferred; saved.textContent = preferred + ' · saved model, not in the current account list'; saved.selected = true;
+          modelSelect.appendChild(saved);
+        }
         draft.thinkingLevel = preferredLevel;
-        selectProfileModel(selected?.id);
+        selectProfileModel(selected ? selected.id : stale ? preferred : '', stale);
       }, true);
     }
     function render() {
@@ -603,7 +676,7 @@
     listen(q('[data-amp-catalog-refresh]'), 'click', () => { void loadCatalog(true); });
     listen(q('[data-amp-register-submit]'), 'click', () => { void registerEndpoint(); });
     listen(q('[data-amp-profile-new]'), 'click', () => {
-      editing = { id: null, revision: null, name: '', provider: catalogProvider || providers[0]?.id || '', modelId: '', thinkingLevel: 'medium' };
+      editing = { id: null, revision: null, name: '', provider: catalogProvider || providers[0]?.id || '', modelId: '', thinkingLevel: 'medium', authMode: '', authRef: null };
       note(q('[data-amp-profile-form-error]'), '', '');
       render();
       loadProfileModels();
@@ -613,6 +686,7 @@
       if (!editing) return;
       editing.provider = event.target.value;
       editing.modelId = '';
+      editing.authMode = ''; editing.authRef = null; /* A provider switch is a fresh credential choice. */
       loadProfileModels();
     });
     listen(q('[data-amp-profile-field="modelId"]'), 'change', event => { selectProfileModel(event.target.value); });
@@ -643,7 +717,7 @@
       if (action.dataset.ampAction === 'verify') void verifyProfile(profile);
       if (action.dataset.ampAction === 'delete') void deleteProfile(profile);
       if (action.dataset.ampAction === 'edit') {
-        editing = { id: profile.id, revision: profile.revision, name: text(profile.name), provider: text(profile.provider), modelId: text(profile.modelId), thinkingLevel: profile.thinkingLevel || 'medium' };
+        editing = { id: profile.id, revision: profile.revision, name: text(profile.name), provider: text(profile.provider), modelId: text(profile.modelId), thinkingLevel: profile.thinkingLevel || 'medium', authMode: profile.authMode === 'chatgpt' ? 'chatgpt' : '', authRef: idOf(profile.authRef) };
         note(q('[data-amp-profile-form-error]'), '', '');
         render();
         loadProfileModels();
@@ -656,7 +730,7 @@
 
     function setModelProfiles(next) {
       clearTimeout(flowTimer); flowTimer = null; flow = null; flowPolls = 0;
-      editing = null; profileModels = [];
+      editing = null; profileModels = []; profileCatalogSource = ''; profileCatalogAccountRef = null;
       adapter = next || null; generation++; owners.clear(); busyActions.clear();
       if (!adapter) { providers = []; catalog = null; list = { profiles: [], appDefaultProfileId: null, credentialMode: null, hostModel: null }; render(); return; }
       void loadList(); void loadProviders(); void loadCatalog(false);

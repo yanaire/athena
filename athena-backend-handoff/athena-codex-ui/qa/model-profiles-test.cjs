@@ -11,7 +11,11 @@
  * leave the page and appear only as adapter arguments. OAuth follows the host
  * contract: start returns {id, status:'pending'} with no URL, polling delivers
  * authorizeUrl as a user-activated link, and terminal values are exactly
- * succeeded | failed | cancelled.
+ * succeeded | failed | cancelled. ChatGPT-account catalogs add source
+ * 'chatgpt_account' with an opaque accountRef echoed to the host on save and
+ * never rendered; account-list failures show an explicit error with no
+ * fallback, and the legacy openai-codex route stays disabled with the host
+ * reason.
  */
 
 const assert = require('node:assert/strict');
@@ -640,4 +644,221 @@ test('Without the M3 adapter the picker keeps the M2 runtime commands', async ()
   await env.settle();
   assert.deepEqual(plain(pi.calls.find(call => call[0] === 'set_thinking_level')), ['set_thinking_level', { level: 'high' }]);
   picker.destroy();
+});
+
+/* ChatGPT-account catalog contract: exclusive account models named by
+ * display_name, an opaque accountRef echoed on save and never rendered,
+ * explicit account-list failures without any static fallback, and the
+ * disabled legacy openai-codex route whose reason comes from the host. */
+function accountFixture() {
+  const calls = [];
+  const legacyReason = 'Legacy Codex sign-in is retired; sign in to OpenAI with your ChatGPT account instead.';
+  const state = {
+    providers: [
+      { id: 'openai', name: 'OpenAI', methods: [{ kind: 'oauth', label: 'ChatGPT sign-in', enabled: true }], auth: 'configured' },
+      { id: 'openai-codex', name: 'OpenAI Codex', methods: [{ kind: 'oauth', label: 'Codex sign-in', enabled: false, reason: legacyReason }], auth: 'unconfigured' }
+    ],
+    accountCatalog: {
+      provider: { id: 'openai', name: 'OpenAI', auth: 'configured' },
+      accountRef: 'acct-opaque-7f3',
+      models: [
+        { provider: 'openai', id: 'gpt-5-pro', display_name: 'GPT-5 Pro', input: ['text'], thinkingLevels: ['low', 'medium', 'high'], cost: null },
+        { provider: 'openai', id: 'gpt-5-mini', display_name: 'GPT-5 Mini', thinkingLevels: [], cost: null }
+      ],
+      availableModelIds: ['gpt-5-pro'], source: 'chatgpt_account', checkedAt: '2026-11-20T00:00:00.000Z'
+    },
+    profiles: [
+      { id: 'profile-plan', name: 'Plan writer', revision: 1, provider: 'openai', modelId: 'gpt-5-pro', thinkingLevel: 'medium', authMode: 'chatgpt', authRef: 'acct-opaque-7f3' }
+    ],
+    appDefaultProfileId: 'profile-plan'
+  };
+  const adapter = {
+    listProviders: async query => {
+      calls.push(['listProviders', query]);
+      return state.providers.filter(provider => (provider.id + ' ' + provider.name).toLowerCase().includes(String(query || '').toLowerCase()));
+    },
+    getProviderCatalog: async (providerId, options) => {
+      calls.push(['getProviderCatalog', providerId, options]);
+      if (providerId === 'openai') return { ...state.accountCatalog, ...(options?.refresh ? { checkedAt: '2026-11-20T02:00:00.000Z' } : {}) };
+      return { provider: { id: providerId, name: providerId, auth: 'not_checked' }, models: [], availableModelIds: [], source: 'sdk_catalog', checkedAt: '2026-11-20T00:00:00.000Z' };
+    },
+    saveProviderApiKey: async () => ({}),
+    logoutProvider: async () => ({}),
+    startProviderOAuth: async () => ({ id: 'flow-1', status: 'pending' }),
+    getProviderOAuth: async () => ({ id: 'flow-1', status: 'succeeded' }),
+    cancelProviderOAuth: async () => ({ cancelled: true }),
+    listModelProfiles: async () => {
+      calls.push(['listModelProfiles']);
+      return { profiles: state.profiles, appDefaultProfileId: state.appDefaultProfileId, credentialMode: 'operator_key', hostModel: { provider: 'openai', modelId: 'gpt-5-pro' } };
+    },
+    saveModelProfile: async input => {
+      calls.push(['saveModelProfile', input]);
+      if (input.id) state.profiles = state.profiles.map(profile => profile.id === input.id ? { ...profile, ...input, revision: profile.revision + 1 } : profile);
+      else state.profiles = [...state.profiles, { ...input, id: 'profile-new', revision: 1 }];
+      return { profile: state.profiles.find(profile => profile.id === (input.id || 'profile-new')) };
+    },
+    deleteModelProfile: async () => ({ deleted: true }),
+    setAppModelProfile: async () => ({ saved: true }),
+    setProjectModelProfile: async () => ({ saved: true }),
+    setConversationModelProfile: async () => ({ saved: true }),
+    verifyModelProfile: async () => ({}),
+    registerCompatibleEndpoint: async () => ({ registered: true })
+  };
+  return { adapter, state, calls };
+}
+
+function accountPicker(env, adapter, profileId) {
+  const pi = pickerRuntime({ current: { connected: false, session: { sessionId: 'session-1' }, model: null, models: [], thinkingLevel: null, thinkingLevels: [], capabilities: {}, busy: [] } });
+  const picker = env.window.AthenaChatModelPicker.mount(env.document.getElementById('picker-slot'), { runtime: pi.runtime, icons: () => {}, announce: () => {}, isSessionBound: () => true, isUnavailable: () => false, beforeOpen() {}, onOpenSettings() {} });
+  picker.setModelProfiles(adapter);
+  picker.setProfileContext({ sessionId: 'session-1', profileId, projectId: 'project-1' });
+  return { picker, pi };
+}
+
+test('The account catalog shows plan models by display name with conservative metadata and a fresh save echoes the account ref', async () => {
+  const env = createEnvironment();
+  const { adapter, calls } = accountFixture();
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  const meta = env.document.querySelector('[data-amp-catalog-meta]').textContent;
+  assert.ok(meta.includes('ChatGPT account catalog for OpenAI'), 'The account source is labeled distinctly from the SDK catalog.');
+  assert.ok(meta.includes('ChatGPT plan usage · account models only'));
+  const rows = [...env.document.querySelectorAll('.amp-model')];
+  assert.equal(rows.length, 2, 'The account catalog is the exclusive model list; no static fallback appears.');
+  const pro = rows.find(row => row.textContent.includes('GPT-5 Pro'));
+  assert.ok(pro.textContent.includes('gpt-5-pro'), 'The account slug stays visible beside the display name.');
+  assert.ok(pro.textContent.includes('Official account model'));
+  assert.ok(pro.textContent.includes('On your ChatGPT plan'), 'Account eligibility is a plan listing, not inference verification.');
+  assert.ok(!pro.textContent.includes('verified'), 'Account rows never claim inference verification.');
+  assert.ok(pro.textContent.includes('ChatGPT plan usage · no per-token rates'), 'A null account price stays unstated.');
+  assert.ok(!pro.textContent.includes('context') && !pro.textContent.includes('output limit'), 'Limits the account did not supply are never invented.');
+  assert.ok(env.document.querySelector('[data-amp-profile="profile-plan"]').textContent.includes('ChatGPT plan usage'), 'Saved account profiles are distinguished from API-key profiles.');
+  env.click(env.document.querySelector('[data-amp-profile-new]'));
+  await env.settle();
+  const modelSelect = env.document.querySelector('[data-amp-profile-field="modelId"]');
+  assert.equal(modelSelect.value, 'gpt-5-pro');
+  const option = [...modelSelect.options].find(item => item.value === 'gpt-5-pro');
+  assert.ok(option.textContent.includes('GPT-5 Pro · gpt-5-pro'), 'The choice shows the account display name with its slug.');
+  assert.ok(env.document.querySelector('[data-amp-profile-auth-mode]').textContent.includes('ChatGPT plan usage'), 'The form indicates plan usage before the API-key alternative.');
+  env.type(env.document.querySelector('[data-amp-profile-field="name"]'), 'Plan helper');
+  env.click(env.document.querySelector('[data-amp-profile-save]'));
+  await env.settle();
+  assert.deepEqual(plain(calls.filter(call => call[0] === 'saveModelProfile').at(-1)), ['saveModelProfile', { name: 'Plan helper', provider: 'openai', modelId: 'gpt-5-pro', thinkingLevel: 'medium', authMode: 'chatgpt', accountRef: 'acct-opaque-7f3' }], 'A fresh save sends the auth mode with the displayed catalog account ref.');
+  assert.ok(!env.document.body.textContent.includes('acct-opaque-7f3'), 'The opaque account reference never renders in the page.');
+  panel.destroy();
+});
+
+test('An account-list failure shows the explicit error and no fallback models', async () => {
+  const env = createEnvironment();
+  const { adapter } = accountFixture();
+  adapter.getProviderCatalog = async providerId => providerId === 'openai'
+    ? { provider: { id: 'openai', name: 'OpenAI', auth: 'configured' }, accountRef: 'acct-opaque-7f3', models: [], availableModelIds: [], source: 'chatgpt_account', error: 'account_catalog_failed', checkedAt: '2026-11-20T00:00:00.000Z' }
+    : { provider: { id: providerId, name: providerId, auth: 'not_checked' }, models: [], availableModelIds: [], source: 'sdk_catalog', checkedAt: '2026-11-20T00:00:00.000Z' };
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  const errorNode = env.document.querySelector('[data-amp-catalog-error]');
+  assert.equal(errorNode.hidden, false, 'The account-list failure is surfaced explicitly.');
+  assert.ok(errorNode.textContent.includes('The ChatGPT account model list could not be loaded.'));
+  assert.ok(errorNode.textContent.includes('No fallback models are shown'));
+  assert.equal(env.document.querySelectorAll('.amp-model').length, 0);
+  assert.ok(env.document.body.textContent.includes('No account models are shown while the account list is unavailable.'));
+  assert.ok(!env.document.body.textContent.includes('GPT-5 Pro'), 'No static fallback list appears for a failed account catalog.');
+  panel.destroy();
+});
+
+test('The legacy Codex provider stays disabled with the host reason and no sign-in control', async () => {
+  const env = createEnvironment();
+  const { adapter } = accountFixture();
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  const legacy = env.document.querySelector('[data-amp-provider="openai-codex"]');
+  assert.ok(legacy, 'The host still lists the legacy provider.');
+  assert.equal(legacy.querySelector('[data-amp-oauth="openai-codex"]'), null, 'The legacy route exposes no sign-in button.');
+  assert.ok(legacy.textContent.includes('Legacy Codex sign-in is retired; sign in to OpenAI with your ChatGPT account instead.'), 'The disabled reason comes from the host verbatim.');
+  assert.ok(legacy.textContent.includes('legacy path · unavailable'), 'The legacy route is labeled distinctly from the account path.');
+  panel.destroy();
+});
+
+test('A reasoning-only edit keeps the ChatGPT account binding and echoes the stored reference', async () => {
+  const env = createEnvironment();
+  const { adapter, calls } = accountFixture();
+  const { picker } = accountPicker(env, adapter, 'profile-plan');
+  await env.settle();
+  picker.open('model');
+  await env.settle();
+  const rows = [...env.document.querySelectorAll('[data-acmp-model]')];
+  assert.ok(rows.find(row => row.textContent.includes('gpt-5-pro')).textContent.includes('ChatGPT plan usage'), 'The picker distinguishes plan usage from API-key profiles.');
+  picker.open('reasoning');
+  await env.settle();
+  env.click([...env.document.querySelectorAll('[data-acmp-level]')].find(row => row.dataset.acmpKey === 'high'));
+  await env.settle();
+  assert.deepEqual(plain(calls.find(call => call[0] === 'saveModelProfile')), ['saveModelProfile', { id: 'profile-plan', revision: 1, name: 'Plan writer', provider: 'openai', modelId: 'gpt-5-pro', thinkingLevel: 'high', authMode: 'chatgpt', accountRef: 'acct-opaque-7f3' }], 'A reasoning-only edit echoes the stored account reference instead of a fresh catalog one.');
+  picker.destroy();
+});
+
+test('Re-editing an account profile keeps its model and auth mode while the account list is unavailable', async () => {
+  const env = createEnvironment();
+  const { adapter, calls } = accountFixture();
+  adapter.getProviderCatalog = async providerId => providerId === 'openai'
+    ? { provider: { id: 'openai', name: 'OpenAI', auth: 'unconfigured' }, models: [], availableModelIds: [], source: 'chatgpt_account', error: 'account_catalog_failed', checkedAt: '2026-11-20T00:00:00.000Z' }
+    : { provider: { id: providerId, name: providerId, auth: 'not_checked' }, models: [], availableModelIds: [], source: 'sdk_catalog', checkedAt: '2026-11-20T00:00:00.000Z' };
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  env.click(env.document.querySelector('[data-amp-action="edit"][data-amp-profile-id="profile-plan"]'));
+  await env.settle();
+  const modelSelect = env.document.querySelector('[data-amp-profile-field="modelId"]');
+  assert.equal(modelSelect.value, 'gpt-5-pro', 'The saved account model keeps its selector while the list is unavailable.');
+  assert.ok([...modelSelect.options].find(option => option.value === 'gpt-5-pro').textContent.includes('saved model'));
+  assert.ok(env.document.querySelector('[data-amp-profile-auth-mode]').textContent.includes('ChatGPT plan usage'), 'The form never converts the profile to an API key.');
+  env.type(env.document.querySelector('[data-amp-profile-field="name"]'), 'Plan writer renamed');
+  env.click(env.document.querySelector('[data-amp-profile-save]'));
+  await env.settle();
+  assert.deepEqual(plain(calls.filter(call => call[0] === 'saveModelProfile').at(-1)), ['saveModelProfile', { id: 'profile-plan', revision: 1, name: 'Plan writer renamed', provider: 'openai', modelId: 'gpt-5-pro', thinkingLevel: 'medium', authMode: 'chatgpt', accountRef: 'acct-opaque-7f3' }], 'The stale save preserves the account binding and echoes the stored reference.');
+  panel.destroy();
+});
+
+test('An account profile never silently converts to an API key when the SDK catalog is shown', async () => {
+  const env = createEnvironment();
+  const { adapter, calls } = accountFixture();
+  adapter.getProviderCatalog = async providerId => providerId === 'openai'
+    ? { provider: { id: 'openai', name: 'OpenAI', auth: 'configured' }, models: [{ provider: 'openai', id: 'gpt-test', name: 'GPT Test', thinkingLevels: ['low', 'medium'], cost: null }], availableModelIds: ['gpt-test'], source: 'sdk_catalog', checkedAt: '2026-11-20T00:00:00.000Z' }
+    : { provider: { id: providerId, name: providerId, auth: 'not_checked' }, models: [], availableModelIds: [], source: 'sdk_catalog', checkedAt: '2026-11-20T00:00:00.000Z' };
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  env.click(env.document.querySelector('[data-amp-action="edit"][data-amp-profile-id="profile-plan"]'));
+  await env.settle();
+  assert.equal(env.document.querySelector('[data-amp-profile-field="modelId"]').value, 'gpt-5-pro', 'The disconnected catalog still keeps the saved account model selected.');
+  assert.ok(env.document.querySelector('[data-amp-profile-auth-mode]').textContent.includes('account catalog currently unavailable'));
+  env.type(env.document.querySelector('[data-amp-profile-field="name"]'), 'Still on the plan');
+  env.click(env.document.querySelector('[data-amp-profile-save]'));
+  await env.settle();
+  assert.deepEqual(plain(calls.filter(call => call[0] === 'saveModelProfile').at(-1)), ['saveModelProfile', { id: 'profile-plan', revision: 1, name: 'Still on the plan', provider: 'openai', modelId: 'gpt-5-pro', thinkingLevel: 'medium', authMode: 'chatgpt', accountRef: 'acct-opaque-7f3' }], 'The save keeps the account binding instead of converting to an API key.');
+  panel.destroy();
+});
+
+test('A freshly switched account is never silently re-bound to an existing OAuth profile', async () => {
+  const env = createEnvironment();
+  const { adapter, state, calls } = accountFixture();
+  adapter.getProviderCatalog = async providerId => providerId === 'openai'
+    ? { provider: { id: 'openai', name: 'OpenAI', auth: 'configured' }, accountRef: 'acct-opaque-999', models: state.accountCatalog.models, availableModelIds: ['gpt-5-pro'], source: 'chatgpt_account', checkedAt: '2026-11-20T00:00:00.000Z' }
+    : { provider: { id: providerId, name: providerId, auth: 'not_checked' }, models: [], availableModelIds: [], source: 'sdk_catalog', checkedAt: '2026-11-20T00:00:00.000Z' };
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  env.click(env.document.querySelector('[data-amp-action="edit"][data-amp-profile-id="profile-plan"]'));
+  await env.settle();
+  env.type(env.document.querySelector('[data-amp-profile-field="name"]'), 'Switched rename');
+  env.click(env.document.querySelector('[data-amp-profile-save]'));
+  await env.settle();
+  const errorNode = env.document.querySelector('[data-amp-profile-form-error]');
+  assert.equal(errorNode.hidden, false, 'The switched account surfaces an explicit form error.');
+  assert.ok(errorNode.textContent.includes('no longer matches the account catalog'));
+  assert.equal(calls.filter(call => call[0] === 'saveModelProfile').length, 0, 'The switched account never reaches the host through an existing OAuth profile.');
+  assert.ok(!env.document.body.textContent.includes('acct-opaque-999'), 'Neither account reference renders in the page.');
+  panel.destroy();
 });
