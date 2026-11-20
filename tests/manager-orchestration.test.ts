@@ -45,7 +45,7 @@ function outputs(w:Wire){return w.messages.filter(m=>m.role==='tool').map(m=>Str
 test('offline analysis joins source and both outputs with immutable input provenance after restart',
   {timeout:60000,skip:!process.env.ATHENA_ANALYSIS_IMAGE && 'Set ATHENA_ANALYSIS_IMAGE to a trusted local image to run the Docker integration.'}, async t=>{
   const script="from pathlib import Path\nimport sys,json\nx=int(Path('scores.csv').read_text().splitlines()[1])+int(sys.argv[1])\nPath('/outputs/result.json').write_text(json.dumps(x))\nPath('/outputs/note.txt').write_text('sum='+str(x))";
-  let joined: {id:string;sha256:string;uri:string;name:string}[]=[];let checked='',diagnostic='';
+  let joined: {id:string;sha256:string;uri:string;name:string}[]=[];let checked='',diagnostic='';let conflicts:string[]=[];
   const launch=await setup(t,w=>{
     const r=outputs(w);
     if(parent(w)){
@@ -59,7 +59,9 @@ test('offline analysis joins source and both outputs with immutable input proven
     if(r.length===1)return {name:'run_command',args:{language:'python',script:'analysis.py',inputs:['scores.csv'],outputs:['result.json','note.txt'],args:['5']}};
     if(r.length===2)return {name:'write_file',args:{name:'fail.py',content:"import sys\nprint('out witness')\nprint('err witness',file=sys.stderr)\nsys.exit(7)"}};
     if(r.length===3)return {name:'run_command',args:{language:'python',script:'fail.py',outputs:[]}};
-    diagnostic=r.at(-1)??'';
+    if(r.length===4)return {name:'write_file',args:{name:'SCORES.csv',content:'shadow'}};
+    if(r.length===5)return {name:'run_command',args:{language:'python',script:'analysis.py',outputs:['scores.csv']}};
+    diagnostic=r[3]??'';conflicts=r.slice(4);
     return 'Worker finished.';
   });
   let manager=await launch();const {project}=await manager.createProject({name:'Analysis'});
@@ -70,6 +72,7 @@ test('offline analysis joins source and both outputs with immutable input proven
   const end=finished(manager);await manager.pi(s.sessionId,{type:'prompt',id:'analyze',message:'Delegate.',fileReferences});await end;
   const snapshot=manager.getSnapshot(),proc=snapshot.processes[0];assert.ok(proc);assert.equal(proc.status,'succeeded',proc.job.error);
   const failed=snapshot.processes[1];assert.ok(failed);assert.equal(snapshot.processes.length,2,'Each command runs once.');
+  assert.equal(conflicts.length,2);for(const error of conflicts)assert.match(error,/Granted upload .* is read-only/);
   assert.deepEqual(JSON.parse(diagnostic),{processId:failed.id,status:'failed',stdout:'out witness\n',stderr:'err witness\n',exitCode:7,error:failed.job.error});
   assert.equal(snapshot.tools.find(t=>t.id===failed.toolId)?.status,'failed');
   assert.deepEqual(joined.map(a=>a.name),['analysis.py','result.json','note.txt']);assert.equal(JSON.parse(checked).content,'37');

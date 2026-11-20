@@ -641,6 +641,11 @@ export class TaskManager implements AthenaTaskManager {
     const row=this.#artifact(a,ref.artifactId);
     return {name,bytes:await this.#readArtifact(row),fileId:row.id,versionId:row.version};
   }
+  #requirePrivateNames(a:Attempt,names:readonly string[]) {
+    const granted=new Set(a.fileIds.map(id=>this.#storage.record<StoredFile>('file',id)?.name.toLowerCase()));
+    for(const name of names)if(granted.has(name.toLowerCase()))throw new ManagerError('GRANT_DENIED',
+      `Granted upload ${name} is read-only. Put it in run_command.inputs and give outputs a different name.`);
+  }
   async #analysis(a:Attempt,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
     const {language,inputs=[],outputs,args:argv=[]}=args;
     if(Object.keys(args).some(k=>!['language','inputs','outputs','args','script'].includes(k)) ||
@@ -648,6 +653,7 @@ export class TaskManager implements AthenaTaskManager {
       !Array.isArray(outputs) || !outputs.every((o:unknown)=>typeof o==='string') || !Array.isArray(argv) ||
       !argv.every((o:unknown)=>typeof o==='string'))throw new ManagerError('INVALID_INPUT','Invalid analysis command.');
     const declared=validateOutputNames(outputs);
+    this.#requirePrivateNames(a,declared);
     const [script]=await this.#files.snapshot(a,[text(args.script,'Script name')]);
     if(!script)throw new ManagerError('INVALID_INPUT','A private script is required.');
     const snapshots=await Promise.all(inputs.map(i=>this.#analysisInput(a,i)));
@@ -672,7 +678,7 @@ export class TaskManager implements AthenaTaskManager {
       if(name==='run_command')return this.#analysis(a,raw,args,signal);
       if(name==='write_file') {
         if(typeof args.content!=='string' || Object.keys(args).length!==2)throw new ManagerError('INVALID_INPUT','Supply a filename and UTF-8 content.');
-        const filename=text(args.name,'Name');await this.#files.write(a,filename,args.content);
+        const filename=text(args.name,'Name');this.#requirePrivateNames(a,[filename]);await this.#files.write(a,filename,args.content);
         return {name:filename,bytes:Buffer.byteLength(args.content),sha256:hash(args.content)};
       }
       if(Object.keys(args).length!==1)throw new ManagerError('INVALID_INPUT','Choose exactly one file source.');
