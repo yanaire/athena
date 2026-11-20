@@ -1,3 +1,6 @@
+import { analysisAccess, analysisEnv, ANALYSIS_LIMITS, ContainerCleanupError, runContainer, type ContainerJob, type AnalysisAccess } from './analysis-container.ts';
+import { AnalysisFiles, validateOutputNames, type AnalysisArtifact, type AnalysisSnapshot } from './analysis-files.ts';
+export { ANALYSIS_LIMITS } from './analysis-container.ts';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -91,7 +94,14 @@ function parseGrant(bytes: Buffer, grantId: string, scope: Scope): CsvGrant {
   return { ...scope, id: grantId, grantId, fileId: value.fileId, versionId: value.versionId, name: value.name, bytes: value.bytes, sha256: value.sha256 };
 }
 
-export type CsvAttempt = CsvJob & {
+type Identity = Omit<CsvJob,'grantId'|'column'>;
+export type AnalysisJob = Identity & ContainerJob & { readonly inputs: readonly (AnalysisSnapshot & {readonly fileId?:string; readonly versionId?:string})[] };
+export type CsvAttempt = Identity & { readonly grantId?: string; readonly column?: string;
+  readonly artifacts?: readonly AnalysisArtifact[]; readonly containerId?: string;
+  readonly analysis?: { readonly language: ContainerJob['language']; readonly script: string; readonly outputs: readonly string[];
+    readonly inputs: readonly {readonly name:string; readonly sha256:string; readonly fileId?:string; readonly versionId?:string}[];
+    readonly limits: typeof ANALYSIS_LIMITS; readonly imageId?:string; readonly version?:string };
+
   readonly status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out' | 'interrupted';
   readonly program: string;
   readonly args: readonly string[];
@@ -127,6 +137,7 @@ type StopReason = 'cancelled' | 'timed_out' | 'output_limit';
 type JobHandle = { readonly result: Promise<CsvAttempt>; cancel(): void };
 type Pending = {
   attempt: CsvAttempt;
+  readonly analysis?: ContainerJob;
   readonly result: Promise<CsvAttempt>;
   readonly resolve: (attempt: CsvAttempt) => void;
   stop?: StopReason;
@@ -153,6 +164,9 @@ function boundedInt(value: number | undefined, fallback: number, limit: number, 
 /** Only this host's live child handle can request a group signal. */
 export class CsvJobRunner {
   readonly #directory: string;
+  readonly #files: AnalysisFiles;
+  readonly #imageId = process.env.ATHENA_ANALYSIS_IMAGE;
+  #discovery?: Promise<AnalysisAccess>;
   readonly #concurrency: number;
   readonly #limits: CsvAttempt['limits'];
   readonly #observer: CsvJobRunnerOptions['onEvent'];
@@ -169,6 +183,7 @@ export class CsvJobRunner {
       throw new CsvJobError('UNSUPPORTED_PLATFORM', 'CSV execution requires Node 24+ on macOS or Linux.');
     }
     this.#directory = resolve(options.dataDir, 'csv-jobs');
+    this.#files = new AnalysisFiles(options.dataDir);
     this.#concurrency = boundedInt(options.concurrency, 1, CSV_LIMITS.maxConcurrency, 'CSV concurrency');
     this.#limits = Object.freeze({ ...CSV_LIMITS, timeoutMs: boundedInt(options.timeoutMs, 5_000, CSV_LIMITS.maxTimeoutMs, 'CSV timeout') });
     this.#observer = options.onEvent;
@@ -178,8 +193,8 @@ export class CsvJobRunner {
       this.#known.add(key);
       if (prior.status === 'running' || prior.status === 'queued') {
         const attempt: CsvAttempt = Object.freeze({ ...prior, status: 'interrupted', endedAt: Date.now(),
-          exitCode: null, signal: null, cancellation: 'unknown', artifact: undefined,
-          error: 'Host restarted before the CSV attempt settled. Process termination was not observed; the attempt will not rerun.' });
+          exitCode: null, signal: null, cancellation: 'unknown', artifact: undefined, artifacts: undefined,
+          error: 'Host restarted before the process attempt settled. Process termination was not observed; the attempt will not rerun.' });
         queueMicrotask(() => this.#emit({ type: 'process_finished', attempt }));
       }
     }
@@ -218,13 +233,55 @@ export class CsvJobRunner {
       ...(input.column !== undefined ? { column: text(input.column, 'CSV column') } : {}),
     };
     if (!UUID.test(job.grantId)) throw new CsvJobError('GRANT_DENIED', 'Invalid CSV grant ID.');
+    return this.#admit(job);
+  }
+
+  analysisAccess(): Promise<AnalysisAccess> {
+    // Coalesce concurrent probes, including UI discovery while admitting an execution.
+    return this.#discovery ??= analysisAccess(this.#imageId).finally(() => {this.#discovery = undefined;});
+  }
+
+  startAnalysis(input: AnalysisJob): JobHandle {
+    this.#assertOpen();
+    const {language} = input;
+    if (language !== 'node' && language !== 'python') throw new CsvJobError('INVALID_INPUT','Unsupported analysis language.');
+    if (!Array.isArray(input.inputs) || input.inputs.length > ANALYSIS_LIMITS.maxFiles) throw new CsvJobError('INVALID_INPUT','Too many input files.');
+    const names = validateOutputNames(input.inputs.map(f=>f.name));
+    const outputs = validateOutputNames(input.outputs);
+    const [scriptName] = validateOutputNames([input.script.name]);
+    if (!scriptName || !(language === 'node' ? /\.(m?js|cjs)$/i : /\.py$/i).test(scriptName)) throw new CsvJobError('INVALID_INPUT','Script extension does not match interpreter.');
+    const all = [scriptName,...names,...outputs].map(n=>n.toLowerCase());
+    if (new Set(all).size !== all.length) throw new CsvJobError('INVALID_INPUT','Script, inputs and outputs must have distinct names.');
+    let total=0;
+    const snapshot = (f:AnalysisSnapshot) => {
+      if (!(f.bytes instanceof Uint8Array) || f.bytes.length > ANALYSIS_LIMITS.fileBytes || (total+=f.bytes.length)>ANALYSIS_LIMITS.snapshotBytes) throw new CsvJobError('INVALID_INPUT','Analysis snapshot exceeds limit.');
+      return {name:f.name,bytes:Buffer.from(f.bytes)};
+    };
+    if (input.args !== undefined && (!Array.isArray(input.args) || input.args.length>ANALYSIS_LIMITS.maxArgs)) throw new CsvJobError('INVALID_INPUT','Invalid script arguments.');
+    const args = Object.freeze(Array.from(input.args ?? [],arg=>{
+      if (typeof arg!=='string' || arg.includes('\0') || Buffer.byteLength(arg)>ANALYSIS_LIMITS.argBytes) throw new CsvJobError('INVALID_INPUT','Invalid script argument.');
+      return arg;
+    }));
+    const script=snapshot(input.script), inputs=input.inputs.map(snapshot);
+    const receipts = inputs.map((f,i)=>{
+      const prior=input.inputs[i];
+      return Object.freeze({name:f.name,sha256:sha256(f.bytes),...(prior?.fileId!==undefined || prior?.versionId!==undefined ?
+        {fileId:text(prior.fileId,'file ID'),versionId:text(prior.versionId,'version ID')}:{})});
+    });
+    const job = {projectId:text(input.projectId,'project ID'),sessionId:text(input.sessionId,'session ID'),taskId:text(input.taskId,'task ID'),
+      requestId:text(input.requestId,'request ID'),attemptId:text(input.attemptId,'attempt ID'),toolId:text(input.toolId,'tool ID'),
+      analysis:Object.freeze({language,script:script.name,inputs:Object.freeze(receipts),outputs,limits:ANALYSIS_LIMITS}),args};
+    return this.#admit(job,{language,script,inputs,outputs,args});
+  }
+
+  #admit(job: Identity & Partial<Pick<CsvAttempt,'grantId'|'column'|'analysis'|'args'>>, analysis?: ContainerJob):JobHandle {
     const key = attemptKey(job);
     if (this.#known.has(key)) throw new CsvJobError('DUPLICATE_ATTEMPT', 'CSV attempt IDs cannot be reused.');
     if (this.#queue.length >= CSV_LIMITS.queue) throw new CsvJobError('QUEUE_FULL', 'The CSV job queue is full.');
     this.#known.add(key);
     const { promise: result, resolve } = Promise.withResolvers<CsvAttempt>();
-    const pending: Pending = { result, resolve, attempt: Object.freeze({ ...job, program: process.execPath, args: Object.freeze([]),
-      cwd: null, env: ENV, limits: this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
+    const pending: Pending = { result, resolve, analysis, attempt: Object.freeze({ ...job, program: analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
+      cwd: null, env: analysis ? analysisEnv : ENV, limits: this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
       exitCode: null, signal: null, cancellation: 'not_requested', stdout: '', stderr: '' }) };
     this.#queue.push(pending);
     this.#admitting++;
@@ -334,6 +391,11 @@ export class CsvJobRunner {
         this.#finish(pending, { status: 'cancelled', cancellation: 'confirmed' });
         return;
       }
+      if (pending.analysis) {
+        await this.#runAnalysis(pending,pending.analysis,cwd);
+        return;
+      }
+      if (!job.grantId) throw new CsvJobError('GRANT_DENIED','Missing CSV grant ID.');
       const grantDir = join(await this.#root('grants'), job.grantId);
       let grant: CsvGrant;
       let bytes: Buffer;
@@ -404,6 +466,53 @@ export class CsvJobRunner {
           error: error instanceof Error ? error.message : 'CSV attempt failed.' });
       }
     }
+  }
+
+  async #runAnalysis(pending:Pending, job:ContainerJob, cwd:string):Promise<void> {
+    const ctl=new AbortController();
+    pending.terminate=()=>ctl.abort();
+    let exitCode:number|null=null;
+    let cancellation:CsvAttempt['cancellation']='not_requested';
+    let artifacts:readonly AnalysisArtifact[]|undefined;
+    let failure:string|undefined;
+    try {
+      const access=await this.analysisAccess();
+      if (!access.available) throw new Error('Offline analysis unavailable: '+access.reason);
+      ctl.signal.throwIfAborted();
+      const meta=pending.attempt.analysis;
+      if (!meta) throw new Error('Missing analysis metadata.');
+      const program=access[job.language];
+      pending.attempt=Object.freeze({...pending.attempt,cwd:'/workspace',program:program.path,
+        args:Object.freeze([...(job.language==='python'?['-I','-B']:['--']),'/workspace/'+job.script.name,...job.args ?? []]),
+        analysis:Object.freeze({...meta,imageId:access.imageId,version:program.version})});
+      const result=await runContainer({access,job,cwd,timeoutMs:this.#limits.timeoutMs,signal:ctl.signal,
+        started:id=>{pending.attempt=Object.freeze({...pending.attempt,status:'running',startedAt:Date.now(),containerId:id});
+          this.#emit({type:'process_started',attempt:pending.attempt});},
+        output:(stream,text)=>{pending.attempt=Object.freeze({...pending.attempt,[stream]:pending.attempt[stream]+text});
+          this.#emit({type:'process_output',attempt:pending.attempt,stream,text});},
+        stop:reason=>this.#stop(pending,reason)});
+      exitCode=result.exitCode;
+      ctl.signal.throwIfAborted();
+      pending.exited=true;
+      if (exitCode!==0) throw new Error('Analysis interpreter returned '+String(exitCode)+'.');
+      const produced=await Promise.all(job.outputs.map(async name=>{
+        const bytes=await readBounded(join(cwd,'outputs'),name,ANALYSIS_LIMITS.fileBytes);
+        if (bytes.length===1 && bytes[0]===0) throw new Error('Declared output was not written: '+name);
+        return {name,bytes};
+      }));
+      artifacts=Object.freeze(await this.#files.publish(pending.attempt,job.outputs,produced,job.script));
+    } catch(error) {
+      failure=error instanceof Error ? error.message : 'Analysis execution failed.';
+      if (error instanceof ContainerCleanupError) {
+        cancellation='unknown'; this.#halted=true;
+        for (const queued of [...this.#queue]) this.#stop(queued,'cancelled');
+      } else if (pending.stop) cancellation='confirmed';
+    } finally { await rm(join(cwd,'outputs'),{recursive:true,force:true}); }
+    const stop=pending.stop;
+    const status=cancellation==='unknown' ? 'failed' : stop==='output_limit' ? 'failed' : stop ?? (failure ? 'failed' : 'succeeded');
+    const error=cancellation==='unknown' ? failure : stop==='output_limit' ? 'Analysis exceeded its output limit.' :
+      stop==='timed_out' ? 'Analysis exceeded its time limit.' : stop==='cancelled' ? undefined : failure;
+    this.#finish(pending,{status,exitCode,artifacts,cancellation,error});
   }
 
   #execute(pending: Pending, cwd: string, args: readonly string[]): Promise<ProcessResult> {
