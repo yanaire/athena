@@ -1,6 +1,7 @@
 import type { WorkspaceSnapshot, SessionActivation, AthenaTaskManager } from './task-manager.d.ts';
 import type { ConnectionSnapshot } from './connections.d.ts';
 import type { FileReference, InputContract } from './pi-bridge-contracts.d.ts';
+import type { ModelProfileInput } from './model-profiles.d.ts';
 
 /** JSON only. The browser supplies subscribe/request methods after activation. */
 export type WireSessionActivation = Omit<SessionActivation, 'connection'>;
@@ -43,9 +44,21 @@ export type HostRpcRequest =
   | { readonly method: 'getAgentHistory'; readonly args: readonly [conversationId: string, agentSessionId: string] }
   | { readonly method: 'setProjectDefaultModel'; readonly args: Parameters<NonNullable<AthenaTaskManager['setProjectDefaultModel']>> }
   | { readonly method: 'verifyConnection' | 'saveConfig'; readonly args: readonly [unknown] }
+  | { readonly method: 'listProviders'; readonly args: readonly [query?: string] }
+  | { readonly method: 'getProviderCatalog'; readonly args: readonly [providerId: string, options?: { readonly query?: string; readonly refresh?: boolean }] }
+  | { readonly method: 'saveProviderApiKey'; readonly args: readonly [providerId: string, key: string] }
+  | { readonly method: 'logoutProvider' | 'startProviderOAuth'; readonly args: readonly [providerId: string] }
+  | { readonly method: 'getProviderOAuth' | 'cancelProviderOAuth'; readonly args: readonly [flowId: string] }
+  | { readonly method: 'listModelProfiles'; readonly args: readonly [] }
+  | { readonly method: 'saveModelProfile'; readonly args: readonly [ModelProfileInput] }
+  | { readonly method: 'deleteModelProfile'; readonly args: readonly [id: string, revision: number] }
+  | { readonly method: 'setAppModelProfile'; readonly args: readonly [id: string | null] }
+  | { readonly method: 'setProjectModelProfile' | 'setConversationModelProfile'; readonly args: readonly [scopeId: string, profileId: string | null] }
+  | { readonly method: 'verifyModelProfile'; readonly args: readonly [profileId: string] }
+  | { readonly method: 'registerCompatibleEndpoint'; readonly args: readonly [{ readonly name: string; readonly endpoint: string; readonly apiKey?: string }] }
   | { readonly method: 'pi'; readonly args: readonly [string, PiCommand] }
   | { readonly method: 'stageFiles'; readonly args: readonly [string, readonly StagedWireFile[]] };
-export type HostRpcResponse<T = unknown> = { readonly result: T } | { readonly error: string };
+export type HostRpcResponse<T = unknown> = { readonly result: T } | { readonly error: string; readonly code?: string };
 export type HostEvent =
   | { readonly type: 'snapshot'; readonly snapshot: WorkspaceSnapshot }
   | { readonly type: 'connection'; readonly connection: ConnectionSnapshot }

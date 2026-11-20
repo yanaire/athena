@@ -1,6 +1,6 @@
 /** Proposed Athena host contract. Supplying this adapter does not connect a model.
  * Credentials, endpoint probing and durable writes must be implemented by the host. */
-export interface ModelReference { provider: string; modelId: string; thinkingLevel?: string }
+export interface ModelReference { provider: string; modelId: string; thinkingLevel?: string; profileId?: string; configurationRevision?: number }
 export interface ModelScopes {
   appDefault: ModelReference | string | null;
   projectDefault: ModelReference | string | null;

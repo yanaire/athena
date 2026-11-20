@@ -6,6 +6,7 @@ import type { StoredSession } from './storage.ts';
 import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
 import type { PiOrchestration } from './agent-tools.ts';
+import type { PiModelSelection, PiSessionOptions } from './pi.ts';
 import { CsvJobRunner, ANALYSIS_LIMITS, CSV_LIMITS } from './jobs.ts';
 import { AnalysisFiles, ANALYSIS_FILE_LIMITS, validateAnalysisName, validateOutputNames } from './analysis-files.ts';
 import type { AnalysisSnapshot } from './analysis-files.ts';
@@ -29,10 +30,13 @@ export interface ManagedPiSession {
   getMessages(): unknown;
   prompt(message: string): Promise<void>;
 }
-export type PiSessionFactory = (options: {
-  readonly projectDir: string; readonly sessionDir: string; readonly sessionFile?: string; readonly orchestration?: PiOrchestration;
-}) => Promise<ManagedPiSession>;
-export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory };
+export type PiSessionFactory = (options: PiSessionOptions) => Promise<ManagedPiSession>;
+type ModelResolver = {
+  resolve(conversation: string | null | undefined, project: string | null | undefined): ModelReference | null;
+  pin(model: ModelReference): Promise<PiModelSelection>;
+  requireProfile(id: string): void;
+};
+export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver };
 export type Run = {
   readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly requestId: string; readonly taskId: string; readonly title: string;
@@ -76,6 +80,9 @@ export class TaskManager implements AthenaTaskManager {
   readonly #storage: Storage;
   readonly #directory: string;
   readonly #factory: PiSessionFactory;
+  readonly #models: ModelResolver | undefined;
+  readonly #pins = new Map<string, PiModelSelection>();
+  readonly #runtimeModels = new WeakMap<ManagedPiSession, ModelReference>();
   readonly #listeners = new Set<(snapshot: WorkspaceSnapshot) => void>();
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
   readonly #journal: Journal;
@@ -101,6 +108,7 @@ export class TaskManager implements AthenaTaskManager {
 
   constructor(options: TaskManagerOptions) {
     this.#directory = options.dataDir;
+    this.#models = options.models;
     this.#storage = new Storage(options.dataDir);
     this.#journal = new Journal(this.#storage);
     this.#files = new AnalysisFiles(options.dataDir);
@@ -157,12 +165,12 @@ export class TaskManager implements AthenaTaskManager {
     return {session:this.#session(id),runtime};
   }
   #projectDir(projectId:string) { return join(this.#directory, 'projects', projectId); }
-  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string) {
+  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection) {
     let runtime: ManagedPiSession;
     // Pi may execute tools from a single model response concurrently. Bind each call at entry,
     // and serialize its manager effects (including spawn then join) in SDK call order.
     let chain = Promise.resolve();
-    runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, orchestration:{role,
+    runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,
       executionEnabled:this.#enabledProjects.has(projectId),
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
@@ -185,6 +193,29 @@ export class TaskManager implements AthenaTaskManager {
     this.#loading.set(s.id,promise); return promise;
   }
   #openRoot(s: StoredSession) { return this.#load({...s,sessionId:s.id,role:'parent'}); }
+  hasPendingRuns(): boolean {
+    return this.#busy || this.#storage.sessions().some(s => this.#runs(s.id).some(r => pending(r.status)));
+  }
+  profileInUse(id: string): boolean {
+    return this.#storage.projects().some(p => p.defaultProfileId === id) || this.#storage.sessions().some(s => s.profileId === id);
+  }
+
+  setProjectProfile(projectId: string, id: string | null) {
+    this.#assertReady();
+    const project = this.#storage.project(projectId);
+    if (!project) throw new ManagerError('PROJECT_NOT_FOUND', 'Project does not exist.');
+    if (id !== null) this.#models?.requireProfile(id);
+    this.#commit(() => this.#storage.putProject({ ...project, defaultProfileId: id }));
+    return this.getSnapshot();
+  }
+
+  setConversationProfile(sessionId: string, id: string | null) {
+    this.#assertReady();
+    const session = this.#session(sessionId);
+    if (id !== null) this.#models?.requireProfile(id);
+    this.#commit(() => this.#storage.putSession({ ...session, profileId: id }));
+    return this.getSnapshot();
+  }
   #runs(sessionId: string): Run[] { return this.#storage.records<Run>('run', sessionId); }
   #currentRun(sessionId: string): Run | undefined { return this.#runs(sessionId).at(-1); }
 
@@ -303,8 +334,10 @@ export class TaskManager implements AthenaTaskManager {
   }
   #validateModel(runtime: ManagedPiSession, requested: ModelReference | null): void {
     const actual = this.#model(runtime);
+    const state = runtime.getState();
+    const level = object(state) ? state.thinkingLevel ?? 'off' : 'off';
     if (requested && (!actual || requested.provider !== actual.provider || requested.modelId !== actual.modelId ||
-        (requested.thinkingLevel != null && requested.thinkingLevel !== 'off'))) {
+        (requested.thinkingLevel != null && requested.thinkingLevel !== level))) {
       throw new ManagerError('MODEL_UNAVAILABLE', 'This host cannot use the requested model or thinking level.');
     }
   }
@@ -403,7 +436,7 @@ export class TaskManager implements AthenaTaskManager {
     }
   }
 
-  #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand): Response {
+  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand): Promise<Response> {
     const requestId = text(command.id, 'Request ID');
     const fingerprint = hash(canonical(command));
     const previous = this.#storage.receipt(session.id, requestId);
@@ -418,25 +451,58 @@ export class TaskManager implements AthenaTaskManager {
     }
     if (this.#runs(session.id).some(run => pending(run.status))) throw new ManagerError('RUN_BUSY', 'The current run has not settled.');
     const message = this.#message(command, session);
-    this.#validateModel(runtime, session.model ?? null);
+    const selection = this.#models?.resolve(session.profileId, this.#storage.project(session.projectId)?.defaultProfileId) ?? null;
+    let pin: PiModelSelection | undefined;
+    if (selection && this.#models) {
+      this.#busy = true;
+      try {
+        pin = await this.#models.pin(selection);
+        // The public profile revision need not change when its credential is rotated.
+        // Reopen the same conversation with this run's freshly resolved runtime every time.
+        {
+          runtime.close();
+          this.#registry.delete(runtime.sessionId);
+          try {
+            runtime = await this.#make(session.projectId, session.sessionDir, 'parent', session.sessionFile, pin);
+            if (runtime.sessionId !== session.id) {
+              this.#registry.delete(runtime.sessionId);
+              runtime.close();
+              throw new ManagerError('SESSION_ID_MISMATCH', 'The selected model did not reopen the same Pi conversation.');
+            }
+            this.#runtimeModels.set(runtime, selection);
+          } catch (error) {
+            if (!this.#closed) await this.#openRoot(session);
+            throw error;
+          }
+        }
+        this.#validateModel(runtime, selection);
+      } finally { this.#busy = false; }
+    } else if (this.#runtimeModels.has(runtime)) {
+      this.#busy = true;
+      try {
+        runtime.close(); this.#registry.delete(runtime.sessionId);
+        runtime = await this.#openRoot(session);
+      } finally { this.#busy = false; }
+    } else this.#validateModel(runtime, session.model ?? null);
     const run: Run = { id: randomUUID(), projectId: session.projectId, sessionId: session.id, requestId,
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
-      status: 'queued', startedAt: null, endedAt: null, model: this.#model(runtime) };
+      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime) };
     const fileIds=Array.isArray(command.fileReferences)?command.fileReferences.filter(object).map(ref=>text(ref.id,'File ID')):[];
     const a=this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
-      parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds);
+      parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds,selection ?? undefined);
     const response=reply(command,{accepted:true,...context(a)});
     this.#commit(()=>{
       this.#storage.putRecord('run',{...run,agentSessionId:a.agentSessionId,attemptId:a.id});
       this.#journal.accept(a,run.title);
       this.#storage.putReceipt({sessionId:session.id,requestId,fingerprint,state:'accepted',response});
     });
+    if (pin) this.#pins.set(run.id, pin);
     this.#schedule(a,runtime);
     return response;
   }
-  #attempt(owner:Omit<Context,'attemptId'>,requestId:string,prompt:string,fileIds:readonly string[]):Attempt {
+  #attempt(owner:Omit<Context,'attemptId'>,requestId:string,prompt:string,fileIds:readonly string[], model?:ModelReference):Attempt {
     const id=randomUUID();
-    return {...owner,id,attemptId:id,requestId,prompt,fileIds,status:'queued',acceptedAt:Date.now(),startedAt:null,endedAt:null};
+    return {...owner,id,attemptId:id,requestId,prompt,fileIds,status:'queued',acceptedAt:Date.now(),startedAt:null,endedAt:null,...(model?{model}:{})};
   }
   #schedule(a:Attempt,runtime:ManagedPiSession) {
     const controller=new AbortController();
@@ -469,6 +535,7 @@ export class TaskManager implements AthenaTaskManager {
       unsubscribe?.();
       if(this.#executing.get(a.agentSessionId)===a)this.#executing.delete(a.agentSessionId);
       this.#scheduler.release(a);this.#turns.delete(a.id);
+      if (!this.#closed && !pending(this.#storage.record<Run>('run',a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
     }
   }
   #children(a:Context) {return this.#storage.records<TaskRow>('task',a.sessionId).filter(t=>t.runId===a.runId && t.parentTaskId===a.taskId);}
@@ -556,16 +623,17 @@ export class TaskManager implements AthenaTaskManager {
     const reservation:Dispatch={...context(a),id,taskId,fingerprint};
     this.#commit(()=>this.#storage.putRecord(kind,reservation));
     const sessionDir=join(this.#directory,'agents',randomUUID());
-    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child');
+    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId));
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
+    if(a.model)this.#validateModel(runtime,a.model);
     signal.throwIfAborted();
     const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
     const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
-    const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds),artifactGrants};
+    const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds,a.model),artifactGrants};
     const response={taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId,attemptId:next.id,status:next.status};
     this.#commit(()=>{
       if(!child)this.#storage.putRecord('agent_session',{projectId:a.projectId,sessionId:a.sessionId,id:runtime.sessionId,
-        role:'child',sessionDir,sessionFile:runtime.sessionFile} satisfies AgentSession);
+        role:'child',sessionDir,sessionFile:runtime.sessionFile,...(a.model?{model:a.model}:{})} satisfies AgentSession);
       this.#journal.accept(next,title);
       this.#storage.putRecord(kind,{...reservation,response});
       this.#journal.event(next,child?'send_queued':'child_spawned',title);

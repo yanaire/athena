@@ -35,7 +35,7 @@ export class Journal {
     const role=a.parentTaskId?'worker':'coordinator';
     this.db.putRecord('task',{...context(a),id:a.taskId,title,role,status:'queued',dependencies:[],
       toolIds:old?.toolIds??[],artifactIds:old?.artifactIds??[]} satisfies TaskRow);
-    this.db.putRecord('agent',{...context(a),id:a.taskId,name:title,role,status:'queued'});
+    this.db.putRecord('agent',{...context(a),id:a.taskId,name:title,role,status:'queued',...(a.model?{model:a.model}:{})});
     this.event(a,'dispatch_accepted','Turn accepted for one Pi dispatch.');
   }
   transition(a:Attempt,status:Status,error?:string) {
