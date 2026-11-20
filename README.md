@@ -2,7 +2,7 @@
 
 # Athena · local research workspace
 
-첨부된 Athena UI를 그대로 빌드해 로컬 Node 호스트에서 제공합니다. 첫 납품 단위는 **한 모델, 프로젝트와 대화, 읽기 도구, 실시간 답변 및 재시작 후 조회**입니다. `athena-preview.html`을 파일로 직접 열면 원래의 독립 데모입니다. 실제 작업은 아래 HTTP 주소에서 시작하세요.
+Athena의 로컬 Node 호스트는 기존 UI, 자체 TaskManager, 공식 Pi SDK로 실행됩니다. M2에서는 메인 모델이 독립 세션의 자식에게 파일 확인과 CSV 계산을 위임하고 그 결과를 합쳐 답합니다. OmO 설치·로그인·세션은 필요하지 않습니다. `athena-preview.html`을 파일로 직접 열면 독립 데모이므로 실제 작업은 아래 HTTP 주소에서 시작하세요.
 
 **실행** — Node.js 24.22.3에서 검증합니다. 먼저 도구 호출과 OpenAI 호환 스트리밍을 지원하는 모델 서버를 실행하세요. 모델 가중치 및 자격 증명은 저장소에 포함하지 않습니다.
 
@@ -19,6 +19,15 @@ npm start
 
 `ATHENA_DATA_DIR`의 기본값은 `~/.athena/workspace`입니다. 같은 디렉터리와 모델 설정으로 다시 실행하면 저장된 대화와 최근 실행을 읽습니다. 포트는 `ATHENA_PORT`로 변경할 수 있습니다. 단일 사용자가 자기 컴퓨터에서 사용하는 호스트입니다. 외부 인터페이스나 공유 프록시에 노출하지 마세요. 로컬 OS 사용자는 데이터 디렉터리의 평문 대화와 원본 파일을 읽을 수 있습니다.
 
+**M2 실행 예시** — 새 대화에 [`docs/measurements.csv`](docs/measurements.csv)를 첨부하세요. “두 작업을 위임해 줘. 첫 자식은 `read`로 행 수, 결측값, 단위를 확인하고 둘째는 `calculate_csv`로 `measurement_mV` 통계를 `statistics.json`에 만들어. 두 자식을 모두 시작한 뒤 결과를 기다렸다가 평균과 실제 결과 파일 링크를 알려 줘.”라고 보내세요. Workflow에서 세 작업을 확인하고 Artifacts에서 **Download result file**을 누르면 됩니다. [실모델 인수·재현 기록](docs/M2-ACCEPTANCE.md)과 [프로세스 제한](docs/M2-PROCESSES.md)을 참고하세요.
+
+| 환경 변수 | 기본값 | 허용 범위 / 의미 |
+|---|---:|---|
+| `ATHENA_MODEL_CONCURRENCY` | 2 | 1–64. 부모가 대기할 때 슬롯을 자식에게 양보합니다. |
+| `ATHENA_PROCESS_CONCURRENCY` | 1 | 1–4. CSV 프로세스는 모델과 별도 한도를 사용합니다. |
+| `ATHENA_MAX_CHILDREN` | 8 | 0–128. 부모가 한 실행에서 만들 수 있는 직속 자식 수입니다. |
+| `ATHENA_MAX_DEPTH` | 1 | 0이면 위임을 끄고, 1이면 직속 자식까지만 허용합니다. |
+
 **구조와 경계**
 
 | 기존 UI 동작 | 실제 소유자 / 통신 | 보관·확인 대상 |
@@ -28,8 +37,9 @@ npm start
 | 첨부 및 파일 읽기 | 브라우저 → `stageFiles` → 프로젝트 파일 / Pi의 `read` | 파일 이름만 전달하지 않고 바이트를 저장. 모델은 도구 결과로 내용을 읽음. 셸·쓰기·네트워크 도구 없음 |
 | 전송 / 실시간 답변 | 기존 composer → 세션별 프록시 → TaskManager → 공식 Pi SDK 1.5.2 | 수락 ID, 실제 이벤트, 모델·run·task·tool ID. SSE를 통해 채팅과 작업 화면으로 전달 |
 | 대화와 실행 다시 열기 | `/api/bootstrap`, `get_messages`, TaskManager snapshot | SQLite의 실행 기록과 세션 JSONL의 메시지를 읽음. 브라우저 저장소는 실행의 정본이 아님 |
-| Workflow / Agents / Execution | 같은 TaskManager snapshot | 메인 작업과 실제 파일 도구를 투영. 자식 에이전트나 계산 결과물을 자동 생성하지 않음 |
-| Knowledge / Artifacts / Manuscript / 고급 Pi 기능 | 기존 화면과 capability 경계 | M1에 영속 연구자료 서비스, 버전 PDF, 리뷰, 플러그인, 승인·재시도·워커 스케줄러는 없음 |
+| Workflow / Agents / Execution | 같은 TaskManager snapshot, 독립 Pi 이력 | 작업 관계와 시도, 메일함, 모델이 호출한 도구, 프로세스의 명령·출력·종료 상태 및 취소 |
+| Artifacts | 생성 시도 및 입력 버전과 연결된 `statistics.json` | 호스트가 소유권과 바이트 해시를 확인한 후 내려보냅니다. 모델 답변에 적힌 경로는 정본이 아닙니다. |
+| Knowledge / Manuscript / 고급 Pi 기능 | 기존 화면과 capability 경계 | 영속 연구자료 서비스, 버전 PDF, 리뷰, 플러그인, 승인·자동 재시도는 구현하지 않았습니다. |
 
 호스트는 `127.0.0.1`에서만 듣고 요청의 Host·Origin·Content-Type을 제한합니다. `ATHENA_ENDPOINT`와 모델은 운영자가 고정합니다. 브라우저에서 다른 주소로 같은 키를 보내거나 실행 도중 모델을 교체할 수 없습니다. 모델 목록 검증 성공은 생성·도구 호출 검증과 구분합니다. `GET /api/bootstrap`, `POST /api/rpc`, `GET /api/events`의 브라우저 계약은 [`host-wire.d.ts`](athena-backend-handoff/athena-codex-ui/integrations/host-wire.d.ts)에 있습니다.
 
