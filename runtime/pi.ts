@@ -196,6 +196,7 @@ export async function createPiSession(options: PiSessionOptions) {
   const config = options.selection ? undefined : endpointConfig();
   const provider = options.selection?.model.provider ?? config?.provider ?? process.env.ATHENA_PROVIDER;
   const modelId = options.selection?.model.id ?? config?.model ?? process.env.ATHENA_MODEL;
+  if (provider === 'openai-codex') throw new PiRuntimeError('The independent Codex OAuth provider is not supported.');
   const secret = options.selection ? undefined : process.env.ATHENA_API_KEY;
   const legacyRedactor = streamRedactor(new Set(secret ? [secret] : []));
   const redact = options.selection?.redact ?? legacyRedactor.redact;
@@ -258,10 +259,14 @@ export async function createPiSession(options: PiSessionOptions) {
   function ensureOpen() {
     if (closed) throw new PiRuntimeError("The Pi session is closed.");
   }
-  function assertPromptReady() {
+  async function assertPromptReady() {
     ensureOpen();
     if (!model) throw new PiRuntimeError("Configure ATHENA_MODEL and ATHENA_ENDPOINT, or ATHENA_PROVIDER, before prompting.");
     if (config && !config.loopback && !secret) throw new PiRuntimeError("ATHENA_API_KEY is required for this endpoint.");
+    if (!options.selection && provider === 'openai' && process.env.ATHENA_AUTH_PATH
+      && (await modelRuntime.checkAuth('openai'))?.type === 'oauth') {
+      throw new PiRuntimeError('ChatGPT OAuth must use an Athena account profile. Imported OAuth credentials cannot run.');
+    }
   }
   const api = {
     sessionId: session.sessionId,
@@ -288,7 +293,7 @@ export async function createPiSession(options: PiSessionOptions) {
     },
     /** Completion promise, unlike command(prompt)'s early acceptance response. */
     async prompt(message: string): Promise<void> {
-      assertPromptReady();
+      await assertPromptReady();
       try {
         await session.prompt(message, { expandPromptTemplates: false, source: "rpc" });
       } catch (error) {
@@ -300,7 +305,7 @@ export async function createPiSession(options: PiSessionOptions) {
       ensureOpen();
       if (!object(command) || typeof command.type !== "string") throw new PiRuntimeError("A typed command object is required.");
       switch (command.type) {
-        case "prompt": assertPromptReady(); break;
+        case "prompt": await assertPromptReady(); break;
         case "abort":
         case "get_state":
         case "get_messages":

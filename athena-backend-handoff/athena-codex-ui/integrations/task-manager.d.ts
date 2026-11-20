@@ -1,6 +1,6 @@
 /** UI projection contract. All scheduling, retries and persistence belong to Athena TaskManager. */
 export type ModelReference = { provider: string; modelId: string; thinkingLevel?: string | null; profileId?: string;
-  configurationRevision?: number; source?: 'conversation' | 'project' | 'app' | 'host'; endpoint?: string; api?: string };
+  configurationRevision?: number; source?: 'conversation' | 'project' | 'app' | 'host'; endpoint?: string; api?: string; authMode?: 'chatgpt'; authRef?: string };
 export type VersionRef = { id: string; version: string };
 export type Scope = { projectId: string; sessionId: string; runId?: string | null };
 export type ExecutionScope = Scope & { readonly taskId: string; readonly parentTaskId: string | null; readonly attemptId: string; readonly agentSessionId: string };

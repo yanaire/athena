@@ -28,6 +28,8 @@ const hostModel = endpoint ? { provider: endpoint.provider, modelId: endpoint.mo
   : process.env.ATHENA_PROVIDER && modelId ? { provider: process.env.ATHENA_PROVIDER, modelId } : null;
 const connections = endpoint ? new Connections(directory, endpoint.endpoint, { provider: endpoint.provider, modelId: endpoint.model }, process.env.ATHENA_API_KEY) : undefined;
 const credentials = await openProviderCredentials(directory);
+// This distribution has no verified OpenAI approval and does not implement the
+// preview's full saved-account and remote sign-out lifecycle yet.
 const providers = await ProviderManager.create(credentials.store, directory);
 const profiles = new ModelProfiles(directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
 for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
@@ -124,7 +126,13 @@ async function rpc(method: string, args: unknown[]) {
     case 'getProviderOAuth': return providers.oauth?.status(string(input)) ?? null;
     case 'cancelProviderOAuth': return providers.oauth?.cancel(string(input)) ?? null;
     case 'listModelProfiles': return profileList();
-    case 'saveModelProfile': return profiles.save(input);
+    case 'saveModelProfile': {
+      if (!object(input) || input.authMode !== 'chatgpt') return profiles.save(input);
+      return changeCredentials(async () => {
+        const model = await providers.authorChatGPTProfile(string(input.modelId), input.accountRef);
+        return profiles.save(input, model);
+      });
+    }
     case 'deleteModelProfile': {
       const id = string(input);
       if (manager.profileInUse(id)) throw new ManagerError('PROFILE_IN_USE', 'Clear project and conversation selections before deleting this profile.');

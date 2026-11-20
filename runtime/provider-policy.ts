@@ -12,7 +12,7 @@ const hostSetup: Readonly<Record<string, string>> = Object.freeze({
 
 const oauthReasons: Readonly<Record<string, string>> = Object.freeze({
   anthropic: 'Anthropic restricts Claude subscription login to its own applications. Use a Claude Console API key.',
-  'openai-codex': 'The SDK uses the native Codex client registration. Athena has no authorization to reuse that registration.',
+  'openai-codex': 'Athena has no authorized independent Codex OAuth client registration.',
 });
 
 export function providerMethods(provider: Provider, enabledOAuth: ReadonlySet<string>): readonly ProviderAuthMethod[] {
@@ -27,7 +27,8 @@ export function providerMethods(provider: Provider, enabledOAuth: ReadonlySet<st
     const enabled = enabledOAuth.has(provider.id) && !Object.hasOwn(oauthReasons, provider.id);
     methods.push({ kind: 'oauth', label: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name, enabled,
       ...(!enabled ? { reason: (Object.hasOwn(oauthReasons, provider.id) ? oauthReasons[provider.id] : undefined)
-        ?? 'The SDK advertises OAuth; this provider has no policy-verified Athena login integration.' } : {}) });
+        ?? (provider.id === 'openai' ? 'ChatGPT plan usage is unavailable in this Athena release.'
+          : 'The SDK advertises OAuth; this provider has no policy-verified Athena login integration.') } : {}) });
   }
   return methods;
 }

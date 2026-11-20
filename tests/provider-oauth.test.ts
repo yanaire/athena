@@ -274,7 +274,7 @@ test('reopening an expired OAuth credential exposes refresh failure and logout s
     return Response.json({ error: 'invalid_grant' }, { status: 400 });
   }));
   const reopened = await openProviderCredentials(directory);
-  const manager = await ProviderManager.create(reopened.store, directory);
+  const manager = await ProviderManager.create(reopened.store, directory, { chatGPTEnabled: true });
   t.after(() => manager.close());
   const expired = await manager.catalog('openai');
   assert.equal(expired.provider.auth, 'refresh_required');

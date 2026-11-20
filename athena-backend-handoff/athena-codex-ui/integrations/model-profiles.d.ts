@@ -20,8 +20,8 @@ export type CatalogModel = {
   readonly name: string;
   readonly api: string;
   readonly input: readonly string[];
-  readonly contextWindow: number;
-  readonly maxTokens: number;
+  readonly contextWindow: number | null;
+  readonly maxTokens: number | null;
   readonly reasoning: boolean;
   readonly thinkingLevels: readonly ThinkingLevel[];
   readonly tools: 'unverified';
@@ -30,11 +30,12 @@ export type CatalogModel = {
 export type ProviderCatalog = {
   readonly provider: ProviderSummary;
   readonly models: readonly CatalogModel[];
-  /** SDK eligibility, not an entitlement or successful inference check. */
+  /** SDK eligibility or account-list presence, not a successful inference check. */
   readonly availableModelIds: readonly string[];
-  readonly source: 'sdk_catalog' | 'refreshed_catalog';
+  readonly source: 'sdk_catalog' | 'refreshed_catalog' | 'chatgpt_account';
+  readonly accountRef?: string;
   readonly checkedAt: string;
-  readonly error?: 'refresh_failed' | 'availability_failed';
+  readonly error?: 'refresh_failed' | 'availability_failed' | 'account_catalog_failed';
 };
 export type ModelProfile = ModelReference & {
   readonly id: string;
@@ -43,6 +44,7 @@ export type ModelProfile = ModelReference & {
   readonly thinkingLevel: ThinkingLevel;
   readonly endpoint?: string;
   readonly authRef: string;
+  readonly authMode?: 'chatgpt';
   readonly lastCheck?: ModelCheck;
 };
 export type ModelCheck = {
@@ -57,8 +59,10 @@ export type ResolvedModelReference = ModelReference & {
   readonly source?: 'conversation' | 'project' | 'app' | 'host';
   readonly endpoint?: string;
   readonly api?: string;
+  readonly authMode?: 'chatgpt';
+  readonly authRef?: string;
 };
-export type ModelProfileInput = Pick<ModelProfile, 'name' | 'provider' | 'modelId'> & Partial<Pick<ModelProfile, 'id' | 'revision' | 'thinkingLevel'>>;
+export type ModelProfileInput = Pick<ModelProfile, 'name' | 'provider' | 'modelId'> & Partial<Pick<ModelProfile, 'id' | 'revision' | 'thinkingLevel' | 'authMode'>> & { readonly accountRef?: string };
 export type ModelProfileList = {
   readonly profiles: readonly ModelProfile[];
   readonly appDefaultProfileId: string | null;

@@ -3,13 +3,14 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { CredentialStore, OAuthAuth, OAuthCredential } from '@earendil-works/pi-ai';
 import { object } from './connections.ts';
+import { CHATGPT_RESOURCE } from './chatgpt-catalog.ts';
 
 // https://developers.openai.com/siwc/token-sharing-open-source/sign-in
 const issuer = 'https://auth.openai.com';
 export const OPENAI_AUTHORIZE_URL = `${issuer}/api/accounts/authorize`;
 const tokenUrl = `${issuer}/api/accounts/oauth/token`;
 const jwksUrl = `${issuer}/.well-known/jwks.json`;
-const resource = 'https://api.openai.com/v1';
+const resource = CHATGPT_RESOURCE;
 const loopback = '127.0.0.1';
 const callbackPath = '/auth/callback';
 const dynamicClient = 'dynamic_agent_client';

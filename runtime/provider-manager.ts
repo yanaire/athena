@@ -1,4 +1,4 @@
-import { getSupportedThinkingLevels, InMemoryCredentialStore } from '@earendil-works/pi-ai';
+import { createProvider, getSupportedThinkingLevels, InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import type { Api, CredentialStore, Model, Provider } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { CatalogModel, ModelCheck, ProviderCatalog, ProviderSummary } from '../athena-backend-handoff/athena-codex-ui/integrations/model-profiles.d.ts';
@@ -8,6 +8,8 @@ import { addCompatibleModels, compatibleEndpoint, fetchCompatibleModels } from '
 import { ProviderOAuthController, registerOpenAIOAuth } from './provider-oauth.ts';
 import { streamRedactor } from './pi.ts';
 import type { PiModelSelection } from './pi.ts';
+import { accountModel, CHATGPT_RESOURCE, chatGPTAccountRef, fetchChatGPTCatalog } from './chatgpt-catalog.ts';
+import { chatGPTResponsesApi } from './chatgpt-responses.ts';
 
 export type CompatibleProvider = { readonly id: string; readonly name: string; readonly endpoint: string; readonly modelIds: readonly string[] };
 
@@ -36,23 +38,66 @@ export class ProviderManager {
   readonly #compatible = new Map<string, CompatibleProvider>();
   readonly oauth: ProviderOAuthController | undefined;
 
-  private constructor(runtime: ModelRuntime, credentials: CredentialStore, directory?: string) {
+  private constructor(runtime: ModelRuntime, credentials: CredentialStore, directory?: string, chatGPTEnabled = false) {
     this.#runtime = runtime;
     this.#credentials = credentials;
     this.#directory = directory;
-    this.#enabledOAuth = new Set(directory ? ['openai'] : []);
-    this.oauth = directory ? new ProviderOAuthController({ runtime, credentials, deviceIdDirectory: directory }) : undefined;
+    this.#enabledOAuth = new Set(directory && chatGPTEnabled ? ['openai'] : []);
+    this.oauth = directory && chatGPTEnabled ? new ProviderOAuthController({ runtime, credentials, deviceIdDirectory: directory }) : undefined;
   }
 
-  static async create(credentials: CredentialStore, directory?: string) {
+  static async create(credentials: CredentialStore, directory?: string, options: { readonly chatGPTEnabled?: boolean } = {}) {
     // Never import a companion CLI's auth.json, models.json, or endpoint overrides.
     const runtime = await ModelRuntime.create({ credentials, modelsPath: null, refreshOnCreate: false });
-    return new ProviderManager(runtime, credentials, directory);
+    return new ProviderManager(runtime, credentials, directory, options.chatGPTEnabled);
   }
 
   model(provider: string, model: string) { return this.#runtime.getPhysicalModel(provider, model); }
 
   endpoint(provider: string): string | undefined { return this.#compatible.get(provider)?.endpoint; }
+
+  #knownResponseModel(id: string): Model<'openai-responses'> | undefined {
+    const model = this.model('openai', id);
+    return model?.api === 'openai-responses' ? { ...model, api: 'openai-responses', compat: undefined } : undefined;
+  }
+
+  async #accountModels(authRef: string, access: string, signal: AbortSignal) {
+    const entries = await fetchChatGPTCatalog(access, signal).catch((error: unknown) => {
+      if (!(error instanceof Error)) throw error;
+      throw new ProviderError('MODEL_UNAVAILABLE', 'OpenAI did not return the ChatGPT account catalog. Check the account and try again.');
+    });
+    const current = await this.#credentials.read('openai', { signal });
+    if (current?.type !== 'oauth' || current.access !== access || chatGPTAccountRef(current) !== authRef) {
+      throw new ProviderError('AUTH_REQUIRED', 'The ChatGPT credential changed while loading models. Load the catalog again.');
+    }
+    return entries.map(entry => {
+      const known = this.#knownResponseModel(entry.slug);
+      return { model: accountModel(entry, known), known: known !== undefined };
+    });
+  }
+
+  async authorChatGPTProfile(modelId: string, accountRef: unknown) {
+    const signal = AbortSignal.timeout(10_000);
+    const credential = await this.#credentials.read('openai', { signal });
+    if (!this.oauth || credential?.type !== 'oauth' || typeof accountRef !== 'string' || chatGPTAccountRef(credential) !== accountRef) {
+      throw new ProviderError('AUTH_REQUIRED', 'Use the current ChatGPT account catalog to save this profile.');
+    }
+    const access = await this.#chatGPTAccess(this.#runtime, signal);
+    const selected = (await this.#accountModels(accountRef, access, signal)).find(entry => entry.model.id === modelId);
+    if (!selected) throw new ProviderError('MODEL_UNAVAILABLE', 'This model was not listed for the ChatGPT account.');
+    return { model: selected.model, authRef: accountRef };
+  }
+
+  async #chatGPTAccess(runtime: ModelRuntime, signal: AbortSignal): Promise<string> {
+    const auth = await runtime.getAuth('openai', { signal }).catch((error: unknown) => {
+      if (!(error instanceof Error)) throw error;
+      throw new ProviderError('AUTH_REQUIRED', 'ChatGPT authorization could not be renewed. Sign in again.');
+    });
+    if (auth?.auth.baseUrl !== CHATGPT_RESOURCE || !auth.auth.apiKey) {
+      throw new ProviderError('AUTH_REQUIRED', 'ChatGPT plan usage requires an authorized OAuth credential.');
+    }
+    return auth.auth.apiKey;
+  }
 
   async mountCompatible(provider: CompatibleProvider): Promise<void> {
     const stored = await this.#credentials.read(provider.id);
@@ -73,11 +118,16 @@ export class ProviderManager {
   }
 
   async pin(reference: ModelReference): Promise<PiModelSelection> {
-    const catalogModel = this.model(reference.provider, reference.modelId);
-    const thinkingLevel = catalogModel && getSupportedThinkingLevels(catalogModel).find(level => level === (reference.thinkingLevel ?? 'off'));
-    if (!catalogModel || !thinkingLevel) throw new ProviderError('MODEL_UNAVAILABLE', 'The selected model or reasoning level is no longer available.');
     const id = reference.provider;
+    if (id === 'openai-codex') throw new ProviderError('UNSUPPORTED_AUTH', 'The independent Codex OAuth provider is not supported.');
     const credential = await this.#credentials.read(id);
+    if (reference.authMode === 'chatgpt' && (id !== 'openai' || !this.oauth || credential?.type !== 'oauth')) {
+      throw new ProviderError('AUTH_REQUIRED', 'Reconnect the ChatGPT registration saved with this profile.');
+    }
+    if (id === 'openai' && credential?.type === 'oauth' && reference.authMode !== 'chatgpt') {
+      throw new ProviderError('AUTH_REQUIRED', 'This profile uses the OpenAI API key route. Save a ChatGPT profile from the account catalog.');
+    }
+    let catalogModel = this.model(id, reference.modelId);
     const secrets = new Set<string>();
     const remember = (value: string | undefined) => { if (value) secrets.add(value); };
     const runtimeStore = new InMemoryCredentialStore();
@@ -86,12 +136,12 @@ export class ProviderManager {
     let credentials: CredentialStore = runtimeStore;
     if (credential?.type === 'oauth') {
       const vault = this.#credentials;
-      const account = credential.clientId;
-      const subject = credential.subject;
-      if (typeof account !== 'string' || !account || typeof subject !== 'string' || !subject) throw new ProviderError('AUTH_REQUIRED', 'Reconnect this OAuth account.');
+      const account = chatGPTAccountRef(credential);
+      if (id !== 'openai' || !this.oauth || !account || reference.authRef !== account) throw new ProviderError('AUTH_REQUIRED', 'Reconnect the ChatGPT registration saved with this profile.');
       const scoped = (current: Awaited<ReturnType<CredentialStore['read']>>) => {
-        if (current?.type !== 'oauth' || current.clientId !== account || current.subject !== subject) throw new ProviderError('AUTH_REQUIRED', 'The run’s OAuth account was disconnected.');
+        if (current?.type !== 'oauth' || chatGPTAccountRef(current) !== account) throw new ProviderError('AUTH_REQUIRED', 'The run’s OAuth account was disconnected.');
         remember(current.access); remember(current.refresh);
+        if (typeof current.idToken === 'string') remember(current.idToken);
         return current;
       };
       credentials = {
@@ -108,6 +158,7 @@ export class ProviderManager {
       };
     }
     const runtime = await ModelRuntime.create({ credentials, modelsPath: null, refreshOnCreate: false });
+    const signal = AbortSignal.timeout(12_000);
     const compatible = this.#compatible.get(id);
     if (compatible) {
       const key = credential?.type === 'api_key' ? credential.key : undefined;
@@ -117,10 +168,18 @@ export class ProviderManager {
     } else if (credential?.type === 'oauth') {
       if (id !== 'openai' || !this.#directory) throw new ProviderError('UNSUPPORTED_AUTH', 'This provider’s stored OAuth credential is not allowed in Athena.');
       registerOpenAIOAuth(runtime, { credentials, deviceIdDirectory: this.#directory });
-      remember(credential.access);
-      remember(credential.refresh);
+      const ref = chatGPTAccountRef(credential);
+      if (!ref || ref !== reference.authRef) throw new ProviderError('AUTH_REQUIRED', 'The selected ChatGPT registration has changed.');
+      const access = await this.#chatGPTAccess(runtime, signal);
+      const selected = (await this.#accountModels(ref, access, signal)).find(entry => entry.model.id === reference.modelId)?.model;
+      const openai = runtime.getProvider(id);
+      if (!selected || !openai) throw new ProviderError('MODEL_UNAVAILABLE', 'The selected model is not in this ChatGPT account’s list.');
+      runtime.registerNativeProvider(createProvider({ id, name: openai.name, baseUrl: CHATGPT_RESOURCE,
+        auth: { oauth: openai.auth.oauth }, models: [selected], api: chatGPTResponsesApi() }));
+      catalogModel = selected;
     }
-    const signal = AbortSignal.timeout(12_000);
+    const thinkingLevel = catalogModel && getSupportedThinkingLevels(catalogModel).find(level => level === (reference.thinkingLevel ?? 'off'));
+    if (!catalogModel || !thinkingLevel) throw new ProviderError('MODEL_UNAVAILABLE', 'The selected model or reasoning level is no longer available.');
     const auth = await runtime.getAuth(catalogModel, { signal }).catch(() => {
       throw new ProviderError('AUTH_REQUIRED', 'The provider credential could not be resolved. Check authentication or sign in again.');
     });
@@ -195,6 +254,31 @@ export class ProviderManager {
     try {
       const credential = await this.#credentials.read(id, { signal });
       const oauthAllowed = providerMethods(provider, this.#enabledOAuth).some(method => method.kind === 'oauth' && method.enabled);
+      if (id === 'openai' && credential?.type === 'oauth') {
+        const accountRef = chatGPTAccountRef(credential);
+        const result = (auth: ProviderSummary['auth'], models: readonly CatalogModel[], error?: ProviderCatalog['error']): ProviderCatalog => ({
+          provider: this.#summary(provider, auth, 'oauth'), models, availableModelIds: models.map(model => model.id),
+          source: 'chatgpt_account', checkedAt: new Date().toISOString(), ...(accountRef ? { accountRef } : {}), ...(error ? { error } : {}),
+        });
+        if (!oauthAllowed || !accountRef) return result('unconfigured', []);
+        if (!refresh && credential.expires <= Date.now()) return result('refresh_required', []);
+        let access: string;
+        try { access = await this.#chatGPTAccess(this.#runtime, signal); }
+        catch (cause) {
+          if (!(cause instanceof ProviderError)) throw cause;
+          return result('refresh_required', [], 'refresh_failed');
+        }
+        try {
+          const needle = query.trim().toLowerCase();
+          const models = (await this.#accountModels(accountRef, access, signal))
+            .filter(({ model }) => `${model.id} ${model.name}`.toLowerCase().includes(needle))
+            .map(({ model, known }) => ({ ...describe(model), cost: null, ...(!known ? { contextWindow: null, maxTokens: null } : {}) }));
+          return result('configured', models);
+        } catch (cause) {
+          if (!(cause instanceof ProviderError)) throw cause;
+          return result('error', [], 'account_catalog_failed');
+        }
+      }
       if (credential?.type === 'oauth' && !oauthAllowed) {
         summary = this.#summary(provider, 'unconfigured');
       } else if (!refresh && credential?.type === 'oauth' && credential.expires <= Date.now()) {

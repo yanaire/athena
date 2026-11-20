@@ -7,6 +7,7 @@ import type { ModelCheck, ModelProfile, ResolvedModelReference } from '../athena
 import { object } from './connections.ts';
 import { ManagerError } from './orchestration.ts';
 import type { CompatibleProvider } from './provider-manager.ts';
+import { CHATGPT_RESOURCE } from './chatgpt-catalog.ts';
 
 type CatalogLookup = (provider: string, model: string) => Model<Api> | undefined;
 
@@ -75,7 +76,7 @@ export class ModelProfiles {
     this.#db.prepare('INSERT INTO model_profile_default VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET id=excluded.id').run(id);
   }
 
-  save(input: unknown): ModelProfile {
+  save(input: unknown, chatGPT?: { readonly model: Model<'openai-responses'>; readonly authRef: string }): ModelProfile {
     if (!object(input)) throw new ManagerError('INVALID_PROFILE', 'Expected a model profile.');
     const id = input.id === undefined ? randomUUID() : field(input.id, 'profile ID');
     const old = input.id === undefined ? undefined : this.get(id);
@@ -83,13 +84,22 @@ export class ModelProfiles {
     const name = field(input.name, 'profile name');
     const provider = field(input.provider, 'provider');
     const modelId = field(input.modelId, 'model ID');
-    const model = this.#lookup(provider, modelId);
+    const mode = input.authMode;
+    if (mode !== undefined && mode !== 'chatgpt') throw new ManagerError('INVALID_PROFILE', 'Unknown profile authentication mode.');
+    if (old?.authMode === 'chatgpt' && (mode !== 'chatgpt' || old.authRef !== chatGPT?.authRef)) {
+      throw new ManagerError('PROFILE_CONFLICT', 'This profile belongs to a different ChatGPT registration. Create another profile.');
+    }
+    if (mode === 'chatgpt' && (!chatGPT || provider !== 'openai' || modelId !== chatGPT.model.id || input.accountRef !== chatGPT.authRef)) {
+      throw new ManagerError('MODEL_UNAVAILABLE', 'Reload the current ChatGPT account catalog before saving.');
+    }
+    const model = mode === 'chatgpt' ? chatGPT?.model : this.#lookup(provider, modelId);
     if (!model) throw new ManagerError('MODEL_UNAVAILABLE', 'This model is not in the selected provider catalog.');
     const thinkingLevel = getSupportedThinkingLevels(model).find(level => level === (input.thinkingLevel ?? 'off'));
     if (thinkingLevel === undefined) throw new ManagerError('MODEL_UNAVAILABLE', 'The model does not support the requested reasoning level.');
-    const endpoint = this.#endpoint(provider);
+    const endpoint = mode === 'chatgpt' ? CHATGPT_RESOURCE : this.#endpoint(provider);
     const profile: ModelProfile = { id, name, provider, modelId, thinkingLevel,
-      revision: (old?.revision ?? 0) + 1, authRef: provider, ...(endpoint ? { endpoint } : {}) };
+      revision: (old?.revision ?? 0) + 1, authRef: chatGPT?.authRef ?? provider,
+      ...(mode === 'chatgpt' ? { authMode: mode } : {}), ...(endpoint ? { endpoint } : {}) };
     this.#db.prepare(`INSERT INTO model_profiles VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body`)
       .run(id, profile.revision, JSON.stringify(profile));
     return profile;
@@ -114,10 +124,11 @@ export class ModelProfiles {
     const id = conversation ?? project ?? this.appDefaultProfileId;
     if (id === null) return null;
     const profile = this.get(id);
-    const model = this.#lookup(profile.provider, profile.modelId);
-    if (!model) throw new ManagerError('MODEL_UNAVAILABLE', 'The selected profile model is no longer in its provider catalog.');
+    const api = profile.authMode === 'chatgpt' ? 'openai-responses' : this.#lookup(profile.provider, profile.modelId)?.api;
+    if (!api) throw new ManagerError('MODEL_UNAVAILABLE', 'The selected profile model is no longer in its provider catalog.');
     return { provider: profile.provider, modelId: profile.modelId, thinkingLevel: profile.thinkingLevel,
-      profileId: profile.id, configurationRevision: profile.revision, api: model.api,
+      profileId: profile.id, configurationRevision: profile.revision, api,
+      ...(profile.authMode === 'chatgpt' ? { authMode: profile.authMode, authRef: profile.authRef } : {}),
       ...(profile.endpoint ? { endpoint: profile.endpoint } : {}), source: conversation ? 'conversation' : project ? 'project' : 'app' };
   }
 
