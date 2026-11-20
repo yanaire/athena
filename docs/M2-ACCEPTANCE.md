@@ -41,3 +41,7 @@ ATHENA_BROWSER_WIDTH=390 bun qa/m2-browser-test.js
 M2 후보에서 타입 검사와 백엔드 33/33, 기존 UI DOM 102/102 및 계약 52/52가 통과했다. `scripts/live-acceptance.mjs`로 M1 경로도 별도 실행했다. Qwen이 첨부에서 `ATH-c58c81b091`를 읽어 18개 델타로 답했고, 메시지 5개의 SHA-256은 재시작 전후 `b8df3b1b9fa40f17253a70fed4867f7049cb4a3321aced5bc7fbb8c6b40f4fd6`였다.
 
 공개 이력은 원시 Pi JSONL을 수정하지 않고, 저장된 시도에 대응하는 메시지에서 `toolCall.id`와 `toolResult.toolCallId`를 동일한 Athena ID로 투영한다. `rawToolCallId`에는 SDK 식별자가 남는다. 위 실행을 재시작한 뒤 이 공개 이력의 SHA-256은 부모 `106964905cdeda108a858fcdc8876b318c4ca28216c97ab683f4110c1c77c3d6`, 감사 자식 `9c17cf01c5da5c8ce135946e1498f764c4806aff7944fd951684cd0591ece451`, 통계 자식 `6a54d84aab2afaa0babd2b129358854c647338b1aa3e4e446da448fffcbfb903`이었다. 대응하는 저널이 없는 M1 이력은 기존 ID를 유지한다.
+
+UI 커밋 `ce2b65a`에서 같은 데이터를 다시 열어 호스트 PID와 종료 코드를 별도로 기록했다. 첫 Node 호스트(PID 38669)를 종료 코드 0으로 내린 뒤 두 번째 호스트(PID 38683)를 시작했다. epoch가 달랐고 두 번의 전체 검사 출력 SHA-256은 `a386f84e3bdc2d323538357425a21d7e2338d95c55c6d8f1f12c3f0872a0aaba`로 같았다. 두 번째 호스트도 종료 코드 0이었다. 원본은 `verification-cFLXVS/host-pid-restart.log`와 `verified-{before,after}.json`이다.
+
+390px 브라우저 검사에서는 재연결 알림이 전체 취소 버튼의 클릭을 가로채는 결함이 발견됐다. 안내문은 보이되 클릭을 받지 않도록 수정한 뒤 알림을 띄운 상태로 390px·1440px에서 버튼 중앙의 클릭 대상과 취소 상태 전환을 확인했다. 화면 증거는 `~/.athena/evidence/m2-cancel-run-ZbeuXZ/`에 있다.
