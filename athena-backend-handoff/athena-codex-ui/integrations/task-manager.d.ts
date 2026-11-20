@@ -7,17 +7,34 @@ export type Status = 'ready' | 'queued' | 'running' | 'blocked' | 'paused' | 'su
 export interface Project { id: string; name: string; defaultModel?: ModelReference | null }
 export interface Session { id: string; projectId: string; title: string; model?: ModelReference | null }
 export interface Task extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; title: string; status: Status; dependencies: string[]; toolIds: string[]; artifactIds: string[]; role?: string; agentName?: string; progress?: number; total?: number }
-export interface Agent extends Scope, Partial<ExecutionScope> { id: string; taskId: string; name: string; role: string; status: Status; model?: ModelReference }
-export interface Tool extends Scope, Partial<Omit<ExecutionScope, 'taskId'>> { id: string; taskId?: string | null; name: string; sdkToolName: string; status: Status; command?: string; cwd?: string; args?: unknown; logs: { at: number; text: string }[]; exitCode?: number | null }
-export interface Artifact extends Scope, Partial<Omit<ExecutionScope, 'taskId'>> { id: string; readonly processId?: string; readonly toolId?: string; readonly file?: ResultFile; readonly name?: string; readonly sha256?: string; readonly bytes?: number; version: string; taskId?: string; title: string; kind: string; status: string; documentId?: string; documentVersion?: string; text?: string; location?: { uri: string; label?: string }; review: { status: 'unreviewed' | 'in_review' | 'approved' | 'rejected'; version: string }; evidence: VersionRef[] }
-export interface ResultFile extends Scope { readonly id: string; readonly attemptId: string; readonly name: string; readonly mimeType: string; readonly bytes: number; readonly sha256: string }
+export interface Agent extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; taskId: string; name: string; role: string; status: Status; model?: ModelReference }
+export interface Tool extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; taskId?: string | null; name: string; sdkToolName: string; status: Status; command?: string; cwd?: string; args?: unknown; logs: { at: number; text: string }[]; exitCode?: number | null }
+export interface Artifact extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; readonly processId?: string; readonly toolId?: string; readonly file?: ResultFile; readonly name?: string; readonly sha256?: string; readonly bytes?: number; version: string; taskId?: string; title: string; kind: string; status: string; documentId?: string; documentVersion?: string; text?: string; location?: { uri: string; label?: string }; review: { status: 'unreviewed' | 'in_review' | 'approved' | 'rejected'; version: string }; evidence: VersionRef[] }
+export interface ResultFile extends Scope { readonly id: string; readonly attemptId: string; readonly name: string; readonly versionId?: string; readonly mimeType: string; readonly bytes: number; readonly sha256: string }
 export interface Attempt extends ExecutionScope { readonly id: string; readonly status: Status; readonly prompt?: string; readonly result?: string; readonly error?: string; readonly fileIds: readonly string[] }
-export interface Process extends ExecutionScope {
+/** Project policy is resolved by the host. Missing fields are unreported, never defaults. */
+export interface Interpreter { readonly path: string; readonly version: string }
+export interface ExecutionPolicy {
+  readonly projectId: string | null; readonly enabled: boolean; readonly backend: 'docker';
+  readonly network: false; readonly shell: false; readonly limits: Readonly<Record<string, number>>;
+  readonly runtime: { readonly available: false; readonly reason: string } | {
+    readonly available: true; readonly imageId: string;
+    readonly node: Interpreter; readonly python: Interpreter;
+  };
+}
+export interface ProcessJob {
+  readonly program?: string; readonly args?: readonly string[]; readonly cwd?: string | null;
+  readonly limits?: Readonly<Record<string, number>>; readonly policy?: Readonly<Record<string, unknown>>;
+  readonly pid?: number | null; readonly startedAt?: number | null; readonly endedAt?: number | null;
+  readonly exitCode?: number | null; readonly signal?: string | null; readonly cancellation?: string;
+  readonly stdout?: string; readonly stderr?: string; readonly error?: string;
+  readonly artifact?: ResultFile; readonly artifacts?: readonly ResultFile[];
+}
+export interface Process extends ExecutionScope, ProcessJob {
   readonly id: string; readonly processId: string; readonly toolId: string;
   readonly status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out' | 'interrupted';
-  readonly program?: string; readonly args?: readonly string[]; readonly exitCode?: number | null; readonly signal?: string | null;
-  readonly stdout?: string; readonly stderr?: string; readonly error?: string; readonly artifact?: ResultFile;
-  readonly job?: { readonly program: string; readonly args: readonly string[]; readonly exitCode: number | null; readonly signal: string | null; readonly stdout: string; readonly stderr: string; readonly error?: string; readonly artifact?: ResultFile };
+  readonly evidence?: readonly VersionRef[];
+  readonly job?: ProcessJob;
 }
 export interface AgentHistory { readonly conversationId: string; readonly agentSessionId: string; readonly messages: readonly unknown[] }
 export interface WorkspaceEvent extends Scope { id: string; type: string; at: number; summary: string; taskId?: string; agentId?: string; toolId?: string; artifactId?: string; artifactVersion?: string }
@@ -28,6 +45,7 @@ export interface WorkspaceSnapshot {
   projects: Project[]; sessions: Session[];
   run: { id: string | null; status: Status; startedAt: number | null; elapsedMs: number; model: ModelReference | null };
   tasks: Task[]; agents: Agent[]; tools: Tool[]; artifacts: Artifact[]; events: WorkspaceEvent[]; approvals: Approval[];
+  readonly execution?: ExecutionPolicy;
   readonly attempts?: readonly Attempt[]; readonly processes?: readonly Process[];
 }
 export interface SessionActivation { sessionId: string; projectId?: string; title?: string; model?: ModelReference; connection?: unknown; snapshot?: WorkspaceSnapshot }

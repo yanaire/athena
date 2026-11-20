@@ -116,7 +116,7 @@
         if (destroyed || streamBound !== streamEpoch) return;
         const nextCursor = validCursor(data.cursor) ? data.cursor : null;
         capabilities = data.capabilities; piCapabilities = data.piCapabilities; inputContract = data.inputContract;
-        snapshot = data.snapshot; connection = data.connection;
+        snapshot = { ...data.snapshot, execution: data.snapshot.execution ?? data.execution }; connection = data.connection;
         unbind();
         await app.attachTaskManager(manager);
         if (destroyed || streamBound !== streamEpoch) return;

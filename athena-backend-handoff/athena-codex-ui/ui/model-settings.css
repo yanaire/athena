@@ -83,3 +83,6 @@
 #athena-codex .ams-execution-preferences > .ams-section:first-child { margin-top: 0; }
 #athena-codex .ams-execution-preferences .ams-actions { flex-wrap: wrap; }
 #athena-codex [data-ams-connection-status] { margin-top: 10px; }
+#athena-codex .ams-host-limits {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:7px 14px;margin:12px 0 0;font-size:12px;line-height:1.5;}
+#athena-codex .ams-host-limits dd {margin:0;overflow-wrap:anywhere;}
+#athena-codex .ams-host-limits dt {overflow-wrap:anywhere;}

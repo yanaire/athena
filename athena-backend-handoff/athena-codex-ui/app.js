@@ -205,6 +205,7 @@
   if(!live&&activity.parentElement!==activityHome)activityHome.insertBefore(activity,activityBefore);
   const projectId=snapshot.projectId||(live?'unassigned-project':'project-rc');
   if(projectId!==activeProjectId){activeProjectId=projectId;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
+  modelSettings?.setExecution(snapshot.execution || null);
   modelSettings?.setModelScopes(snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
   chatModelPicker?.sync();
   q('#ac-example-projects').hidden=live;q('#ac-live-projects').hidden=!live;

@@ -7,6 +7,7 @@ export type WireSessionActivation = Omit<SessionActivation, 'connection'>;
 export interface EventCursor { readonly epoch: string; readonly sequence: number }
 export interface HostBootstrap {
   readonly snapshot: WorkspaceSnapshot;
+  readonly execution?: WorkspaceSnapshot['execution'];
   /** Absent only on legacy M1 hosts and fixtures. */
   readonly cursor?: EventCursor;
   readonly connection: ConnectionSnapshot;

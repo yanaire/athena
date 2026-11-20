@@ -184,19 +184,24 @@
     function resultFilesHTML(results) {
       return results.map(item => {
         const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
-        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.filename || item.title || 'Download result file') + '</a>' : '';
+        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.file?.name || item.name || item.filename || item.title || item.id) + '</a>' : '';
       }).join('');
     }
 
     function processHTML(process) {
       const job = process.job || process;
       const status = LABELS[process.status] || String(process.status || '').replaceAll('_', ' ');
-      const command = [job.program, ...(Array.isArray(job.args) ? job.args : [])].filter(Boolean).join(' ');
-      const files = snapshot.artifacts.filter(item => (process.processId && item.processId === process.processId) || item.id === job.artifact?.id);
+      const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
+      const recorded = field('Process', process.processId) + field('Tool', process.toolId) + field('Working directory', job.cwd)
+        + field('Exit code', job.exitCode) + field('Signal', job.signal) + field('Cancellation', job.cancellation)
+        + field('Limits', job.limits) + field('Policy', job.policy);
+      // Argument boundaries matter: a joined shell string would misrepresent empty and spaced arguments.
+      const command = job.program ? esc(job.program) + (Array.isArray(job.args) ? '\nArguments: ' + esc(JSON.stringify(job.args)) : '') : '';
+      const files = snapshot.artifacts.filter(item => process.processId && item.processId === process.processId || !item.processId && (item.id === job.artifact?.id || job.artifacts?.some(file => file.id === item.id)));
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(job.program || 'Process') + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
-        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context"><div><dt>Exit code</dt><dd>' + esc(job.exitCode ?? '—') + '</dd></div><div><dt>Signal</dt><dd>' + esc(job.signal ?? '—') + '</dd></div></dl>'
-        + (command ? '<code class="aw-tool-command">' + esc(command) + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>'
+        + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }
 
     function render(state) {

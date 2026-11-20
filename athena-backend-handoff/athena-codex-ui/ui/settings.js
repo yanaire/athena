@@ -155,7 +155,7 @@
       content.appendChild(panel); categoryPanels.set(id, panel);
     }
     categoryPanels.get('models').appendChild(oldSections.get('models'));
-    categoryPanels.get('execution').innerHTML = '<div class="ast-section-heading"><h2>Agents &amp; execution</h2><p>Role preferences and controls for the current session.</p></div><div class="ast-connection-notice">' + icon('workflow') + '<p>Athena TaskManager owns scheduling. This interface subscribes to task state and sends explicit supported commands.</p></div><div id="ast-agent-model-settings-slot"></div>';
+    categoryPanels.get('execution').innerHTML = '<div class="ast-section-heading"><h2>Agents &amp; execution</h2><p>Execution settings and controls for the current session.</p></div><div class="ast-connection-notice">' + icon('workflow') + '<p>Athena TaskManager owns scheduling. This interface subscribes to task state and sends explicit supported commands.</p></div><div id="ast-agent-model-settings-slot"></div>';
     categoryPanels.get('tools').appendChild(oldSections.get('connections'));
     oldSections.get('connections').querySelector('h2').textContent = 'Tools & plugins';
     oldSections.get('connections').querySelector('.ast-connection-footnote').textContent = 'Preview items are examples. Installed tools and skills come from the connected host below.';
@@ -223,11 +223,11 @@
     }
 
     function syncSaveScope() {
-      const mode = section === 'appearance' ? (sessionOnly ? 'session' : 'automatic') : ['models', 'execution'].includes(section) ? 'explicit' : 'host';
+      const mode = section === 'appearance' ? (sessionOnly ? 'session' : 'automatic') : (section === 'models' || section === 'execution' && !window.AthenaHosted) ? 'explicit' : 'host';
       q('.ast-footer').dataset.saveMode = mode;
       const messages = {
         models: 'Model changes require Save settings. Connection checks are separate.',
-        execution: 'Role preferences require Save settings. Runtime controls apply to the current session.',
+        execution: window.AthenaHosted ? 'The host controls execution policy for this project.' : 'Role preferences require Save settings. Runtime controls apply to the current session.',
         tools: 'Changes apply to the current runtime. Installation requires host support.',
         files: 'Files and history are stored only when the project host confirms the write.',
         appearance: sessionOnly ? 'UI changes apply to this session. Device storage is unavailable.' : 'UI changes save automatically on this device.',

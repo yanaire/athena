@@ -6,19 +6,24 @@ const scope = { projectId, sessionId, runId };
 const child = { ...scope, taskId: 'child', parentTaskId: 'parent', agentSessionId: 'child-pi', attemptId: 'child-attempt' };
 const parent = { ...scope, taskId: 'parent', parentTaskId: null, agentSessionId: 'main-pi', attemptId: 'main-attempt' };
 const context = (ctx, title) => ({ ...ctx, id: ctx.taskId, title, status: 'running', dependencies: [], toolIds: [], artifactIds: [] });
-const file = { ...scope, id: 'result', name: 'statistics.json', mimeType: 'application/json', bytes: 11, sha256: 'b'.repeat(64) };
+const general = process.env.ATHENA_BROWSER_GENERAL === '1';
+const contents = new Map([['result', '{"rows":17}'], ...(general ? [['source', 'print("ready")\n'], ['table', 'rows\n17\n']] : [])]);
+const names = {result: ['statistics.json', 'application/json'], source: ['summary.py', 'text/plain'], table: ['rows.csv', 'text/csv']};
+const files = [...contents].map(([id, body]) => ({ ...scope, id, attemptId: 'process-id', name: names[id][0], mimeType: names[id][1], bytes: Buffer.byteLength(body), sha256: new Bun.CryptoHasher('sha256').update(body).digest('hex') }));
+const [file] = files;
+const execution = {projectId, enabled: true, backend: 'docker', shell: false, network: false, limits: {concurrency: 3, timeoutMs: 3500}, runtime: {available: true, imageId: 'test-image', node: {path:'/usr/bin/node',version:'v22'}, python:{path:'/usr/bin/python3',version:'3.12'}}};
 const primaryTasks = [context(parent, 'Root research'), context(child, 'Analyze measurements')];
 const artifactPath = '/api/artifacts/conversation/result';
 let revision = 1, epoch = 'initial', sequence = 0, runStatus = 'running', tasks = primaryTasks;
 const clients = new Set(), frames = [];
 const connection = { status: 'not_configured' };
 const snapshot = () => ({
-  revision, projectId, sessionId, projects: [{ id: projectId, name: 'Measurements' }],
+  ...(general ? {execution} : {}), revision, projectId, sessionId, projects: [{ id: projectId, name: 'Measurements' }],
   sessions: [{ id: sessionId, projectId, title: 'Saved research' }], run: { id: runId, status: runStatus }, tasks,
   agents: [parent, child].map((ctx, i) => ({ ...ctx, id: ctx.agentSessionId, name: i ? 'Statistics worker' : 'Coordinator', role: i ? 'analyst' : 'main', status: 'running' })),
   attempts: [{ ...child, id: 'earlier-attempt', status: 'failed' }, { ...child, id: child.attemptId, status: 'running' }],
-  processes: [{ ...child, id: 'process-record', processId: 'process-id', toolId: 'tool', status: 'succeeded', program: 'csv-worker', args: [], stdout: 'Rows counted: 17', stderr: '', exitCode: 0, artifact: file }],
-  artifacts: [{ ...child, ...file, artifactId: file.id, version: file.sha256, kind: 'json', title: file.name, processId: 'process-id', toolId: 'tool' }],
+  processes: [{ ...child, id: 'process-record', processId: 'process-id', toolId: 'tool', status: 'succeeded', ...(general ? {job: {program:'/usr/bin/python3', args:['summary.py','a b',''], cwd:'/work', policy:{network:false,shell:false}, limits:{timeoutMs:3500}, stdout:'Rows counted: 17', stderr:'test warning', exitCode:0, artifacts:files}} : {program: 'csv-worker', args: [], stdout: 'Rows counted: 17', stderr: '', exitCode: 0, artifact: file}) }],
+  artifacts: files.map(f => ({ ...child, id: f.id, file: f, artifactId: f.id, version: f.sha256, kind: f.mimeType, title: f.name, processId: 'process-id', toolId: 'tool' })),
   tools: [], approvals: [], events: []
 });
 const encoder = new TextEncoder();
@@ -34,7 +39,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, idleTimeout: 0, async
   const url = new URL(request.url);
   if (url.pathname === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   if (url.pathname === '/athena-host.js') return new Response(Bun.file('integrations/athena-host.js'), { headers: { 'Content-Type': 'text/javascript' } });
-  if (url.pathname === artifactPath) return json({ rows: 17 });
+  for (const f of files) if (url.pathname === '/api/artifacts/conversation/' + f.id) return new Response(contents.get(f.id), {headers:{'Content-Type': f.mimeType}});
   if (url.pathname === '/api/bootstrap') return json({ snapshot: snapshot(), connection, capabilities: ['cancel_run', 'cancel_task', 'get_agent_history'], piCapabilities: ['get_state', 'get_messages'], cursor: { epoch, sequence } });
   if (url.pathname === '/api/events') {
     const headers = { 'Content-Type': 'text/event-stream' };
@@ -97,16 +102,37 @@ try {
 
   await page.evaluate("AthenaApp.openWorkspace('workflow', {taskId:'child'})");
   await visibleText('[data-awv-task-detail]', 'earlier-attempt');
-  assert.match(await query('[data-awv-task-detail]', 'el.innerText'), /Root research[\s\S]*child-attempt[\s\S]*csv-worker/);
+  assert.match(await query('[data-awv-task-detail]', 'el.innerText'), general ? /Root research[\s\S]*child-attempt[\s\S]*python3/ : /Root research[\s\S]*child-attempt[\s\S]*csv-worker/);
   await screenshot('workflow');
   await click('[data-awv-open-process]');
   await visibleText('[data-aw-process][open]', 'Rows counted: 17');
   assert.equal(await query('[data-aw-process] a[download]', 'el.getAttribute("href")'), artifactPath);
+  if (general) {
+    const text = await query('[data-aw-process][open]', 'el.innerText');
+    for (const expected of ['/work', '["summary.py","a b",""]','3500','"network":false','test warning']) assert.ok(text.includes(expected), expected);
+    assert.equal(await query('[data-aw-process][open]', 'el.querySelectorAll("a[download]").length'), files.length);
+  }
   await screenshot('execution');
   await page.evaluate("AthenaApp.openWorkspace('artifacts', {artifactId:'result'})");
   const href = await query('[data-awv-artifact-view] a[download]', 'el?.href');
   assert.deepEqual(await (await fetch(href)).json(), { rows: 17 });
+  for (const f of files) {
+    await page.evaluate("AthenaApp.openWorkspace('artifacts', {artifactId:" + JSON.stringify(f.id) + "})");
+    const path = await query('[data-awv-artifact-view] a[download]', 'el.href');
+    const bytes = await (await fetch(path)).arrayBuffer();
+    assert.equal(new Bun.CryptoHasher('sha256').update(bytes).digest('hex'), f.sha256);
+    assert.ok((await query('[data-awv-artifact-view]', 'el.innerText')).includes(f.sha256));
+  }
   await screenshot('artifacts');
+  await page.evaluate("AthenaApp.openSettings('execution')");
+  await visibleText('[data-ams-policy-status]', general ? 'Enabled for this project' : 'has not reported');
+  if (general) {
+    const details = await query('.ams-host-limits', 'el.innerText');
+    for (const value of ['Concurrent processes','3','/usr/bin/python3','/usr/bin/node','3500']) assert.ok(details.includes(value), value);
+  }
+  assert.equal(await query('[name="parallelLimit"]', 'el.offsetWidth'), 0);
+  await screenshot('settings');
+  await click('[data-ast-action="close"]');
 
   await page.evaluate("AthenaApp.openWorkspace('workflow', {taskId:'child'})");
   await click('[data-awv-cancel-task]');

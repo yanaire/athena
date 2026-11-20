@@ -86,7 +86,7 @@
     let validation = { state: 'unchecked', errors: {} };
     let connectionManager = null, connectionUnsubscribe = null, connectionState = { capabilities: {}, busy: [] };
     let busy = false, saveEpoch = 0, canEditProject = false;
-    let hostConfigurationSeen = '', formEdited = false;
+    let hostConfigurationSeen = '', formEdited = false, projectExecution = null;
     const hosted = () => window.AthenaHosted === true || options.hosted === true;
     let modelScopes = { appDefault: null, projectDefault: null, conversation: null, runLocked: null };
 
@@ -193,6 +193,40 @@
     }
     const eventRoot = host.closest('.ast-sheet') || root;
 
+    const hostPanel = document.createElement('section');
+    hostPanel.className = 'ams-section'; hostPanel.hidden = true;
+    hostPanel.innerHTML = '<div class="ams-section-title"><h3>Project execution</h3></div><p class="ams-section-copy" data-ams-policy-status></p><dl class="ams-host-limits"></dl>';
+    (executionRoot || form).prepend(hostPanel);
+    function renderPolicy(execution) {
+      hostPanel.hidden = !hosted();
+      if (!hosted()) return;
+      const status = hostPanel.querySelector('[data-ams-policy-status]');
+      status.textContent = execution ? (execution.projectId ? (execution.enabled ? 'Enabled' : 'Disabled') + ' for this project' : 'No project selected') + ' · Read-only host policy.' : 'The host has not reported an execution policy for this project.';
+      const list = hostPanel.querySelector('dl'); list.replaceChildren();
+      const add = (label, value) => {
+        if (value == null) return;
+        const term = document.createElement('dt'), detail = document.createElement('dd');
+        term.textContent = label; detail.textContent = String(value); list.append(term, detail);
+      };
+      if (execution) {
+        add('Project', execution.projectId); add('Backend', execution.backend);
+        add('Network', execution.network === false ? 'Disabled' : null); add('Shell', execution.shell === false ? 'Disabled' : null);
+        const runtime = execution.runtime;
+        if (runtime?.available === false) add('Runtime unavailable', runtime.reason);
+        if (runtime?.available === true) {
+          add('Image', runtime.imageId);
+          for (const [label, runtimeInfo] of [['Node', runtime.node], ['Python', runtime.python]]) {
+            add(label, runtimeInfo ? [runtimeInfo.version, runtimeInfo.path].filter(Boolean).join(' · ') : 'Not reported');
+          }
+        }
+        for (const [name, value] of Object.entries(execution.limits || {})) {
+          if (Number.isFinite(value)) add(name === 'concurrency' ? 'Concurrent processes' : name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase()), value);
+        }
+      }
+      const config = connectionState.configuration;
+      add('Context budget (tokens)', config?.contextBudget); add('Output budget (tokens)', config?.outputBudget);
+    }
+
     function fillForm(config) {
       ['provider', 'endpoint', 'defaultModel', 'parallelLimit', 'contextBudget', 'outputBudget'].forEach(name => { controls[name].value = String(config[name]); });
       ROLES.forEach(([role]) => { controls['role-' + role].value = config.roleModels[role] || ''; });
@@ -254,7 +288,7 @@
       return [value.name || value.modelId || value.id, value.provider].filter(Boolean).join(' · ') || fallback;
     }
     function renderScopes() {
-      const fallback = { appDefault: storageMode === 'host' ? 'Awaiting a confirmed runtime default' : 'Local preference · ' + (saved.defaultModel || 'Not configured'), projectDefault: 'Inherit app default', conversation: 'No active conversation', runLocked: 'No run has started' };
+      const fallback = { appDefault: hosted() || storageMode === 'host' ? 'Awaiting a confirmed runtime default' : 'Local preference · ' + (saved.defaultModel || 'Not configured'), projectDefault: 'Inherit app default', conversation: 'No active conversation', runLocked: 'No run has started' };
       for (const [key, value] of Object.entries(modelScopes)) root.querySelector('[data-ams-scope="' + key + '"]').textContent = scopeLabel(value, fallback[key]);
       const current = modelScopes.conversation;
       root.querySelector('[data-ams-project-action="current"]').disabled = busy || !canEditProject || !current || typeof current !== 'object' || !current.provider || !(current.modelId || current.id);
@@ -275,10 +309,9 @@
       }
       if (hosted()) {
         for (const name of ['parallelLimit', 'contextBudget', 'outputBudget', ...ROLES.map(([role]) => 'role-' + role)]) controls[name].disabled = true;
-        controls.parallelLimit.value = '1'; controls.contextBudget.value = '32768'; controls.outputBudget.value = '4096';
-        ROLES.forEach(([role]) => { controls['role-' + role].value = ''; });
-        const footnote = eventRoot.querySelector('.ams-limits-footnote');
-        if (footnote) footnote.textContent = 'This host supports one agent, 32,768 context tokens and 4,096 output tokens. Role routing and other limits are unavailable.';
+        for (const section of eventRoot.querySelectorAll('[data-ams-execution-section]')) section.hidden = true;
+        if (executionRoot) executionRoot.querySelector('.ams-actions').hidden = true;
+        renderPolicy(projectExecution);
         if (!hostConfigurationSeen && !formEdited) { controls.endpoint.value = ''; controls.defaultModel.value = ''; }
         draft = readDraft();
       }
@@ -368,6 +401,7 @@
     const api = {
       getState: () => ({ saved: copy(saved), draft: copy(draft), isDirty: isDirty(), storageMode, validation: copy(validation), busy, connection: copy(connectionState), modelScopes: copy(modelScopes) }),
       setConnectionManager,
+      setExecution(execution) { projectExecution = execution; renderPolicy(execution); },
       setModelScopes(next, settings = {}) { modelScopes = { appDefault: null, projectDefault: null, conversation: null, runLocked: null, ...next }; canEditProject = settings.canEditProject === true && typeof options.onSetProjectDefaultModel === 'function'; renderScopes(); },
       focus() { if (!destroyed) controls.provider.focus({ preventScroll: true }); },
       destroy() {

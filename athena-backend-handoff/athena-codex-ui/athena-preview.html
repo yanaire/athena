@@ -1217,6 +1217,9 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .ams-execution-preferences > .ams-section:first-child { margin-top: 0; }
 #athena-codex .ams-execution-preferences .ams-actions { flex-wrap: wrap; }
 #athena-codex [data-ams-connection-status] { margin-top: 10px; }
+#athena-codex .ams-host-limits {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:7px 14px;margin:12px 0 0;font-size:12px;line-height:1.5;}
+#athena-codex .ams-host-limits dd {margin:0;overflow-wrap:anywhere;}
+#athena-codex .ams-host-limits dt {overflow-wrap:anywhere;}
 
 /* Project knowledge panel. Sized for a 300 px side slot without horizontal overflow. */
 #athena-codex .akn-root { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: #fffefa; color: #43493a; font-size: 12px; line-height: 1.6; }
@@ -5710,6 +5713,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if (selectedSession && !sessions.some(item => item.id === selectedSession.id)) sessions.push(selectedSession);
       return copy({ ...live, sessions, hydration, mode: 'runtime', sessionBound, workspaceBound, connected: Boolean(pi.connected || host && live.revision >= 0), taskManagerConnected: Boolean(host && live.revision >= 0), taskManagerStatus: !host ? 'disconnected' : live.error ? 'error' : live.revision >= 0 ? 'connected' : 'connecting', projectId, sessionId,
         run: host && workspaceBound ? live.run : sessionBound ? { id: pi.session?.runId || null, status: pi.session?.isStreaming ? 'running' : activity?.settled ? activity.phase === 'error' ? 'failed' : activity.phase === 'stopped' ? 'cancelled' : 'succeeded' : 'ready', startedAt: activity?.startedAt || null, elapsedMs: activity?.elapsedMs || 0, model: lockedModel } : empty().run,
+        execution: workspaceBound && live.execution && live.execution.projectId === projectId ? live.execution : null,
         tasks: workspaceBound ? live.tasks.filter(inScope) : [], agents: workspaceBound ? live.agents.filter(inScope) : [], attempts: workspaceBound ? live.attempts.filter(inScope) : [], processes: workspaceBound ? live.processes.filter(inScope) : [], artifacts: workspaceBound ? live.artifacts.filter(inScope) : [], approvals: workspaceBound ? live.approvals.filter(inScope) : [], tools: [...tools.values()],
         events: [...live.events.filter(inScope), ...observedEvents.filter(inScope)].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index),
         modelScopes: { appDefault, projectDefault: model(project?.defaultModel), conversation: sessionBound && model(pi.model) ? { ...model(pi.model), thinkingLevel: pi.thinkingLevel } : null, runLocked: host && workspaceBound ? live.run?.model : sessionBound ? lockedModel : null },
@@ -6019,6 +6023,8 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
 
   function href(conversationId, artifact) {
     if (!validId(conversationId) || !validId(artifact?.id) || artifact.status === 'unavailable' || (artifact.sessionId && artifact.sessionId !== conversationId)) return null;
+    if (artifact.file && (artifact.file.id !== artifact.id || (artifact.file.sessionId && artifact.file.sessionId !== conversationId)
+      || (artifact.projectId && artifact.file.projectId && artifact.projectId !== artifact.file.projectId))) return null;
     const path = '/api/artifacts/' + encodeURIComponent(conversationId) + '/' + encodeURIComponent(artifact.id);
     const location = typeof artifact.location === 'string' ? artifact.location : artifact.location?.uri;
     const hasFileMetadata = typeof artifact.name === 'string' && Number.isSafeInteger(artifact.bytes) && artifact.bytes >= 0 && /^[a-f0-9]{64}$/.test(artifact.sha256);
@@ -6216,7 +6222,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function timelineShell() {
-      return '<div class="awv-scroll"><section class="awv-task-detail" aria-label="Agent history" data-awv-agent-history hidden><label class="awv-artifact-selector"><span>Agent conversation</span><select data-awv-agent-select></select></label><p class="awv-caption awv-record-identity" data-awv-agent-status role="status"></p><ul class="awv-events" data-awv-agent-messages></ul></section><div class="awv-fields"><label><span>Task</span><select data-awv-timeline-task aria-label="Filter timeline by task"></select></label><label><span>Event type</span><select data-awv-timeline-type aria-label="Filter timeline by event type"><option value="all">All events</option><option value="run">Run</option><option value="task">Task</option><option value="agent">Agent</option><option value="tool">Tool</option><option value="approval">Approval</option><option value="artifact">Artifact</option></select></label></div><div class="awv-toolbar awv-timeline-toolbar"><span class="awv-caption" data-awv-event-count></span><div class="awv-toolbar-actions"><button class="awv-text-button" type="button" data-awv-action="latest-event" title="Scroll to the latest visible event">Latest' + icon('arrow-down') + '</button><button class="awv-icon-button" type="button" data-awv-action="download-events" title="Download filtered events as JSON" aria-label="Download filtered events as JSON">' + icon('download') + '</button></div></div><ol class="awv-timeline" data-awv-events aria-label="Chronological activity"></ol></div>';
+      return '<div class="awv-scroll"><section class="awv-task-detail" aria-label="Agent history" data-awv-agent-history hidden><label class="awv-artifact-selector"><span>Agent conversation</span><select data-awv-agent-select></select></label><p class="awv-caption awv-record-identity" data-awv-agent-status role="status"></p><div data-awv-agent-work></div><ul class="awv-events" data-awv-agent-messages></ul></section><div class="awv-fields"><label><span>Task</span><select data-awv-timeline-task aria-label="Filter timeline by task"></select></label><label><span>Event type</span><select data-awv-timeline-type aria-label="Filter timeline by event type"><option value="all">All events</option><option value="run">Run</option><option value="task">Task</option><option value="agent">Agent</option><option value="tool">Tool</option><option value="approval">Approval</option><option value="artifact">Artifact</option></select></label></div><div class="awv-toolbar awv-timeline-toolbar"><span class="awv-caption" data-awv-event-count></span><div class="awv-toolbar-actions"><button class="awv-text-button" type="button" data-awv-action="latest-event" title="Scroll to the latest visible event">Latest' + icon('arrow-down') + '</button><button class="awv-icon-button" type="button" data-awv-action="download-events" title="Download filtered events as JSON" aria-label="Download filtered events as JSON">' + icon('download') + '</button></div></div><ol class="awv-timeline" data-awv-events aria-label="Chronological activity"></ol></div>';
     }
 
     function shell() {
@@ -6231,7 +6237,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       setText('[data-awv-view-description]', live() && state.view === 'artifacts' ? 'Artifacts reported for this session, with exact source versions.' : VIEWS[state.view][1]);
       setHTML('[data-awv-run-status]', badge(run.status || 'ready'));
       const elapsed = Math.floor((run.elapsedMs || 0) / 1000);
-      setText('[data-awv-run-time]', run.startedAt ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0') + ' active' : 'Not started');
+      setText('[data-awv-run-time]', run.startedAt ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0') + ' elapsed' : live() && run.id ? 'Start time not reported' : 'Not started');
     }
 
     function syncSelect(selector, items, value) {
@@ -6262,11 +6268,15 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return Number.isFinite(total) && total > 0 && Number.isFinite(progress) && progress >= 0 ? { total, progress: clamp(progress, 0, total) } : null;
     }
 
+    function taskOwner(item) {
+      const agent = (snapshot.agents || []).find(a => a.taskId === item.id && (!item.agentSessionId || item.agentSessionId === a.agentSessionId));
+      return item.agentName || agent?.name || item.role || (live() ? 'Agent not reported' : 'Agent not assigned');
+    }
     function taskNode(item, graph = false) {
       const counts = taskProgress(item), title = item.title || item.id;
       const dependencies = (item.dependencies || []).map(id => task(id)?.title || id);
       const progress = counts ? '<span class="awv-progress" role="progressbar" aria-label="' + esc(title) + ' progress" aria-valuemin="0" aria-valuemax="' + counts.total + '" aria-valuenow="' + counts.progress + '"><span style="width:' + (counts.progress / counts.total * 100).toFixed(2) + '%"></span></span>' : '<span class="awv-task-dependencies">Progress not reported</span>';
-      return '<button type="button" class="awv-task-node' + (state.taskId === item.id ? ' awv-selected' : '') + (graph ? ' awv-graph-node' : '') + '" data-awv-task="' + esc(item.id) + '" data-awv-focus="task-' + esc(item.id) + '" aria-pressed="' + (state.taskId === item.id) + '"><span class="awv-task-avatar">' + ava(item) + '</span><span class="awv-task-copy"><strong>' + esc(title) + '</strong><span class="awv-task-meta">' + esc(item.agentName || item.role || 'Agent not assigned') + ' · ' + esc(label(item.status)) + '</span>' + (!graph ? '<span class="awv-task-dependencies">' + (dependencies.length ? 'After ' + esc(dependencies.join(' + ')) : 'No dependencies') + '</span>' : '') + progress + '</span>' + (!graph && counts ? '<span class="awv-task-counter">' + counts.progress + '/' + counts.total + '</span>' : '') + '</button>';
+      return '<button type="button" class="awv-task-node' + (state.taskId === item.id ? ' awv-selected' : '') + (graph ? ' awv-graph-node' : '') + '" data-awv-task="' + esc(item.id) + '" data-awv-focus="task-' + esc(item.id) + '" aria-pressed="' + (state.taskId === item.id) + '"><span class="awv-task-avatar">' + ava(item) + '</span><span class="awv-task-copy"><strong>' + esc(title) + '</strong><span class="awv-task-meta">' + esc(taskOwner(item)) + ' · ' + esc(label(item.status)) + '</span>' + (!graph ? '<span class="awv-task-dependencies">' + (dependencies.length ? 'After ' + esc(dependencies.join(' + ')) : 'No dependencies') + '</span>' : '') + progress + '</span>' + (!graph && counts ? '<span class="awv-task-counter">' + counts.progress + '/' + counts.total + '</span>' : '') + '</button>';
     }
 
     function workflowMap() {
@@ -6274,6 +6284,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (state.workflowMode === 'list') return '<div class="awv-task-list">' + tasks().map(item => taskNode(item)).join('') + '</div>';
       const first = tasks().filter(item => !item.dependencies?.length), rest = tasks().filter(item => item.dependencies?.length);
       return '<div class="awv-graph" aria-label="Dependency graph"><div class="awv-graph-start">' + first.map(item => taskNode(item, true)).join('') + '</div>' + rest.map((item, index) => '<div class="awv-graph-connector' + (index === 0 && first.length > 1 ? ' awv-graph-join' : '') + '" aria-hidden="true"><span></span></div><div class="awv-graph-step"><span class="awv-sr-only">Depends on ' + esc(item.dependencies.map(id => task(id)?.title || id).join(' and ')) + '.</span>' + taskNode(item, true) + '</div>').join('') + '</div><p class="awv-caption awv-graph-caption">' + (first.length > 1 ? 'The first two tasks can run together. Both finish before analysis begins.' : 'Lines show which tasks must finish first.') + '</p>';
+    }
+
+    function processButton(process) {
+      const job = process.job || process;
+      return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(job.program || process.processId) + (Array.isArray(job.args) && job.args.length ? ' · ' + esc(JSON.stringify(job.args)) : '') + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }
 
     function orchestrationDetails(item) {
@@ -6286,7 +6301,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         + (item.attemptId ? row('Current attempt', esc(item.attemptId)) : '')
         + (agentSessionId ? row('Agent session', can('agentHistory') ? '<button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(agentSessionId) + '">' + esc(agentSessionId) + '</button>' : esc(agentSessionId)) : '')
         + (attempts.length ? row('Attempts', attempts.map(attempt => '<p>' + esc(attempt.id) + ' · ' + esc(label(attempt.status)) + (attempt.agentSessionId && attempt.agentSessionId !== agentSessionId && can('agentHistory') ? ' <button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(attempt.agentSessionId) + '">Agent history</button>' : '') + '</p>').join('')) : '')
-        + (processes.length ? row('Processes', processes.map(process => '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(process.program || process.job?.program || process.processId) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('')) : '');
+        + (processes.length ? row('Processes', processes.map(processButton).join('')) : '');
     }
 
     function updateWorkflow() {
@@ -6301,7 +6316,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const outputs = artifactList().filter(a => a.taskId === item.id);
       const counts = taskProgress(item);
       const progressLabel = counts ? counts.progress + ' of ' + counts.total + ' steps' : 'Progress not reported';
-      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(item.title) + '</h3><p class="awv-caption">' + esc(item.agentName || item.role || 'Agent not assigned') + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(tool.name) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(tool.name) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(a.title || a.id) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
+      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(item.title) + '</h3><p class="awv-caption">' + esc(taskOwner(item)) + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(tool.name) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(tool.name) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(a.title || a.id) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
     }
 
     function plotWidth() {
@@ -6427,10 +6442,16 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function liveArtifactHTML(item) {
       const body = typeof item.text === 'string' ? item.text : null, location = safeLocation(item);
       const download = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+      const file = item.file || item;
+      const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(value) + '</dd></div>';
+      const provenance = field('Filename', file.name) + field('Media type', file.mimeType) + field('Bytes', file.bytes)
+        + field('SHA-256', file.sha256) + field('File version', file.versionId) + field('Project', item.projectId)
+        + field('Run', item.runId) + field('Agent session', item.agentSessionId) + field('Attempt', item.attemptId)
+        + field('Tool', item.toolId) + field('Process', item.processId);
       const reviewedVersion = item.documentVersion ?? item.version;
       const review = item.review && String(item.review.version) === String(reviewedVersion) ? item.review.status || 'unreviewed' : 'unreviewed';
       const evidence = Array.isArray(item.evidence) ? item.evidence : [];
-      return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(item.title || item.id) + '</h3>' + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button><button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button></div>' : '') + '</div><dl class="awv-detail-list"><div><dt>Artifact</dt><dd>' + esc(item.id) + '</dd></div><div><dt>Version</dt><dd>' + esc(artifactVersion(item) || 'Not reported') + '</dd></div><div><dt>Task</dt><dd>' + esc(item.taskId || 'Not reported') + '</dd></div>' + (item.documentId ? '<div><dt>Document</dt><dd>' + esc(item.documentId) + ' · v' + esc(item.documentVersion ?? 'Not reported') + '</dd></div>' : '') + '<div><dt>Review</dt><dd>' + esc(String(review).replaceAll('_', ' ')) + '</dd></div><div><dt>Original</dt><dd>' + esc(typeof item.location === 'string' ? item.location : item.location?.uri || 'Not provided') + '</dd></div></dl>' + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : download ? '' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>') + (download ? '<a class="awv-button" href="' + esc(download) + '" download>Download result file' + icon('download') + '</a>' : '') + (location && !download ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '') + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '') + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
+      return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(item.title || item.id) + '</h3>' + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button>' + (download ? '' : '<button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button>') + '</div>' : '') + '</div><dl class="awv-detail-list"><div><dt>Artifact</dt><dd>' + esc(item.id) + '</dd></div><div><dt>Version</dt><dd>' + esc(artifactVersion(item) || 'Not reported') + '</dd></div><div><dt>Task</dt><dd>' + esc(item.taskId || 'Not reported') + '</dd></div>' + provenance + (item.documentId ? '<div><dt>Document</dt><dd>' + esc(item.documentId) + ' · v' + esc(item.documentVersion ?? 'Not reported') + '</dd></div>' : '') + '<div><dt>Review</dt><dd>' + esc(String(review).replaceAll('_', ' ')) + '</dd></div><div><dt>Original</dt><dd>' + esc(typeof item.location === 'string' ? item.location : item.location?.uri || 'Not provided') + '</dd></div></dl>' + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : download ? '' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>') + (download ? '<a class="awv-button" href="' + esc(download) + '" download>Download result file' + icon('download') + '</a>' : '') + (location && !download ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '') + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '') + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
     }
 
     function updateArtifacts(force = false) {
@@ -6498,6 +6519,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const selected = agents.find(agent => agent.agentSessionId === state.agentSessionId);
       syncSelect('[data-awv-agent-select]', [['', 'Choose an agent'], ...agents.map(agent => [agent.agentSessionId, (agent.name || agent.role || agent.id) + ' · ' + (task(agent.taskId)?.title || agent.taskId)])], selected?.agentSessionId || '');
       q('[data-awv-agent-select]').disabled = !agents.length;
+      const work = selected && (snapshot.processes || []).filter(process => process.agentSessionId === selected.agentSessionId);
+      setHTML('[data-awv-agent-work]', selected ? '<p class="awv-caption awv-record-identity">' + [selected.role, selected.status && label(selected.status), selected.agentSessionId].filter(Boolean).map(esc).join(' · ') + '</p>' + (work || []).map(processButton).join('') : '');
       if (!selected) { history = { key: '', messages: [], status: '', error: '' }; setText('[data-awv-agent-status]', agents.length ? 'Choose an agent to read its conversation.' : 'No agent sessions reported yet.'); setHTML('[data-awv-agent-messages]', ''); return; }
       const conversationId = snapshot.sessionId;
       const key = JSON.stringify([scopeKey(snapshot), selected.agentSessionId, snapshot.hydration, snapshot.revision]);
@@ -6629,7 +6652,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         navigate('execution', { toolId: button.dataset.awvOpenTool, taskId: tool?.taskId });
         return;
       }
-      if (button.dataset.awvOpenProcess) { navigate('execution', { processId: button.dataset.awvOpenProcess, taskId: state.taskId }); return; }
+      if (button.dataset.awvOpenProcess) { navigate('execution', { processId: button.dataset.awvOpenProcess, taskId: (snapshot.processes || []).find(process => process.id === button.dataset.awvOpenProcess)?.taskId }); return; }
       if (button.dataset.awvOpenAgent) { navigate('timeline', { agentSessionId: button.dataset.awvOpenAgent, taskId: state.taskId }); return; }
       if (button.dataset.awvCancelTask) { if (can('cancelTask')) store.cancelTask(button.dataset.awvCancelTask); return; }
       if (button.dataset.awvOpenArtifact) { navigate('artifacts', { artifactId: button.dataset.awvOpenArtifact, ...(button.dataset.awvVersion ? { version: button.dataset.awvVersion } : {}) }); return; }
@@ -6902,7 +6925,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     let validation = { state: 'unchecked', errors: {} };
     let connectionManager = null, connectionUnsubscribe = null, connectionState = { capabilities: {}, busy: [] };
     let busy = false, saveEpoch = 0, canEditProject = false;
-    let hostConfigurationSeen = '', formEdited = false;
+    let hostConfigurationSeen = '', formEdited = false, projectExecution = null;
     const hosted = () => window.AthenaHosted === true || options.hosted === true;
     let modelScopes = { appDefault: null, projectDefault: null, conversation: null, runLocked: null };
 
@@ -7009,6 +7032,40 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
     const eventRoot = host.closest('.ast-sheet') || root;
 
+    const hostPanel = document.createElement('section');
+    hostPanel.className = 'ams-section'; hostPanel.hidden = true;
+    hostPanel.innerHTML = '<div class="ams-section-title"><h3>Project execution</h3></div><p class="ams-section-copy" data-ams-policy-status></p><dl class="ams-host-limits"></dl>';
+    (executionRoot || form).prepend(hostPanel);
+    function renderPolicy(execution) {
+      hostPanel.hidden = !hosted();
+      if (!hosted()) return;
+      const status = hostPanel.querySelector('[data-ams-policy-status]');
+      status.textContent = execution ? (execution.projectId ? (execution.enabled ? 'Enabled' : 'Disabled') + ' for this project' : 'No project selected') + ' · Read-only host policy.' : 'The host has not reported an execution policy for this project.';
+      const list = hostPanel.querySelector('dl'); list.replaceChildren();
+      const add = (label, value) => {
+        if (value == null) return;
+        const term = document.createElement('dt'), detail = document.createElement('dd');
+        term.textContent = label; detail.textContent = String(value); list.append(term, detail);
+      };
+      if (execution) {
+        add('Project', execution.projectId); add('Backend', execution.backend);
+        add('Network', execution.network === false ? 'Disabled' : null); add('Shell', execution.shell === false ? 'Disabled' : null);
+        const runtime = execution.runtime;
+        if (runtime?.available === false) add('Runtime unavailable', runtime.reason);
+        if (runtime?.available === true) {
+          add('Image', runtime.imageId);
+          for (const [label, runtimeInfo] of [['Node', runtime.node], ['Python', runtime.python]]) {
+            add(label, runtimeInfo ? [runtimeInfo.version, runtimeInfo.path].filter(Boolean).join(' · ') : 'Not reported');
+          }
+        }
+        for (const [name, value] of Object.entries(execution.limits || {})) {
+          if (Number.isFinite(value)) add(name === 'concurrency' ? 'Concurrent processes' : name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase()), value);
+        }
+      }
+      const config = connectionState.configuration;
+      add('Context budget (tokens)', config?.contextBudget); add('Output budget (tokens)', config?.outputBudget);
+    }
+
     function fillForm(config) {
       ['provider', 'endpoint', 'defaultModel', 'parallelLimit', 'contextBudget', 'outputBudget'].forEach(name => { controls[name].value = String(config[name]); });
       ROLES.forEach(([role]) => { controls['role-' + role].value = config.roleModels[role] || ''; });
@@ -7070,7 +7127,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return [value.name || value.modelId || value.id, value.provider].filter(Boolean).join(' · ') || fallback;
     }
     function renderScopes() {
-      const fallback = { appDefault: storageMode === 'host' ? 'Awaiting a confirmed runtime default' : 'Local preference · ' + (saved.defaultModel || 'Not configured'), projectDefault: 'Inherit app default', conversation: 'No active conversation', runLocked: 'No run has started' };
+      const fallback = { appDefault: hosted() || storageMode === 'host' ? 'Awaiting a confirmed runtime default' : 'Local preference · ' + (saved.defaultModel || 'Not configured'), projectDefault: 'Inherit app default', conversation: 'No active conversation', runLocked: 'No run has started' };
       for (const [key, value] of Object.entries(modelScopes)) root.querySelector('[data-ams-scope="' + key + '"]').textContent = scopeLabel(value, fallback[key]);
       const current = modelScopes.conversation;
       root.querySelector('[data-ams-project-action="current"]').disabled = busy || !canEditProject || !current || typeof current !== 'object' || !current.provider || !(current.modelId || current.id);
@@ -7091,10 +7148,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       }
       if (hosted()) {
         for (const name of ['parallelLimit', 'contextBudget', 'outputBudget', ...ROLES.map(([role]) => 'role-' + role)]) controls[name].disabled = true;
-        controls.parallelLimit.value = '1'; controls.contextBudget.value = '32768'; controls.outputBudget.value = '4096';
-        ROLES.forEach(([role]) => { controls['role-' + role].value = ''; });
-        const footnote = eventRoot.querySelector('.ams-limits-footnote');
-        if (footnote) footnote.textContent = 'This host supports one agent, 32,768 context tokens and 4,096 output tokens. Role routing and other limits are unavailable.';
+        for (const section of eventRoot.querySelectorAll('[data-ams-execution-section]')) section.hidden = true;
+        if (executionRoot) executionRoot.querySelector('.ams-actions').hidden = true;
+        renderPolicy(projectExecution);
         if (!hostConfigurationSeen && !formEdited) { controls.endpoint.value = ''; controls.defaultModel.value = ''; }
         draft = readDraft();
       }
@@ -7184,6 +7240,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const api = {
       getState: () => ({ saved: copy(saved), draft: copy(draft), isDirty: isDirty(), storageMode, validation: copy(validation), busy, connection: copy(connectionState), modelScopes: copy(modelScopes) }),
       setConnectionManager,
+      setExecution(execution) { projectExecution = execution; renderPolicy(execution); },
       setModelScopes(next, settings = {}) { modelScopes = { appDefault: null, projectDefault: null, conversation: null, runLocked: null, ...next }; canEditProject = settings.canEditProject === true && typeof options.onSetProjectDefaultModel === 'function'; renderScopes(); },
       focus() { if (!destroyed) controls.provider.focus({ preventScroll: true }); },
       destroy() {
@@ -7942,19 +7999,24 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function resultFilesHTML(results) {
       return results.map(item => {
         const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
-        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.filename || item.title || 'Download result file') + '</a>' : '';
+        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.file?.name || item.name || item.filename || item.title || item.id) + '</a>' : '';
       }).join('');
     }
 
     function processHTML(process) {
       const job = process.job || process;
       const status = LABELS[process.status] || String(process.status || '').replaceAll('_', ' ');
-      const command = [job.program, ...(Array.isArray(job.args) ? job.args : [])].filter(Boolean).join(' ');
-      const files = snapshot.artifacts.filter(item => (process.processId && item.processId === process.processId) || item.id === job.artifact?.id);
+      const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
+      const recorded = field('Process', process.processId) + field('Tool', process.toolId) + field('Working directory', job.cwd)
+        + field('Exit code', job.exitCode) + field('Signal', job.signal) + field('Cancellation', job.cancellation)
+        + field('Limits', job.limits) + field('Policy', job.policy);
+      // Argument boundaries matter: a joined shell string would misrepresent empty and spaced arguments.
+      const command = job.program ? esc(job.program) + (Array.isArray(job.args) ? '\nArguments: ' + esc(JSON.stringify(job.args)) : '') : '';
+      const files = snapshot.artifacts.filter(item => process.processId && item.processId === process.processId || !item.processId && (item.id === job.artifact?.id || job.artifacts?.some(file => file.id === item.id)));
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(job.program || 'Process') + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
-        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context"><div><dt>Exit code</dt><dd>' + esc(job.exitCode ?? '—') + '</dd></div><div><dt>Signal</dt><dd>' + esc(job.signal ?? '—') + '</dd></div></dl>'
-        + (command ? '<code class="aw-tool-command">' + esc(command) + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>'
+        + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }
 
     function render(state) {
@@ -8863,7 +8925,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       content.appendChild(panel); categoryPanels.set(id, panel);
     }
     categoryPanels.get('models').appendChild(oldSections.get('models'));
-    categoryPanels.get('execution').innerHTML = '<div class="ast-section-heading"><h2>Agents &amp; execution</h2><p>Role preferences and controls for the current session.</p></div><div class="ast-connection-notice">' + icon('workflow') + '<p>Athena TaskManager owns scheduling. This interface subscribes to task state and sends explicit supported commands.</p></div><div id="ast-agent-model-settings-slot"></div>';
+    categoryPanels.get('execution').innerHTML = '<div class="ast-section-heading"><h2>Agents &amp; execution</h2><p>Execution settings and controls for the current session.</p></div><div class="ast-connection-notice">' + icon('workflow') + '<p>Athena TaskManager owns scheduling. This interface subscribes to task state and sends explicit supported commands.</p></div><div id="ast-agent-model-settings-slot"></div>';
     categoryPanels.get('tools').appendChild(oldSections.get('connections'));
     oldSections.get('connections').querySelector('h2').textContent = 'Tools & plugins';
     oldSections.get('connections').querySelector('.ast-connection-footnote').textContent = 'Preview items are examples. Installed tools and skills come from the connected host below.';
@@ -8931,11 +8993,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function syncSaveScope() {
-      const mode = section === 'appearance' ? (sessionOnly ? 'session' : 'automatic') : ['models', 'execution'].includes(section) ? 'explicit' : 'host';
+      const mode = section === 'appearance' ? (sessionOnly ? 'session' : 'automatic') : (section === 'models' || section === 'execution' && !window.AthenaHosted) ? 'explicit' : 'host';
       q('.ast-footer').dataset.saveMode = mode;
       const messages = {
         models: 'Model changes require Save settings. Connection checks are separate.',
-        execution: 'Role preferences require Save settings. Runtime controls apply to the current session.',
+        execution: window.AthenaHosted ? 'The host controls execution policy for this project.' : 'Role preferences require Save settings. Runtime controls apply to the current session.',
         tools: 'Changes apply to the current runtime. Installation requires host support.',
         files: 'Files and history are stored only when the project host confirms the write.',
         appearance: sessionOnly ? 'UI changes apply to this session. Device storage is unavailable.' : 'UI changes save automatically on this device.',
@@ -10419,6 +10481,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   if(!live&&activity.parentElement!==activityHome)activityHome.insertBefore(activity,activityBefore);
   const projectId=snapshot.projectId||(live?'unassigned-project':'project-rc');
   if(projectId!==activeProjectId){activeProjectId=projectId;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
+  modelSettings?.setExecution(snapshot.execution || null);
   modelSettings?.setModelScopes(snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
   chatModelPicker?.sync();
   q('#ac-example-projects').hidden=live;q('#ac-live-projects').hidden=!live;
