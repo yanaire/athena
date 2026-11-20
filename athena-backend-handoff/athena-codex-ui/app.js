@@ -230,7 +230,7 @@
   }
   settings?.refresh?.();icons();
  }
- function resolvedNewSessionModel(){const scope=workspaceStore.getState().modelScopes||{};return scope.projectDefault||connectionManager.getDefaultModel()||null;}
+ function resolvedNewSessionModel(workspace,projectId){const projectModel=projectId===workspace.projectId?workspace.modelScopes?.projectDefault:workspace.projects.find(project=>project.id===projectId)?.defaultModel;return projectModel||connectionManager.getDefaultModel()||null;}
  function canCreateSession(){return !nativeSessionTransition&&Boolean(workspaceStore.getState().capabilities?.createSession||connectionManager.getState().capabilities.createSession||piRuntime.available('new_session'));}
  function rememberDraft(){const key=workspaceStore.getState().sessionId||'preview';sessionDrafts.set(key,composer.captureDraft());}
  function activateSession(result,title){
@@ -244,14 +244,14 @@
   composer.restoreDraft(sessionDrafts.get(sessionId)||{value:'',attachments:[],mentions:[]});
   closeDialog();composer.focus();return result;
  }
- async function createResearch(title){
+ async function createResearch(title,projectId=workspaceStore.getState().projectId){
   if(lifecyclePending)return;
   if(!canCreateSession())throw new Error('Connect a session service or Pi session before creating a conversation.');
   if(state.busy||piSubmitting||piRuntime.getState().session.isStreaming)throw new Error('Wait for the current message operation to finish before creating a conversation.');
   lifecyclePending=true;rememberDraft();
   try{
-   const workspace=workspaceStore.getState(),preferred=resolvedNewSessionModel();let result;
-   const input={projectId:workspace.mode==='runtime'?workspace.projectId:null,title,model:preferred,configurationId:connectionManager.getState().configurationId||undefined};
+   const workspace=workspaceStore.getState(),preferred=resolvedNewSessionModel(workspace,projectId);let result;
+   const input={projectId:workspace.mode==='runtime'?projectId:null,title,model:preferred,configurationId:connectionManager.getState().configurationId||undefined};
    if(workspace.capabilities?.createSession)result=await workspaceStore.createSession(input);
    else if(connectionManager.getState().capabilities.createSession)result=await connectionManager.createSession(input);
    else{
@@ -294,13 +294,18 @@
   });q('#ac-dialog-primary').disabled=!enabled;q('#ac-project-name').focus();
  }
  function requestResearch(){
-  const enabled=canCreateSession(),defaultModel=resolvedNewSessionModel();
-  dialog('New research','<p>Create a new conversation in the current project.</p><label for="ac-new-thread">Conversation title</label><input id="ac-new-thread" aria-label="Conversation title" placeholder="What are you researching?"><p class="ac-small-note">'+(enabled?'Model: '+escapeHTML(defaultModel?defaultModel.provider+' / '+defaultModel.modelId:'The connected session default'):'A session service is not connected. Your current conversation remains unchanged.')+'</p><button type="button" class="ac-text-button cursor-interaction" data-action="current-draft">Write in the current conversation instead</button><p data-lifecycle-error role="alert" hidden></p>','Create conversation',async()=>{
+  const workspace=workspaceStore.getState(),enabled=canCreateSession();
+  const projects=workspace.capabilities?.createSession?workspace.projects:[];
+  const picker=projects.length?'<label for="ac-new-project">Project</label><select id="ac-new-project">'+projects.map(project=>'<option value="'+escapeHTML(project.id)+'"'+(project.id===workspace.projectId?' selected':'')+'>'+escapeHTML(project.name)+'</option>').join('')+'</select>':'';
+  dialog('New research','<p>Create a new conversation in '+(picker?'the selected project.':'the current project.')+'</p>'+picker+'<label for="ac-new-thread">Conversation title</label><input id="ac-new-thread" aria-label="Conversation title" placeholder="What are you researching?"><p class="ac-small-note" id="ac-new-model"></p><button type="button" class="ac-text-button cursor-interaction" data-action="current-draft">Write in the current conversation instead</button><p data-lifecycle-error role="alert" hidden></p>','Create conversation',async()=>{
    const title=q('#ac-new-thread').value.trim();if(!title)return;
    q('#ac-dialog-primary').disabled=true;
-   try{await createResearch(title);}catch(error){const message=q('[data-lifecycle-error]');if(message){message.hidden=false;message.textContent=String(error.message||error);}else toast(String(error.message||error));}
+   try{await createResearch(title,q('#ac-new-project')?.value);}catch(error){const message=q('[data-lifecycle-error]');if(message){message.hidden=false;message.textContent=String(error.message||error);}else toast(String(error.message||error));}
    finally{q('#ac-dialog-primary').disabled=!canCreateSession();}
-  });q('#ac-dialog-primary').disabled=!enabled;q('#ac-new-thread').focus();
+  });
+  const select=q('#ac-new-project');
+  const updateModel=()=>{const model=resolvedNewSessionModel(workspace,select?.value??workspace.projectId);q('#ac-new-model').textContent=enabled?'Model: '+(model?model.provider+' / '+model.modelId:'The connected session default'):'A session service is not connected. Your current conversation remains unchanged.';};
+  select?.addEventListener('change',updateModel);updateModel();q('#ac-dialog-primary').disabled=!enabled;q('#ac-new-thread').focus();
  }
  async function preparePiContext(value,attachments,mentions){
   if(mentions.length)throw new Error('Sample project context is still in the draft. Use an installed command or paste the source text for this session.');

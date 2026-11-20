@@ -419,11 +419,11 @@ function hostedFixture({ stage = true, restart = false } = {}) {
       result = { type: 'response', id: command.id, command: command.type, success: true, data };
     } else if (method === 'openSession' || method === 'createSession') {
       const sessionId = method === 'openSession' ? args[0] : 's2';
-      if (method === 'createSession') snapshot = { ...snapshot, sessions: [...snapshot.sessions, { id: sessionId, projectId: snapshot.projectId, title: args[0].title }] };
-      snapshot = { ...snapshot, revision: snapshot.revision + 1, sessionId };
+      if (method === 'createSession') snapshot = { ...snapshot, sessions: [...snapshot.sessions, { id: sessionId, projectId: args[0].projectId, title: args[0].title, model: args[0].model }] };
+      snapshot = { ...snapshot, revision: snapshot.revision + 1, sessionId, projectId: snapshot.sessions.find(session => session.id === sessionId).projectId };
       result = { sessionId, projectId: snapshot.projectId, snapshot };
     } else if (method === 'createProject') {
-      const project = { id: 'p2', name: args[0].name };
+      const project = { id: 'p2', name: args[0].name, defaultModel: args[0].defaultModel };
       snapshot = { ...snapshot, revision: snapshot.revision + 1, projectId: project.id, sessionId: null, projects: [...snapshot.projects, project] };
       result = { project, snapshot };
     } else if (method === 'stageFiles') {
@@ -496,6 +496,26 @@ test('Hosted bootstrap errors and detach never expose demo data or accept a demo
   assert.deepEqual(plain(env.state().workspace.tasks), []);
   assert.deepEqual(plain(env.state().workspace.artifacts), []);
   assert.equal(host.sent.length, 0);
+  env.destroy();
+});
+
+test('New research can create the first conversation in another project using its default model', async () => {
+  const host = hostedFixture(), env = createEnvironment({ host }), app = env.window.AthenaApp;
+  const model = { provider: 'athena', modelId: 'empty-project-default' };
+  host.stream.open();
+  await env.waitFor(() => env.state().workspace.sessionId === 's1');
+  await app.createProject({ name: 'Empty project', defaultModel: model });
+  await app.openResearchSession('s1');
+  env.click('[data-action="new-research"]');
+  assert.equal(env.q('#ac-new-project').value, 'p1');
+  env.type('#ac-new-project', 'p2');
+  env.q('#ac-new-project').dispatchEvent(new env.window.Event('change', { bubbles: true }));
+  assert.match(env.q('#ac-new-model').textContent, /empty-project-default/);
+  env.type('#ac-new-thread', 'First conversation'); env.click('#ac-dialog-primary');
+  await env.waitFor(() => env.state().workspace.sessionId === 's2');
+  const sessions = env.state().workspace.sessions;
+  assert.equal(sessions.find(session => session.id === 's1').projectId, 'p1');
+  assert.deepEqual(plain(sessions.find(session => session.id === 's2')), {id:'s2', projectId:'p2', title:'First conversation', model});
   env.destroy();
 });
 
