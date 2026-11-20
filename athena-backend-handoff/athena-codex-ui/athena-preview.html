@@ -1221,6 +1221,90 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .ams-host-limits dd {margin:0;overflow-wrap:anywhere;}
 #athena-codex .ams-host-limits dt {overflow-wrap:anywhere;}
 
+/* M3 provider and profile surfaces; warm ivory cards on the ams grid. */
+#athena-codex .amp-root { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .amp-root[hidden] { display: none; }
+#athena-codex .amp-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding-top: 23px; border-top: 1px solid #e7e6dc; }
+#athena-codex .amp-heading h2 { margin: 0; color: #35372f; font-size: 23px; font-weight: 550; line-height: 1.3; letter-spacing: -.6px; }
+#athena-codex .amp-section { padding: 23px 0 22px; min-width: 0; border-bottom: 1px solid #e7e6dc; }
+#athena-codex .amp-section:last-child { border-bottom: 0; }
+#athena-codex .amp-search { display: flex; align-items: center; gap: 8px; max-width: 360px; padding: 8px 10px; background: #fdfcf7; border: 1px solid #dcded1; border-radius: 8px; }
+#athena-codex .amp-search svg { width: 14px; height: 14px; color: #879078; flex: none; }
+#athena-codex .amp-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: #3b4234; font: inherit; font-size: 12px; outline: none; }
+#athena-codex .amp-list { margin-top: 13px; min-width: 0; }
+#athena-codex .amp-list:empty { margin-top: 0; }
+#athena-codex .amp-empty { margin: 0; padding: 14px 12px; border: 1px dashed #dfe2d5; border-radius: 9px; background: #fbfbf6; color: #74766a; font-size: 11px; }
+#athena-codex .amp-error { margin: 10px 0 0; color: #9a524b; font-size: 11px; }
+#athena-codex .amp-error[hidden] { display: none; }
+#athena-codex .amp-status { min-height: 17px; margin: 0; color: #808676; font-size: 10px; }
+#athena-codex .amp-status[data-tone="error"] { color: #9a524b; }
+#athena-codex .amp-status[data-tone="success"] { color: #6c8155; }
+#athena-codex .amp-status:not([hidden]) { margin: 8px 0 0; }
+#athena-codex .amp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 13px; }
+#athena-codex .amp-field { min-width: 0; }
+#athena-codex .amp-field > label { display: block; margin-bottom: 6px; color: #515648; font-size: 11px; font-weight: 500; }
+#athena-codex .amp-optional { color: #9a9f8f; font-weight: 400; }
+
+#athena-codex .amp-provider { padding: 13px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-provider + .amp-provider, #athena-codex .amp-provider + .amp-empty, #athena-codex .amp-empty + .amp-provider { margin-top: 8px; }
+#athena-codex .amp-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#athena-codex .amp-provider-head strong { color: #454d3a; font-size: 12px; font-weight: 550; }
+#athena-codex .amp-auth { flex: none; padding: 2px 7px; border: 1px solid #dfe2d5; border-radius: 5px; background: #f0f2e9; color: #626f53; font-size: 10px; white-space: nowrap; }
+#athena-codex .amp-auth-configured { border-color: #cddcc2; background: #e9f2e0; color: #4f6b3e; }
+#athena-codex .amp-auth-refresh_required, #athena-codex .amp-auth-error { border-color: #e0cfc4; background: #f7ede4; color: #8a5b3e; }
+#athena-codex .amp-methods { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 7px 0 0; }
+#athena-codex .amp-method { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 5px; background: #f5f5ee; color: #747f67; font-size: 10px; }
+#athena-codex .amp-method svg { width: 11px; height: 11px; }
+#athena-codex .amp-method-reason { display: flex; align-items: center; gap: 6px; margin: 7px 0 0; color: #727b65; font-size: 10px; }
+#athena-codex .amp-method-reason svg { width: 12px; height: 12px; flex: none; color: #879078; }
+#athena-codex .amp-key-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+#athena-codex .amp-key-row .ams-input { flex: 1 1 220px; min-height: 38px; }
+#athena-codex .amp-oauth { margin-top: 9px; padding: 10px 11px; border: 1px solid #e2e4d7; border-radius: 8px; background: #f7f6ee; }
+#athena-codex .amp-oauth-status { display: flex; align-items: center; gap: 7px; margin: 0; color: #6d7361; font-size: 11px; }
+#athena-codex .amp-oauth-status svg { width: 13px; height: 13px; flex: none; }
+#athena-codex .amp-oauth-url { display: flex; margin: 8px 0 0; }
+#athena-codex .amp-oauth-url a { display: inline-flex; align-items: center; gap: 6px; color: #5d6d4c; font-size: 11px; }
+#athena-codex .amp-oauth-url svg { width: 12px; height: 12px; }
+#athena-codex .amp-oauth > .ams-button { margin-top: 8px; }
+#athena-codex .amp-register { margin-top: 14px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-register > summary { display: flex; align-items: center; gap: 7px; padding: 11px 12px; color: #515648; font-size: 11px; font-weight: 500; cursor: pointer; list-style: none; }
+#athena-codex .amp-register > summary::-webkit-details-marker { display: none; }
+#athena-codex .amp-register > summary svg { width: 13px; height: 13px; color: #7c8b69; }
+#athena-codex .amp-register-form { padding: 0 12px 13px; }
+#athena-codex .amp-register-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+#athena-codex .amp-catalog-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 13px; }
+#athena-codex .amp-catalog-bar > select { flex: 0 1 200px; min-height: 38px; }
+#athena-codex .amp-catalog-search { flex: 1 1 200px; max-width: 320px; padding: 7px 10px; }
+#athena-codex .amp-catalog-meta { margin: 9px 0 0; color: #727b65; font-size: 10px; }
+#athena-codex .amp-model { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 11px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-model + .amp-model, #athena-codex .amp-model + .amp-empty { margin-top: 7px; }
+#athena-codex .amp-model-copy strong { display: block; color: #454d3a; font-size: 12px; font-weight: 550; }
+#athena-codex .amp-model-copy small { display: block; margin-top: 2px; color: #727b65; font-size: 10px; }
+#athena-codex .amp-model-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+#athena-codex .amp-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #dfe2d5; border-radius: 5px; background: #f5f5ee; color: #747f67; font-size: 10px; white-space: nowrap; }
+#athena-codex .amp-badge svg { width: 11px; height: 11px; }
+#athena-codex .amp-badge-sdk { background: #f0f2e9; color: #626f53; }
+#athena-codex .amp-badge-eligible { border-color: #cddcc2; background: #e9f2e0; color: #4f6b3e; }
+#athena-codex .amp-badge-unknown { border-color: #e0e0cf; background: #f7f6ee; color: #828579; }
+#athena-codex .amp-badge-listed { border-color: #e0dcd2; background: #f6f1e9; color: #7a6c56; }
+#athena-codex .amp-badge-default { border-color: #cddcc2; background: #e9f2e0; color: #4f6b3e; }
+#athena-codex .amp-badge-failed { border-color: #ddc5bd; background: #f8ece9; color: #9a524b; }
+
+#athena-codex .amp-profile { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 13px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-profile + .amp-profile, #athena-codex .amp-profile + .amp-empty { margin-top: 8px; }
+#athena-codex .amp-profile-copy strong { display: block; color: #454d3a; font-size: 12px; font-weight: 550; }
+#athena-codex .amp-profile-copy small { display: block; margin-top: 2px; color: #727b65; font-size: 10px; }
+#athena-codex .amp-profile-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+#athena-codex .amp-profile-actions .ams-button { min-height: 30px; padding: 5px 9px; font-size: 10px; }
+#athena-codex .amp-danger { color: #9a524b; }
+#athena-codex .amp-profiles-actions { margin-top: 13px; }
+#athena-codex .amp-profile-form { margin-top: 14px; padding: 14px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #f7f6ee; }
+#athena-codex .amp-profile-form[hidden] { display: none; }
+#athena-codex .amp-profile-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+#athena-codex .amp-profile-form .amp-actions { margin-top: 12px; }
+#athena-codex .amp-root[data-busy="true"] .amp-profile-actions .ams-button[disabled], #athena-codex .amp-root[data-busy="true"] [data-amp-profile-save][disabled] { opacity: .6; }
+
 /* Project knowledge panel. Sized for a 300 px side slot without horizontal overflow. */
 #athena-codex .akn-root { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: #fffefa; color: #43493a; font-size: 12px; line-height: 1.6; }
 #athena-codex .akn-heading { padding: 22px 18px 15px; flex: none; }
@@ -7261,6 +7345,711 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
 </script>
 <script>
+/* M3 provider credentials, SDK catalogs, and saved model profiles.
+ * The host owns every real credential write; this panel only calls the
+ * model-profiles RPC adapter. API keys are never rendered, stored in the DOM,
+ * or echoed back; the OAuth surface shows only the safe authorization URL. */
+(() => {
+  'use strict';
+
+  const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  const LEVEL_LABELS = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+  const AUTH_LABELS = { not_checked: 'Credential status not checked', unconfigured: 'Not configured', configured: 'Configured', refresh_required: 'Sign-in refresh required', error: 'Credential error' };
+  /* Backend OAuth terminal values are exactly succeeded | failed | cancelled. Start
+   * returns only {id, status:'pending'}; the authorizeUrl arrives on polling and
+     is surfaced as a user-activated link so popup blocking never blocks sign-in. */
+  const OAUTH_DONE = ['succeeded'];
+  const OAUTH_FAILED = ['failed', 'cancelled'];
+  const PROBE_FAILED = ['failed', 'error', 'unavailable'];
+  /* ~15 minutes of polling at the interval below. */
+  const OAUTH_POLL_MS = 2000, OAUTH_MAX_POLLS = 450;
+
+  const rows = value => Array.isArray(value) ? value : [];
+  const text = value => value == null ? '' : String(value);
+  const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
+  const idOf = value => typeof value === 'string' && value.length ? value : null;
+  const escapeHTML = value => text(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  const elapsed = when => {
+    const at = Date.parse(when);
+    if (!Number.isFinite(at)) return text(when);
+    const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return Math.round(seconds / 60) + ' minutes ago';
+    if (seconds < 86400) return Math.round(seconds / 3600) + ' hours ago';
+    return new Date(at).toLocaleDateString();
+  };
+
+  function validEndpoint(endpoint) {
+    try {
+      const url = new URL(String(endpoint).trim());
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) return 'Use a full http:// or https:// URL.';
+      if (url.username || url.password || url.search || url.hash) return 'Use a base URL without credentials, query parameters, or a fragment.';
+      if (endpoint.length > 2048) return 'Keep the endpoint URL under 2,048 characters.';
+      return '';
+    } catch (_) { return 'Use a full http:// or https:// URL.'; }
+  }
+
+  function mount(slot, options = {}) {
+    if (!slot) throw new TypeError('AthenaProviderProfiles.mount requires a host element.');
+    const controller = new AbortController();
+    const listen = (element, type, callback) => element?.addEventListener(type, callback, { signal: controller.signal });
+    let destroyed = false, adapter = null, generation = 0;
+    const owners = new Map();
+    let providers = [], providerQuery = '', providersError = '';
+    let catalog = null, catalogProvider = '', catalogQuery = '', catalogError = '';
+    let list = { profiles: [], appDefaultProfileId: null, credentialMode: null, hostModel: null }, listError = '';
+    /* One provider sign-in at a time, keyed by providerId. */
+    let flow = null, flowPolls = 0;
+    /* null | { id?, revision?, name, provider, modelId, thinkingLevel } */
+    let editing = null;
+    const busyActions = new Set();
+    const providerNotes = new Map();
+    const at = key => busyActions.has(key);
+
+    slot.innerHTML = `
+      <div class="amp-root" data-amp-mounted="false" hidden>
+        <header class="amp-heading">
+          <div><span class="ams-eyebrow">HOST MODEL PROFILES</span><h2>Providers &amp; saved models</h2></div>
+          <span class="ams-local-badge">${icon('server')}<span data-amp-credential-mode>Host credentials</span></span>
+        </header>
+        <p class="ams-intro">Saved model profiles name a provider model plus a reasoning level. The app default applies to new conversations; a project or a single conversation can select its own profile. The connected host owns every credential write.</p>
+
+        <section class="amp-section" aria-labelledby="amp-providers-title">
+          <div class="ams-section-title"><h3 id="amp-providers-title">Provider credentials</h3><span>01</span></div>
+          <p class="ams-section-copy">Search the providers registered by the installed Pi SDK. Sign-in methods come from the SDK and Athena's provider policy.</p>
+          <label class="amp-search">${icon('search')}<input type="search" data-amp-provider-search placeholder="Search providers" aria-label="Search providers" autocomplete="off" spellcheck="false"></label>
+          <div class="amp-list" role="list" data-amp-providers></div>
+          <p class="amp-error" role="alert" data-amp-providers-error hidden></p>
+          <details class="amp-register">
+            <summary class="cursor-interaction">${icon('plus')}Register an OpenAI-compatible endpoint</summary>
+            <form class="amp-register-form" novalidate>
+              <div class="amp-register-grid">
+                <div class="amp-field"><label for="amp-register-name">Name</label><input class="ams-input" id="amp-register-name" data-amp-register="name" maxlength="60" autocomplete="off" placeholder="Team gateway"></div>
+                <div class="amp-field"><label for="amp-register-endpoint">Endpoint base URL</label><input class="ams-input" id="amp-register-endpoint" data-amp-register="endpoint" type="url" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://gateway.example/v1"></div>
+                <div class="amp-field"><label for="amp-register-key">API key <span class="amp-optional">(optional)</span></label><input class="ams-input" id="amp-register-key" data-amp-register="apiKey" type="password" maxlength="8192" autocomplete="off" placeholder="Stored by the host, never displayed"></div>
+              </div>
+              <div class="amp-actions"><button type="button" class="ams-button cursor-interaction" data-amp-register-submit>${icon('plug-zap')}Register endpoint</button><p class="amp-status" role="status" data-amp-register-status></p></div>
+            </form>
+          </details>
+        </section>
+
+        <section class="amp-section" aria-labelledby="amp-catalog-title">
+          <div class="ams-section-title"><h3 id="amp-catalog-title">Model catalog</h3><span>02</span></div>
+          <p class="ams-section-copy">The catalog lists models registered in the SDK. Eligibility marks the models your credentials can select. Only an explicit profile verification probes a live inference.</p>
+          <div class="amp-catalog-bar">
+            <select class="ams-input cursor-interaction" data-amp-catalog-provider aria-label="Catalog provider"></select>
+            <label class="amp-search amp-catalog-search">${icon('search')}<input type="search" data-amp-catalog-search placeholder="Search catalog models" aria-label="Search catalog models" autocomplete="off" spellcheck="false"></label>
+            <button type="button" class="ams-button cursor-interaction" data-amp-catalog-refresh>${icon('refresh-cw')}Refresh</button>
+          </div>
+          <p class="amp-catalog-meta" data-amp-catalog-meta></p>
+          <div class="amp-list" role="list" data-amp-models></div>
+          <p class="amp-error" role="alert" data-amp-catalog-error hidden></p>
+        </section>
+
+        <section class="amp-section" aria-labelledby="amp-profiles-title">
+          <div class="ams-section-title"><h3 id="amp-profiles-title">Saved model profiles</h3><span>03</span></div>
+          <p class="amp-section-copy" data-amp-profiles-intro></p>
+          <div class="amp-list" role="list" data-amp-profiles></div>
+          <p class="amp-error" role="alert" data-amp-profiles-error hidden></p>
+          <div class="amp-actions amp-profiles-actions">
+            <button type="button" class="ams-button cursor-interaction" data-amp-profile-new>${icon('plus')}New model profile</button>
+          </div>
+          <form class="amp-profile-form" data-amp-profile-form novalidate hidden>
+            <div class="amp-profile-form-grid">
+              <div class="amp-field"><label for="amp-profile-name">Profile name</label><input class="ams-input" id="amp-profile-name" data-amp-profile-field="name" maxlength="80" autocomplete="off" placeholder="Fast writer"></div>
+              <div class="amp-field"><label for="amp-profile-provider">Provider</label><select class="ams-input cursor-interaction" id="amp-profile-provider" data-amp-profile-field="provider"></select></div>
+              <div class="amp-field"><label for="amp-profile-model">Model</label><select class="ams-input cursor-interaction" id="amp-profile-model" data-amp-profile-field="modelId"></select></div>
+              <div class="amp-field"><label for="amp-profile-level">Reasoning level</label><select class="ams-input cursor-interaction" id="amp-profile-level" data-amp-profile-field="thinkingLevel"></select></div>
+            </div>
+            <p class="amp-error" role="alert" data-amp-profile-form-error hidden></p>
+            <div class="amp-actions">
+              <button type="button" class="ams-button ams-primary cursor-interaction" data-amp-profile-save>${icon('check')}Save profile</button>
+              <button type="button" class="ams-button cursor-interaction" data-amp-profile-cancel>Cancel</button>
+            </div>
+          </form>
+        </section>
+      </div>`;
+    const root = slot.querySelector('.amp-root');
+    const q = selector => root.querySelector(selector);
+    const listNode = key => q('[data-amp-' + key + ']');
+
+    const workspace = () => options.getWorkspace?.() || {};
+    const currentSession = () => rows(workspace().sessions).find(item => item.id === workspace().sessionId) || null;
+    const currentProject = () => rows(workspace().projects).find(item => item.id === workspace().projectId) || null;
+    const profileById = id => rows(list.profiles).find(item => item.id === id) || null;
+    const busy = (key, value) => { if (value) busyActions.add(key); else busyActions.delete(key); render(); };
+    const note = (element, message, tone) => { element.textContent = message; element.dataset.tone = tone || ''; element.hidden = !message; };
+    const providerNote = (providerId, message, tone) => {
+      if (message) providerNotes.set(providerId, { message, tone });
+      else providerNotes.delete(providerId);
+      render();
+    };
+
+    /* Per-key request ownership: only the current owner of a key may apply a
+     * result or clear that key's busy flag, so overlapping independent
+     * requests cannot supersede or strand each other. A distinct attachment
+     * generation retires every in-flight request from a previous host. */
+    async function call(key, action, after, replace = false) {
+      if (!adapter || (at(key) && !replace)) return;
+      const attach = generation;
+      const token = (owners.get(key) || 0) + 1;
+      owners.set(key, token);
+      busy(key, true);
+      try {
+        const result = await action();
+        if (destroyed || attach !== generation || owners.get(key) !== token) return null;
+        if (after) await after(result);
+        return result;
+      } catch (error) {
+        if (!destroyed && attach === generation && owners.get(key) === token) { options.toast?.(String(error?.message || error)); render(); }
+        return null;
+      } finally {
+        if (attach === generation && owners.get(key) === token) { owners.delete(key); busy(key, false); }
+      }
+    }
+
+    async function loadProviders() {
+      await call('providers', () => adapter.listProviders(providerQuery), result => {
+        providers = rows(result); providersError = '';
+        if (catalog?.provider) providers = providers.map(provider => provider.id === catalog.provider.id ? { ...provider, ...catalog.provider } : provider);
+        if (!providers.length && providerQuery) providersError = 'No provider matches this search.';
+        if (!catalogProvider && providers.length) { catalogProvider = providers[0].id; void loadCatalog(false); }
+        syncCatalogOptions();
+      }, true);
+    }
+    async function saveKey(providerId) {
+      const input = root.querySelector('[data-amp-key-input="' + providerId + '"]');
+      const key = input ? String(input.value) : '';
+      if (!key || /\s|[\x00-\x1f\x7f]/u.test(key) || key.length > 8192) {
+        providerNote(providerId, 'Enter a nonempty API key without whitespace. The key is sent to the host only.', 'error');
+        return;
+      }
+      await call('key:' + providerId, () => adapter.saveProviderApiKey(providerId, key), () => {
+        input.value = ''; /* Never keep or echo the credential value in the page. */
+        providerNote(providerId, 'API key stored by the host' + (list.credentialMode ? ' in the ' + list.credentialMode.replace(/_/g, ' ') + ' vault' : '') + '.', 'success');
+      });
+      await Promise.all([loadProviders(), loadCatalog(false)]);
+    }
+    async function removeKey(providerId) {
+      await call('logout:' + providerId, () => adapter.logoutProvider(providerId), () => {
+        providerNote(providerId, 'Credentials removed by the host.', 'success');
+      });
+      await Promise.all([loadProviders(), loadCatalog(false)]);
+    }
+    async function startOAuth(providerId) {
+      if (flow) return;
+      await call('oauth:' + providerId, () => adapter.startProviderOAuth(providerId), result => {
+        const authUrl = text(result?.authUrl || result?.auth_url || result?.authorizeUrl);
+        const flowId = idOf(result?.flowId || result?.id);
+        if (!flowId) throw new Error('The host did not return a sign-in flow.');
+        flow = { providerId, flowId, authUrl, status: 'pending', message: '' };
+        flowPolls = 0;
+        if (authUrl) window.open?.(authUrl, '_blank', 'noopener,noreferrer');
+        render();
+        pollOAuth();
+      });
+    }
+    function pollOAuth() {
+      if (destroyed || !flow || !adapter) return;
+      const current = flow, attach = generation;
+      if (flowPolls > OAUTH_MAX_POLLS) { flow = { ...current, status: 'error', message: 'Sign-in timed out. Cancel and try again.' }; render(); return; }
+      adapter.getProviderOAuth(current.flowId).then(state => {
+        if (destroyed || attach !== generation || !flow || flow.flowId !== current.flowId) return;
+        const status = text(state?.status || state?.state).toLowerCase();
+        const url = text(state?.authorizeUrl || state?.authUrl || state?.auth_url);
+        flowPolls++;
+        if (OAUTH_DONE.includes(status)) flow = { ...current, status: 'authorized', message: '' };
+        else if (OAUTH_FAILED.includes(status)) flow = { ...current, status: 'error', message: state?.error === 'credential_save_failed'
+          ? 'Sign-in was verified but the host could not save the credential.' : status === 'cancelled'
+            ? 'Sign-in was cancelled.' : 'The provider rejected the sign-in or the callback could not be verified.' };
+        else flow = { ...current, status: 'pending', authUrl: current.authUrl || url, message: text(state?.message) || (status && status !== 'pending' ? 'Provider sign-in status: ' + status : '') };
+        render();
+        if (flow?.status === 'pending') { flowTimer = setTimeout(pollOAuth, OAUTH_POLL_MS); return; }
+        void loadProviders(); void loadCatalog(false); void loadList();
+      }).catch(() => {
+        if (destroyed || attach !== generation || !flow || flow.flowId !== current.flowId) return;
+        flow = { ...current, status: 'error', message: 'The host could not be reached while checking this sign-in.' };
+        render();
+      });
+    }
+    async function cancelOAuth() {
+      if (!flow) return;
+      const current = flow; flow = null; clearTimeout(flowTimer); flowTimer = null;
+      await call('oauth:' + current.providerId, () => adapter.cancelProviderOAuth(current.flowId));
+      render();
+    }
+    let flowTimer = null;
+
+    async function registerEndpoint() {
+      const fields = {};
+      for (const input of root.querySelectorAll('[data-amp-register]')) fields[input.dataset.ampRegister] = input.value;
+      const name = String(fields.name || '').trim(), endpoint = String(fields.endpoint || '').trim(), apiKey = String(fields.apiKey || '');
+      const errorNode = q('[data-amp-register-status]');
+      if (!name) { note(errorNode, 'Enter a name for this endpoint.', 'error'); return; }
+      const endpointError = validEndpoint(endpoint);
+      if (endpointError) { note(errorNode, endpointError, 'error'); return; }
+      if (apiKey && (/\s|[\x00-\x1f\x7f]/u.test(apiKey) || apiKey.length > 8192)) { note(errorNode, 'Enter an API key without whitespace, or leave it empty.', 'error'); return; }
+      await call('register', () => adapter.registerCompatibleEndpoint(apiKey ? { name, endpoint, apiKey } : { name, endpoint }), () => {
+        for (const input of root.querySelectorAll('[data-amp-register]')) input.value = '';
+        q('.amp-register').open = false;
+        note(errorNode, 'Endpoint registered by the host. Configure its key there if you left it empty.', 'success');
+      });
+      await loadProviders();
+    }
+
+    async function loadCatalog(refresh) {
+      if (!catalogProvider) return;
+      await call('catalog', () => adapter.getProviderCatalog(catalogProvider, { query: catalogQuery, refresh }), result => {
+        catalog = result && rows(result.models) === result.models ? result : { ...result, models: rows(result?.models) };
+        catalogError = text(result?.error) || '';
+        if (catalog.provider) providers = providers.map(provider => provider.id === catalog.provider.id ? { ...provider, ...catalog.provider } : provider);
+      }, true);
+      render();
+    }
+    function syncCatalogOptions() {
+      const select = q('[data-amp-catalog-provider]');
+      const seen = catalogProvider;
+      select.replaceChildren(...providers.map(provider => {
+        const option = document.createElement('option');
+        option.value = provider.id; option.textContent = provider.name || provider.id;
+        if (provider.id === seen) option.selected = true;
+        return option;
+      }));
+      if (!providers.some(provider => provider.id === seen)) catalogProvider = providers[0]?.id || '';
+      if (window.HTMLElement) select.value = catalogProvider;
+    }
+
+    async function loadList() {
+      await call('list', () => adapter.listModelProfiles(), result => {
+        list = {
+          profiles: rows(result?.profiles),
+          appDefaultProfileId: idOf(result?.appDefaultProfileId),
+          credentialMode: idOf(result?.credentialMode),
+          hostModel: result?.hostModel || null
+        };
+        listError = '';
+        if (!rows(list.profiles).length) listError = '';
+      });
+      render();
+    }
+    async function saveProfile() {
+      if (!editing || at('profile-catalog')) return;
+      const draft = { ...editing };
+      const errorNode = q('[data-amp-profile-form-error]');
+      const name = String(draft.name || '').trim();
+      if (!name) { note(errorNode, 'Enter a profile name.', 'error'); return; }
+      if (!draft.provider || !draft.modelId) { note(errorNode, 'Choose a provider and a model.', 'error'); return; }
+      const input = { name, provider: draft.provider, modelId: draft.modelId, thinkingLevel: draft.thinkingLevel };
+      if (draft.id) { input.id = draft.id; input.revision = draft.revision; }
+      await call('profile-save', () => adapter.saveModelProfile(input), () => { editing = null; });
+      if (editing === null) await loadList();
+    }
+    async function deleteProfile(profile) {
+      await call('profile-delete:' + profile.id, () => adapter.deleteModelProfile(profile.id, profile.revision));
+      await loadList();
+    }
+    async function setAppDefault(profile) {
+      await call('app-default:' + profile.id, () => adapter.setAppModelProfile(profile.id));
+      await loadList();
+    }
+    async function clearAppDefault() {
+      await call('app-default:null', () => adapter.setAppModelProfile(null));
+      await loadList();
+    }
+    async function setProjectDefault(profileId) {
+      const projectId = idOf(workspace().projectId);
+      if (!projectId) { options.toast?.('Project defaults need an open project.'); return; }
+      await call('project-default', () => adapter.setProjectModelProfile(projectId, profileId));
+      await loadList();
+    }
+    async function setConversationDefault(profileId) {
+      const sessionId = idOf(workspace().sessionId);
+      if (!sessionId) { options.toast?.('Conversation defaults need an open conversation.'); return; }
+      await call('conversation-default', () => adapter.setConversationModelProfile(sessionId, profileId));
+      await loadList();
+    }
+    function normalizeProbe(result) {
+      if (result?.lastCheck) return result.lastCheck;
+      const raw = text(result?.status || result?.result || result?.state).toLowerCase();
+      if (!raw && !result?.checkedAt) return null;
+      return { checkedAt: text(result?.checkedAt) || new Date().toISOString(),
+        ...(PROBE_FAILED.includes(raw) ? { error: text(result?.message || result?.error) || 'The probe did not complete.' } : {}) };
+    }
+    async function verifyProfile(profile) {
+      await call('probe:' + profile.id, () => adapter.verifyModelProfile(profile.id), result => {
+        const check = normalizeProbe(result);
+        if (!check) throw new Error('The host did not return a probe result for this profile.');
+        list = { ...list, profiles: rows(list.profiles).map(item => item.id === profile.id ? { ...item, lastCheck: check } : item) };
+      });
+    }
+
+    function methodMarkup(provider) {
+      return rows(provider.methods).map(method => {
+        if (method.kind === 'api_key') return '<span class="amp-method">' + icon('key') + escapeHTML(text(method.label) || 'API key') + '</span>';
+        if (method.kind === 'oauth') return '<span class="amp-method">' + icon('log-in') + escapeHTML(text(method.label) || 'Sign in') + (method.enabled ? '' : ' · unavailable') + '</span>';
+        return '<span class="amp-method">' + icon('server') + escapeHTML(text(method.label) || 'Host setup') + '</span>';
+      }).join('');
+    }
+    function controlsMarkup(provider) {
+      const parts = [];
+      for (const method of rows(provider.methods)) {
+        if (method.kind === 'api_key' && method.enabled) {
+          parts.push(`<div class="amp-key-row">
+            <input class="ams-input" type="password" data-amp-key-input="${escapeHTML(provider.id)}" maxlength="8192" autocomplete="off" placeholder="${escapeHTML(text(method.label) || 'API key')} · sent to the host only" aria-label="API key for ${escapeHTML(provider.name || provider.id)}">
+            <button type="button" class="ams-button cursor-interaction" data-amp-save-key="${escapeHTML(provider.id)}">${icon('key-round')}Save key</button>
+            <button type="button" class="ams-button cursor-interaction" data-amp-remove-key="${escapeHTML(provider.id)}">${icon('log-out')}Remove</button>
+          </div>`);
+        } else if (method.kind === 'oauth' && method.enabled) {
+          parts.push('<div class="amp-key-row"><button type="button" class="ams-button cursor-interaction" data-amp-oauth="' + escapeHTML(provider.id) + '">' + icon('log-in') + 'Sign in with ' + escapeHTML(text(method.label) || provider.name || provider.id) + '</button></div>');
+        } else if (method.reason) {
+          parts.push('<p class="amp-method-reason">' + icon('info') + escapeHTML(text(method.reason)) + '</p>');
+        }
+      }
+      return parts.join('');
+    }
+    function oauthMarkup(provider) {
+      if (!flow || flow.providerId !== provider.id) return '';
+      const done = flow.status === 'authorized';
+      const failed = flow.status === 'error';
+      let markup = '<div class="amp-oauth" data-amp-oauth-flow="' + escapeHTML(provider.id) + '">';
+      markup += '<p class="amp-oauth-status" data-amp-oauth-status="' + escapeHTML(provider.id) + '">' + (done ? icon('check') + 'Signed in with the provider.' : failed ? icon('circle-x') + escapeHTML(flow.message || 'The sign-in did not complete.') : icon('loader') + 'Waiting for the provider sign-in to finish' + (flow.message ? ' · ' + escapeHTML(flow.message) : '…')) + '</p>';
+      if (flow.authUrl && !done && !failed) markup += '<p class="amp-oauth-url"><a href="' + escapeHTML(flow.authUrl) + '" target="_blank" rel="noopener noreferrer">' + icon('external-link') + 'Open the authorization page</a></p>';
+      if (!done && !failed) markup += '<button type="button" class="ams-button cursor-interaction" data-amp-oauth-cancel="' + escapeHTML(provider.id) + '">' + icon('x') + 'Cancel sign-in</button>';
+      markup += '</div>';
+      return markup;
+    }
+    function renderProviders() {
+      const target = listNode('providers');
+      target.replaceChildren();
+      if (!providers.length && !providersError) {
+        const empty = document.createElement('p'); empty.className = 'amp-empty'; empty.textContent = 'Providers appear here once the host lists them.';
+        target.appendChild(empty);
+      }
+      for (const provider of providers) {
+        const article = document.createElement('article');
+        article.className = 'amp-provider'; article.dataset.ampProvider = provider.id; article.setAttribute('role', 'listitem');
+        const auth = AUTH_LABELS[provider.auth] || text(provider.auth);
+        article.innerHTML = `
+          <header class="amp-provider-head">
+            <strong>${icon(provider.id.startsWith('compatible-') ? 'server' : 'boxes')} ${escapeHTML(provider.name || provider.id)}</strong>
+            <span class="amp-auth amp-auth-${escapeHTML(provider.auth)}" data-amp-auth="${escapeHTML(provider.id)}">${escapeHTML(auth)}</span>
+          </header>
+          <p class="amp-methods">${methodMarkup(provider)}</p>
+          ${controlsMarkup(provider)}
+          ${oauthMarkup(provider)}
+          <p class="amp-status" role="status" data-amp-provider-status="${escapeHTML(provider.id)}" hidden></p>`;
+        target.appendChild(article);
+        const stored = providerNotes.get(provider.id);
+        const statusNode = article.querySelector('[data-amp-provider-status]');
+        if (statusNode) { statusNode.textContent = stored?.message || ''; statusNode.dataset.tone = stored?.tone || ''; statusNode.hidden = !stored; }
+      }
+      note(listNode('providers-error'), adapter ? providersError : '', 'error');
+      q('[data-amp-credential-mode]').textContent = list.credentialMode === 'memory' ? 'Memory only · credentials clear on restart'
+        : list.credentialMode ? 'Host vault · ' + list.credentialMode.replace(/_/g, ' ') : 'Host credentials';
+    }
+
+    function eligibilityLabel(model, availableIds, configured) {
+      if (availableIds.includes(model.id)) return '<span class="amp-badge amp-badge-eligible">' + icon('check') + 'Eligible · credential check passed</span>';
+      if (!configured) return '<span class="amp-badge amp-badge-unknown">' + icon('circle-help') + 'Eligibility unknown · configure credentials first</span>';
+      return '<span class="amp-badge amp-badge-listed">' + icon('list') + 'SDK catalog only · not returned as available</span>';
+    }
+    function renderCatalog() {
+      const meta = q('[data-amp-catalog-meta]');
+      if (!catalog) { meta.textContent = ''; listNode('models').replaceChildren(); note(listNode('catalog-error'), '', ''); return; }
+      const provider = catalog.provider || {};
+      const availableIds = rows(catalog.availableModelIds);
+      const configured = provider.auth === 'configured';
+      const sourceLabel = catalog.source === 'refreshed_catalog' ? 'Refreshed catalog' : 'SDK catalog';
+      meta.textContent = sourceLabel + ' for ' + (provider.name || provider.id) + ' · checked ' + elapsed(catalog.checkedAt) + (catalogError === 'refresh_failed' ? ' · catalog refresh failed; showing the last SDK catalog' : catalogError === 'availability_failed' ? ' · eligibility check failed' : '');
+      const target = listNode('models');
+      target.replaceChildren();
+      const models = rows(catalog.models);
+      if (!models.length) {
+        const empty = document.createElement('p'); empty.className = 'amp-empty'; empty.textContent = 'No catalog models match this view.';
+        target.appendChild(empty);
+      }
+      for (const model of models) {
+        const article = document.createElement('article');
+        article.className = 'amp-model'; article.setAttribute('role', 'listitem');
+        const details = [model.api, model.id !== model.name ? model.id : '', rows(model.input).join('/'),
+          model.contextWindow ? 'context ' + model.contextWindow.toLocaleString() : '',
+          model.maxTokens ? 'output limit ' + model.maxTokens.toLocaleString() : '',
+          rows(model.thinkingLevels).map(level => LEVEL_LABELS[level] || level).join('/')].filter(Boolean).join(' · ');
+        const rate = model.cost && !text(model.provider).startsWith('compatible-')
+          ? 'SDK rates (USD per 1M tokens): input ' + model.cost.input + ', output ' + model.cost.output
+            + ', cache read ' + model.cost.cacheRead + ', cache write ' + model.cost.cacheWrite
+          : 'Price not supplied';
+        article.innerHTML = `
+          <div class="amp-model-copy">
+            <strong>${escapeHTML(model.name || model.id)}</strong>
+            <small>${escapeHTML(details)}</small>
+            <small>${escapeHTML(rate)}</small>
+          </div>
+          <div class="amp-model-badges">
+            <span class="amp-badge amp-badge-sdk">${icon('package')}SDK catalog</span>
+            ${eligibilityLabel(model, availableIds, configured)}
+          </div>`;
+        target.appendChild(article);
+      }
+    }
+
+    function probeBadges(profile) {
+      const check = profile?.lastCheck;
+      if (!check || !check.checkedAt) return '';
+      const badge = (name, symbol, state) => '<span class="amp-badge amp-badge-'
+        + (state === 'passed' ? 'eligible' : state === 'failed' ? 'failed' : 'listed') + '">' + icon(symbol) + name
+        + (state === 'passed' ? ' verified' : state === 'failed' ? ' failed' : ' not checked') + '</span>';
+      return '<span class="amp-badge amp-badge-sdk">' + icon('plug-zap') + 'Checked ' + escapeHTML(elapsed(check.checkedAt)) + '</span>'
+        + badge('Streaming', 'activity', check.streaming) + badge('Tools', 'wrench', check.tools);
+    }
+    function profileBadges(profile) {
+      const badges = [];
+      if (profile.id === list.appDefaultProfileId) badges.push('<span class="amp-badge amp-badge-default">' + icon('star') + 'App default</span>');
+      const project = currentProject();
+      if (project && idOf(project.defaultProfileId) === profile.id) badges.push('<span class="amp-badge amp-badge-default">' + icon('folder') + 'Project default</span>');
+      const session = currentSession();
+      if (session && idOf(session.profileId) === profile.id) badges.push('<span class="amp-badge amp-badge-default">' + icon('message-square') + 'This conversation</span>');
+      badges.push(probeBadges(profile));
+      return badges.join('');
+    }
+    function profileActions(profile) {
+      const isAppDefault = profile.id === list.appDefaultProfileId;
+      const project = currentProject(), session = currentSession();
+      const isProjectDefault = Boolean(project) && idOf(project.defaultProfileId) === profile.id;
+      const isConversation = Boolean(session) && idOf(session.profileId) === profile.id;
+      return `<div class="amp-profile-actions">
+        <button type="button" class="ams-button cursor-interaction" data-amp-action="app-default" data-amp-profile-id="${escapeHTML(profile.id)}" ${isAppDefault ? 'disabled' : ''}>${icon('star')}Use as app default</button>
+        ${project ? `<button type="button" class="ams-button cursor-interaction" data-amp-action="${isProjectDefault ? 'project-inherit' : 'project-default'}" data-amp-profile-id="${escapeHTML(profile.id)}">${icon('folder')}${isProjectDefault ? 'Project inherits app default' : 'Use for this project'}</button>` : ''}
+        ${session ? `<button type="button" class="ams-button cursor-interaction" data-amp-action="${isConversation ? 'conversation-inherit' : 'conversation'}" data-amp-profile-id="${escapeHTML(profile.id)}">${icon('message-square')}${isConversation ? 'Conversation inherits project default' : 'Use in this conversation'}</button>` : ''}
+        <button type="button" class="ams-button cursor-interaction" data-amp-action="verify" data-amp-profile-id="${escapeHTML(profile.id)}" ${at('probe:' + profile.id) ? 'disabled' : ''}>${icon('plug-zap')}Verify</button>
+        <button type="button" class="ams-button cursor-interaction" data-amp-action="edit" data-amp-profile-id="${escapeHTML(profile.id)}">${icon('pen-line')}Edit</button>
+        <button type="button" class="ams-button cursor-interaction amp-danger" data-amp-action="delete" data-amp-profile-id="${escapeHTML(profile.id)}">${icon('trash-2')}Delete</button>
+      </div>`;
+    }
+    function renderProfiles() {
+      const intro = q('[data-amp-profiles-intro]');
+      const hostModel = list.hostModel;
+      const resolved = hostModel ? [hostModel.name || hostModel.modelId || hostModel.id, hostModel.provider].filter(Boolean).join(' · ') : '';
+      intro.textContent = 'App default: ' + (list.appDefaultProfileId ? (profileById(list.appDefaultProfileId)?.name || 'profile ' + list.appDefaultProfileId) : 'None') + (resolved ? ' · host model: ' + resolved : ' · The host has not confirmed a model.');
+      const target = listNode('profiles');
+      target.replaceChildren();
+      const profiles = rows(list.profiles);
+      if (!profiles.length) {
+        const empty = document.createElement('p'); empty.className = 'amp-empty'; empty.textContent = 'No saved profiles yet. Create one to name a provider model and a reasoning level.';
+        target.appendChild(empty);
+      }
+      for (const profile of profiles) {
+        const article = document.createElement('article');
+        article.className = 'amp-profile'; article.dataset.ampProfile = profile.id; article.setAttribute('role', 'listitem');
+        const detail = [profile.provider, profile.modelId, 'reasoning ' + (LEVEL_LABELS[profile.thinkingLevel] || text(profile.thinkingLevel))].filter(Boolean).join(' · ');
+        article.innerHTML = `
+          <div class="amp-profile-copy">
+            <strong>${escapeHTML(profile.name || profile.id)}</strong>
+            <small>${escapeHTML(detail)}</small>
+          </div>
+          <div class="amp-model-badges">${profileBadges(profile)}</div>
+          ${profile.lastCheck?.error ? '<p class="amp-method-reason amp-probe-error">' + icon('info') + escapeHTML(text(profile.lastCheck.error)) + '</p>' : ''}
+          ${profileActions(profile)}`;
+        target.appendChild(article);
+      }
+      if (!profiles.some(item => item.id === list.appDefaultProfileId) && list.appDefaultProfileId) {
+        const warning = document.createElement('p'); warning.className = 'amp-empty';
+        warning.textContent = 'The app-default profile is missing from the host list. Choose another default.';
+        target.appendChild(warning);
+      }
+      note(listNode('profiles-error'), adapter ? listError : '', 'error');
+    }
+    function renderRegisterAndForm() {
+      const form = q('[data-amp-profile-form]');
+      if (!editing) { form.hidden = true; return; }
+      form.hidden = false;
+      q('[data-amp-profile-field="name"]').value = text(editing.name);
+      const providerSelect = q('[data-amp-profile-field="provider"]');
+      const choices = [...providers];
+      if (editing.provider && !choices.some(provider => provider.id === editing.provider)) {
+        choices.unshift({ id: editing.provider, name: editing.provider });
+      }
+      providerSelect.replaceChildren(...choices.map(provider => {
+        const option = document.createElement('option');
+        option.value = provider.id; option.textContent = provider.name || provider.id;
+        option.selected = provider.id === editing.provider;
+        return option;
+      }));
+    }
+    let profileModels = [];
+    function selectProfileModel(id) {
+      if (!editing) return;
+      const model = profileModels.find(item => item.id === id);
+      editing.modelId = model?.id || '';
+      const levels = rows(model?.thinkingLevels).filter(level => LEVELS.includes(level));
+      editing.thinkingLevel = levels.includes(editing.thinkingLevel) ? editing.thinkingLevel
+        : levels.includes('medium') ? 'medium' : levels[0] || 'off';
+      q('[data-amp-profile-field="thinkingLevel"]').replaceChildren(...levels.map(level => {
+        const option = document.createElement('option');
+        option.value = level; option.textContent = LEVEL_LABELS[level];
+        option.selected = level === editing.thinkingLevel;
+        return option;
+      }));
+    }
+    function loadProfileModels() {
+      if (!editing) return;
+      const draft = editing;
+      const provider = draft.provider;
+      const preferred = draft.modelId;
+      const preferredLevel = draft.thinkingLevel;
+      const modelSelect = q('[data-amp-profile-field="modelId"]');
+      modelSelect.replaceChildren();
+      profileModels = [];
+      selectProfileModel('');
+      if (!provider) return;
+      void call('profile-catalog', () => adapter.getProviderCatalog(provider, {}), result => {
+        if (editing !== draft || draft.provider !== provider) return;
+        profileModels = rows(result?.models);
+        const selected = preferred ? profileModels.find(model => model.id === preferred) : profileModels[0];
+        const placeholder = document.createElement('option');
+        placeholder.value = ''; placeholder.textContent = 'Choose a model'; placeholder.selected = !selected;
+        modelSelect.replaceChildren(placeholder, ...profileModels.map(model => {
+          const option = document.createElement('option');
+          option.value = model.id; option.textContent = model.name && model.name !== model.id ? model.name + ' · ' + model.id : model.id;
+          option.selected = model.id === selected?.id;
+          return option;
+        }));
+        draft.thinkingLevel = preferredLevel;
+        selectProfileModel(selected?.id);
+      }, true);
+    }
+    function render() {
+      if (destroyed) return;
+      root.hidden = !adapter;
+      root.dataset.ampMounted = String(Boolean(adapter));
+      if (!adapter) return;
+      renderProviders();
+      renderCatalog();
+      renderProfiles();
+      renderRegisterAndForm();
+      const busyAny = busyActions.size > 0;
+      root.dataset.busy = String(busyAny);
+      q('[data-amp-catalog-refresh]').disabled = at('catalog');
+      q('[data-amp-profile-new]').disabled = at('list');
+      q('[data-amp-profile-save]').disabled = at('profile-save') || at('profile-catalog') || !editing?.modelId;
+      options.icons?.();
+    }
+
+    listen(q('[data-amp-provider-search]'), 'input', event => {
+      providerQuery = event.target.value;
+      clearTimeout(providerSearchTimer);
+      providerSearchTimer = setTimeout(() => { void loadProviders(); }, 180);
+    });
+    let providerSearchTimer = null;
+    listen(q('[data-amp-catalog-provider]'), 'change', event => {
+      catalogProvider = event.target.value; catalog = null; void loadCatalog(false);
+    });
+    listen(q('[data-amp-catalog-search]'), 'input', event => {
+      catalogQuery = event.target.value; void loadCatalog(false);
+    });
+    listen(q('[data-amp-catalog-refresh]'), 'click', () => { void loadCatalog(true); });
+    listen(q('[data-amp-register-submit]'), 'click', () => { void registerEndpoint(); });
+    listen(q('[data-amp-profile-new]'), 'click', () => {
+      editing = { id: null, revision: null, name: '', provider: catalogProvider || providers[0]?.id || '', modelId: '', thinkingLevel: 'medium' };
+      note(q('[data-amp-profile-form-error]'), '', '');
+      render();
+      loadProfileModels();
+      q('[data-amp-profile-field="name"]').focus?.();
+    });
+    listen(q('[data-amp-profile-field="provider"]'), 'change', event => {
+      if (!editing) return;
+      editing.provider = event.target.value;
+      editing.modelId = '';
+      loadProfileModels();
+    });
+    listen(q('[data-amp-profile-field="modelId"]'), 'change', event => { selectProfileModel(event.target.value); });
+    listen(q('[data-amp-profile-field="thinkingLevel"]'), 'change', event => {
+      if (editing) editing.thinkingLevel = event.target.value;
+    });
+    listen(q('[data-amp-profile-save]'), 'click', () => { void saveProfile(); });
+    listen(q('[data-amp-profile-cancel]'), 'click', () => { editing = null; render(); });
+    listen(root, 'click', event => {
+      const target = event.target;
+      const saveButton = target.closest?.('[data-amp-save-key]');
+      if (saveButton && !saveButton.disabled) { void saveKey(saveButton.dataset.ampSaveKey); return; }
+      const removeButton = target.closest?.('[data-amp-remove-key]');
+      if (removeButton && !removeButton.disabled) { void removeKey(removeButton.dataset.ampRemoveKey); return; }
+      const oauth = target.closest?.('[data-amp-oauth]');
+      if (oauth && !oauth.disabled) { void startOAuth(oauth.dataset.ampOauth); return; }
+      const cancel = target.closest?.('[data-amp-oauth-cancel]');
+      if (cancel) { void cancelOAuth(); return; }
+      const action = target.closest?.('[data-amp-action]');
+      if (!action || action.disabled || !adapter) return;
+      const profile = profileById(action.dataset.ampProfileId);
+      if (!profile) return;
+      if (action.dataset.ampAction === 'app-default') void setAppDefault(profile);
+      if (action.dataset.ampAction === 'project-default') void setProjectDefault(profile.id);
+      if (action.dataset.ampAction === 'project-inherit') void setProjectDefault(null);
+      if (action.dataset.ampAction === 'conversation') void setConversationDefault(profile.id);
+      if (action.dataset.ampAction === 'conversation-inherit') void setConversationDefault(null);
+      if (action.dataset.ampAction === 'verify') void verifyProfile(profile);
+      if (action.dataset.ampAction === 'delete') void deleteProfile(profile);
+      if (action.dataset.ampAction === 'edit') {
+        editing = { id: profile.id, revision: profile.revision, name: text(profile.name), provider: text(profile.provider), modelId: text(profile.modelId), thinkingLevel: profile.thinkingLevel || 'medium' };
+        note(q('[data-amp-profile-form-error]'), '', '');
+        render();
+        loadProfileModels();
+      }
+    });
+    listen(q('[data-amp-profile-form]'), 'submit', event => { event.preventDefault(); void saveProfile(); });
+    for (const input of root.querySelectorAll('[data-amp-profile-field="name"]')) {
+      listen(input, 'input', () => { if (editing) editing.name = input.value; });
+    }
+
+    function setModelProfiles(next) {
+      clearTimeout(flowTimer); flowTimer = null; flow = null; flowPolls = 0;
+      editing = null; profileModels = [];
+      adapter = next || null; generation++; owners.clear(); busyActions.clear();
+      if (!adapter) { providers = []; catalog = null; list = { profiles: [], appDefaultProfileId: null, credentialMode: null, hostModel: null }; render(); return; }
+      void loadList(); void loadProviders(); void loadCatalog(false);
+      render();
+    }
+
+    render();
+    const api = {
+      setModelProfiles,
+      /* Snapshot-driven scope labels for the legacy model-scopes panel. */
+      resolveScopes(snapshot) {
+        if (!adapter) return null;
+        const session = rows(snapshot?.sessions).find(item => item.id === snapshot?.sessionId) || null;
+        const project = rows(snapshot?.projects).find(item => item.id === snapshot?.projectId) || null;
+        const label = profileId => {
+          const profile = profileById(profileId);
+          return profile ? { name: profile.name, provider: profile.provider, modelId: profile.modelId, thinkingLevel: profile.thinkingLevel } : null;
+        };
+        const runModel = snapshot?.run?.model;
+        return {
+          appDefault: label(list.appDefaultProfileId) || list.hostModel || null,
+          projectDefault: project && idOf(project.defaultProfileId) ? label(project.defaultProfileId) || 'Profile ' + project.defaultProfileId : null,
+          conversation: session && idOf(session.profileId) ? label(session.profileId) || 'Profile ' + session.profileId : null,
+          runLocked: runModel ? { name: runModel.name || runModel.modelId || runModel.id, provider: runModel.provider, modelId: runModel.modelId || runModel.id, thinkingLevel: runModel.thinkingLevel } : null
+        };
+      },
+      getAppDefaultProfileId: () => list.appDefaultProfileId,
+      getHostModel: () => list.hostModel || null,
+      refresh: () => { if (adapter) { void loadList(); void loadProviders(); } },
+      focus() { if (!destroyed) q('[data-amp-provider-search]')?.focus?.({ preventScroll: true }); },
+      destroy() {
+        if (destroyed) return;
+        destroyed = true; generation++; owners.clear();
+        clearTimeout(flowTimer); clearTimeout(providerSearchTimer);
+        controller.abort();
+        root.remove();
+      }
+    };
+    return api;
+  }
+
+  window.AthenaProviderProfiles = Object.freeze({ mount });
+})();
+
+</script>
+<script>
 /* Project-scoped references. Original bytes stay in memory unless an attached service confirms storage. */
 (() => {
   'use strict';
@@ -8883,7 +9672,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
               <div class="ast-workspace-illustration" aria-hidden="true"><span class="ast-mini-sidebar"></span><span class="ast-mini-chat"><i></i><i></i><i></i><b></b></span><span class="ast-mini-panel"></span></div>
               <p class="ast-workspace-caption">Drag a panel edge to adjust its width. Double-click the edge to reset it.</p>
             </section>
-            <section class="ast-panel" tabindex="0" id="ast-panel-models" role="tabpanel" aria-labelledby="ast-tab-models" hidden><div id="ast-model-settings-slot"></div></section>
+            <section class="ast-panel" tabindex="0" id="ast-panel-models" role="tabpanel" aria-labelledby="ast-tab-models" hidden><div id="ast-model-settings-slot"></div><div id="ast-provider-profiles-slot"></div></section>
             <section class="ast-panel" tabindex="0" id="ast-panel-pi" role="tabpanel" aria-labelledby="ast-tab-pi" hidden><div id="ast-pi-workbench-slot"></div></section>
             <section class="ast-panel" tabindex="0" id="ast-panel-connections" role="tabpanel" aria-labelledby="ast-tab-connections" hidden>
               <div class="ast-section-heading"><h2>Connections</h2><p>Tools and skills available in the composer.</p></div>
@@ -10012,10 +10801,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     low: ['Low', 'Keep the reasoning effort light.', 'zap'],
     medium: ['Medium', 'Use a moderate reasoning effort.', 'brain-circuit'],
     high: ['High', 'Allow more effort for complex work.', 'scan'],
-    xhigh: ['Extra high', 'Use the highest supported reasoning effort.', 'sparkles']
+    xhigh: ['Extra high', 'Use the highest supported reasoning effort.', 'sparkles'],
+    max: ['Max', 'Use the maximum reasoning budget this model supports.', 'gauge']
   };
   const CHANGES = ['set_model', 'cycle_model', 'set_thinking_level', 'cycle_thinking_level'];
   const modelKey = model => model?.provider && model?.id ? model.provider + '\u241f' + model.id : '';
+  const profileKey = profile => profile?.id ? 'profile\u241f' + profile.id : '';
   const array = value => Array.isArray(value) ? value : [];
   const levelInfo = level => LEVELS[level] || [String(level || ''), 'Reasoning level provided by this model.', 'brain-circuit'];
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -10028,6 +10819,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     let snapshot = runtime.getState(), preferences = options.preferences || {}, open = null, pending = null;
     let error = '', loading = false, destroyed = false, actionVersion = 0, readVersion = 0, menuSignature = '';
     let previousSession = snapshot.session?.sessionId || snapshot.session?.id || '';
+    let profilesAdapter = null, profileContext = null, profilesList = null, profilesLoading = false, profilesError = '', profilesEpoch = 0;
+    let profileLevels = null, profileLevelsKey = '', levelsLoading = false;
 
     slot.innerHTML = `<div class="acmp-controls" role="group" aria-label="Conversation model and reasoning">
       <button type="button" id="ac-chat-model-trigger" class="acmp-trigger acmp-model-trigger cursor-interaction" aria-haspopup="dialog" aria-expanded="false" aria-controls="ac-chat-model-menu"><i data-lucide="cpu" aria-hidden="true"></i><span id="aw-model-label">Choose model</span><i data-lucide="chevron-down" aria-hidden="true"></i></button>
@@ -10050,6 +10843,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const changing = () => Boolean(pending || CHANGES.some(id => array(snapshot.busy).includes(id)));
     const activeWork = () => Boolean(options.isBusy?.() || snapshot.session?.isStreaming || snapshot.session?.isCompacting || array(snapshot.busy).some(id => ['prompt', 'invoke_command', 'compact', 'new_session', 'switch_session', 'fork', 'clone', 'navigate_tree', 'import_session', 'reload'].includes(id)));
     const gated = kind => options.isSessionBound?.() === false || !allowed(kind === 'model' ? 'set_model' : 'set_thinking_level') || activeWork() || changing() || kind === 'reasoning' && snapshot.thinkingLevelsPending;
+    const profileById = id => id && profilesList ? array(profilesList.profiles).find(item => item.id === id) || null : null;
+    const currentProfile = () => profilesAdapter && profilesList ? profileById(profileContext?.profileId)
+      || profileById(profileContext?.projectDefaultProfileId) || profileById(profilesList.appDefaultProfileId) : null;
+    const profileGated = kind => options.isSessionBound?.() === false || !profileContext?.sessionId || activeWork() || changing() || kind === 'reasoning' && levelsLoading;
 
     function position() {
       if (!open || destroyed) return;
@@ -10075,6 +10872,23 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function renderTriggers() {
       const bound = options.isSessionBound?.() !== false;
+      if (profilesAdapter) {
+        const profile = currentProfile();
+        const host = profilesList?.hostModel;
+        const name = !bound ? 'Connect session' : profile?.name || (host ? [host.name || host.modelId || host.id, host.provider].filter(Boolean).join(' · ') : 'Choose model');
+        modelLabel.textContent = name;
+        modelTrigger.setAttribute('aria-label', 'Choose model' + (name !== 'Choose model' ? ': ' + name : ''));
+        modelTrigger.title = profile ? [profile.name, profile.provider, profile.modelId].filter(Boolean).join(' · ') : name;
+        const level = profile?.thinkingLevel;
+        reasoningLabel.textContent = level ? 'Reasoning · ' + levelInfo(level)[0] : 'Reasoning';
+        reasoningTrigger.setAttribute('aria-label', 'Choose reasoning level' + (level ? ': ' + levelInfo(level)[0] : ''));
+        reasoningTrigger.title = level ? 'Reasoning effort: ' + levelInfo(level)[0] + ' · saved to ' + (profile.name || profile.id) : 'Choose reasoning effort';
+        modelTrigger.setAttribute('aria-expanded', String(open === 'model'));
+        reasoningTrigger.setAttribute('aria-expanded', String(open === 'reasoning'));
+        modelTrigger.setAttribute('aria-busy', String(changing()));
+        reasoningTrigger.setAttribute('aria-busy', String(changing() || levelsLoading));
+        return;
+      }
       const current = snapshot.connected && bound ? snapshot.model : null;
       const saved = preferences.defaultModel && preferences.defaultModel !== 'workspace-default' ? preferences.defaultModel : '';
       const name = !bound ? 'Connect session' : current?.name || current?.id || (snapshot.connected ? 'Choose model' : saved || 'Choose model');
@@ -10099,7 +10913,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       row.setAttribute('role', 'option'); row.setAttribute('aria-selected', String(selected));
       row.tabIndex = -1;
       row.dataset.acmpKey = value; row.dataset[open === 'model' ? 'acmpModel' : 'acmpLevel'] = value;
-      row.disabled = Boolean(gated(open));
+      row.disabled = Boolean(profilesAdapter ? profileGated(open) : gated(open));
       const symbol = document.createElement('span'); symbol.className = 'acmp-option-symbol'; icon(glyph, symbol); row.appendChild(symbol);
       const copy = document.createElement('span'); copy.className = 'acmp-option-copy';
       const title = document.createElement('strong'); title.textContent = name; copy.appendChild(title);
@@ -10109,22 +10923,53 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
     function renderMenu() {
       if (!open) return;
-      const key = JSON.stringify([open, search.value, pending, loading, error, snapshot.connected, snapshot.model, snapshot.models, snapshot.thinkingLevel, snapshot.thinkingLevels, snapshot.thinkingLevelsPending, snapshot.capabilities, activeWork(), changing(), options.isSessionBound?.()]);
+      const key = JSON.stringify([open, search.value, pending, loading, error, snapshot.connected, snapshot.model, snapshot.models, snapshot.thinkingLevel, snapshot.thinkingLevels, snapshot.thinkingLevelsPending, snapshot.capabilities, activeWork(), changing(), options.isSessionBound?.(), profilesAdapter ? [profilesList, profileContext, profilesLoading, profilesError, profileLevelsKey, profileLevels, levelsLoading] : null]);
       if (key === menuSignature) { position(); return; } menuSignature = key;
       const focused = list.contains(document.activeElement) ? document.activeElement.dataset.acmpKey : null;
       q('#acmp-title').textContent = open === 'model' ? 'Choose a model' : 'Reasoning effort';
-      q('.acmp-subtitle').textContent = open === 'model' ? 'For this conversation' : 'How much reasoning to use for your reply';
+      q('.acmp-subtitle').textContent = profilesAdapter
+        ? open === 'model' ? 'Saved profiles · for this conversation' : 'Reasoning effort · saved to ' + (currentProfile()?.name || 'the selected profile')
+        : open === 'model' ? 'For this conversation' : 'How much reasoning to use for your reply';
       q('.acmp-search').hidden = open !== 'model';
       list.setAttribute('aria-label', open === 'model' ? 'Available models' : 'Supported reasoning levels');
-      menu.setAttribute('aria-busy', String(loading || changing() || open === 'reasoning' && Boolean(snapshot.thinkingLevelsPending)));
-      q('.acmp-refresh').hidden = !allowed(open === 'model' ? 'get_available_models' : 'get_available_thinking_levels');
-      q('.acmp-refresh').disabled = loading || changing();
+      menu.setAttribute('aria-busy', String(loading || profilesLoading || levelsLoading || changing() || open === 'reasoning' && Boolean(snapshot.thinkingLevelsPending)));
+      if (profilesAdapter) { q('.acmp-refresh').hidden = false; q('.acmp-refresh').disabled = loading || profilesLoading || levelsLoading || changing(); }
+      else {
+        q('.acmp-refresh').hidden = !allowed(open === 'model' ? 'get_available_models' : 'get_available_thinking_levels');
+        q('.acmp-refresh').disabled = loading || changing();
+      }
       q('.acmp-refresh').setAttribute('aria-label', open === 'model' ? 'Refresh available models' : 'Refresh reasoning levels');
       errorNode.textContent = error; errorNode.hidden = !error;
       const reason = changing() ? 'Applying your selection…' : activeWork() ? 'You can change these after the current reply finishes.' : open === 'reasoning' && snapshot.thinkingLevelsPending ? 'Checking this model’s reasoning levels…' : loading ? 'Refreshing available choices…' : '';
       notice.textContent = reason; notice.hidden = !reason;
       list.replaceChildren(); empty.hidden = true;
-      if (options.isSessionBound?.() === false) {
+      if (profilesAdapter && !profileContext?.sessionId) {
+        emptyState('No open conversation', 'Open or create a conversation to select its model profile.');
+      } else if (profilesAdapter && open === 'model') {
+        if (profilesLoading) {
+          emptyState('Loading saved profiles', 'Your host model profiles will appear here.');
+        } else {
+          const profiles = profilesList ? array(profilesList.profiles) : [];
+          const terms = search.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+          const match = profile => terms.every(term => [profile.name, profile.id, profile.provider, profile.modelId].join(' ').toLocaleLowerCase().includes(term));
+          const fallback = profilesList?.appDefaultProfileId ? 'Falls back to ' + (profileById(profilesList.appDefaultProfileId)?.name || 'the app default profile') : 'No app default profile selected yet';
+          addOption('inherit\u241f', 'Inherit default', fallback, 'circle-dashed', !profileContext?.profileId);
+          const matches = profiles.filter(match);
+          for (const profile of matches) {
+            const details = [profile.provider, profile.modelId, 'reasoning ' + levelInfo(profile.thinkingLevel)[0]].filter(Boolean).join(' · ');
+            addOption(profileKey(profile), profile.name || profile.id, details, profile.id === profilesList?.appDefaultProfileId ? 'star' : 'cpu', profile.id === profileContext?.profileId);
+          }
+          if (!matches.length) emptyState(terms.length ? 'No matching profiles' : profilesError ? 'Profiles unavailable' : 'No saved profiles', terms.length ? 'Try another profile, provider, or model name.' : profilesError || 'Create a profile in Settings → Models & connections.');
+        }
+      } else if (profilesAdapter && open === 'reasoning') {
+        const profile = currentProfile();
+        if (!profile) emptyState('No saved profile', 'Select a model profile first; reasoning is saved with the profile.');
+        else if (levelsLoading) emptyState('Checking supported levels', 'The catalog for ' + (profile.name || profile.id) + ' determines the reasoning options.');
+        else {
+          for (const level of array(profileLevels)) { const [name, description, glyph] = levelInfo(level); addOption(level, name, description + ' · saved to ' + (profile.name || profile.id), glyph, level === profile.thinkingLevel); }
+          if (!array(profileLevels).length) emptyState('Reasoning is not available', 'This profile’s model has no adjustable reasoning levels in the SDK catalog.');
+        }
+      } else if (options.isSessionBound?.() === false) {
         emptyState('Connect this conversation', 'The model connection belongs to another session. Your current draft has not been sent.');
       } else if (!snapshot.connected) {
         emptyState('Connect a model to get started', 'Available models and reasoning levels will appear here when your workspace is connected.');
@@ -10146,7 +10991,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         for (const level of levels) { const [name, description, glyph] = levelInfo(level); addOption(level, name, description, glyph, level === snapshot.thinkingLevel); }
         if (!levels.length) emptyState('Reasoning is not available', 'This connection has not provided adjustable reasoning levels for the current model.');
       }
-      if (snapshot.connected && !allowed(open === 'model' ? 'set_model' : 'set_thinking_level') && !reason) {
+      if (!profilesAdapter && snapshot.connected && !allowed(open === 'model' ? 'set_model' : 'set_thinking_level') && !reason) {
         notice.textContent = 'This connection does not allow changing ' + (open === 'model' ? 'models.' : 'reasoning levels.'); notice.hidden = false;
       }
       options.icons?.(); position();
@@ -10165,8 +11010,40 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       open = null; menu.hidden = true; menuSignature = ''; renderTriggers();
       if (restoreFocus && trigger.isConnected && !options.isUnavailable?.()) trigger.focus({ preventScroll: true });
     }
+    async function loadProfileLevels(version) {
+      const profile = currentProfile();
+      if (!profile) { profileLevels = null; profileLevelsKey = ''; return; }
+      const key = profile.provider + '\u241f' + profile.modelId;
+      if (profileLevelsKey === key && profileLevels) return;
+      levelsLoading = true; error = ''; render();
+      try {
+        const catalog = await profilesAdapter.getProviderCatalog(profile.provider, { query: profile.modelId });
+        if (destroyed || version !== readVersion) return;
+        const model = array(catalog?.models).find(item => item.id === profile.modelId) || null;
+        profileLevels = model ? array(model.thinkingLevels).filter(level => typeof level === 'string') : [];
+        profileLevelsKey = key;
+      } catch (cause) {
+        if (!destroyed && version === readVersion) error = String(cause?.message || 'Could not load this profile’s reasoning levels.');
+        profileLevels = null; profileLevelsKey = '';
+      }
+      if (!destroyed && version === readVersion) { levelsLoading = false; render(); }
+    }
     async function refresh() {
-      if (!open || !snapshot.connected || changing() || loading) return;
+      if (!open) return;
+      if (profilesAdapter) {
+        if (changing() || profilesLoading || levelsLoading) return;
+        const section = open, version = ++readVersion;
+        if (!profilesList || section === 'model') {
+          profilesLoading = true; error = ''; render();
+          try { profilesList = await profilesAdapter.listModelProfiles(); profilesError = ''; }
+          catch (cause) { profilesError = String(cause?.message || 'Could not load saved profiles.'); }
+          if (destroyed || version !== readVersion) return;
+          profilesLoading = false;
+        }
+        if (section === 'reasoning') { await loadProfileLevels(version); return; }
+        render(); return;
+      }
+      if (!snapshot.connected || changing() || loading) return;
       const section = open, version = ++readVersion;
       const ids = [section === 'model' ? 'get_available_models' : 'get_available_thinking_levels'].filter(id => allowed(id) && !array(snapshot.busy).includes(id));
       if (!ids.length) return;
@@ -10187,8 +11064,47 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       (kind === 'model' ? search : list.querySelector('[aria-selected="true"]:not([disabled])') || list.querySelector('button:not([disabled])') || menu).focus({ preventScroll: true });
       refresh();
     }
+    async function chooseProfile(kind, value) {
+      if (profileGated(kind)) { render(); return; }
+      if (kind === 'model') {
+        const inherit = value === 'inherit\u241f';
+        const profile = inherit ? null : array(profilesList?.profiles).find(item => profileKey(item) === value) || null;
+        if (!inherit && !profile) return;
+        if (profile ? profile.id === profileContext?.profileId : !profileContext?.profileId) { close(); return; }
+        const version = ++actionVersion; pending = kind; error = ''; render();
+        try {
+          await profilesAdapter.setConversationModelProfile(profileContext.sessionId, profile ? profile.id : null);
+          if (destroyed || version !== actionVersion) return;
+          profileContext = { ...profileContext, profileId: profile ? profile.id : null };
+          options.announce?.(profile ? 'Conversation model set to ' + (profile.name || profile.id) + '.' : 'This conversation inherits the project or app default.');
+          if (open === kind) close();
+        } catch (cause) {
+          if (!destroyed && version === actionVersion) error = String(cause?.message || 'Your selection could not be applied.');
+        } finally {
+          if (!destroyed && version === actionVersion) { pending = null; render(); }
+        }
+        return;
+      }
+      const profile = currentProfile();
+      if (!profile) { error = 'Select a model profile before changing reasoning.'; render(); return; }
+      if (!array(profileLevels).includes(value)) return;
+      if (value === profile.thinkingLevel) { close(); return; }
+      const version = ++actionVersion; pending = kind; error = ''; render();
+      try {
+        await profilesAdapter.saveModelProfile({ id: profile.id, revision: profile.revision, name: profile.name, provider: profile.provider, modelId: profile.modelId, thinkingLevel: value });
+        if (destroyed || version !== actionVersion) return;
+        try { profilesList = await profilesAdapter.listModelProfiles(); } catch (_) { /* The level change was confirmed; refreshing the list is best-effort. */ }
+        options.announce?.('Reasoning for ' + (profile.name || profile.id) + ' set to ' + levelInfo(value)[0] + '.');
+        if (open === kind) close();
+      } catch (cause) {
+        if (!destroyed && version === actionVersion) error = String(cause?.message || 'Your selection could not be applied.');
+      } finally {
+        if (!destroyed && version === actionVersion) { pending = null; render(); }
+      }
+    }
     async function choose(kind, value) {
       snapshot = runtime.getState();
+      if (profilesAdapter) { await chooseProfile(kind, value); return; }
       if (gated(kind)) { render(); return; }
       const item = kind === 'model' ? array(snapshot.models).find(model => modelKey(model) === value) : array(snapshot.thinkingLevels).includes(value);
       if (!item) return;
@@ -10265,7 +11181,32 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       open: show, close,
       sync() { snapshot = runtime.getState(); render(); },
       setPreferences(next) { preferences = next || {}; renderTriggers(); },
-      getState: () => ({ open, pending }),
+      setModelProfiles(adapter) {
+        profilesAdapter = adapter || null; profilesList = null; profileLevels = null; profileLevelsKey = '';
+        profilesError = ''; profilesEpoch++; readVersion++; actionVersion++;
+        pending = null; levelsLoading = false; profilesLoading = false; error = '';
+        close(false); render();
+        if (profilesAdapter) {
+          const version = ++readVersion;
+          void profilesAdapter.listModelProfiles().then(result => {
+            if (destroyed || version !== readVersion) return;
+            profilesList = result;
+            render();
+          }, cause => {
+            if (destroyed || version !== readVersion) return;
+            profilesError = String(cause?.message || 'Could not load saved profiles.');
+            render();
+          });
+        }
+      },
+      setProfileContext(context) {
+        const next = context || null;
+        const changed = JSON.stringify([next?.sessionId, next?.profileId, next?.projectId]) !== JSON.stringify([profileContext?.sessionId, profileContext?.profileId, profileContext?.projectId]);
+        profileContext = next;
+        if (changed) menuSignature = '';
+        render();
+      },
+      getState: () => ({ open, pending, profiles: profilesAdapter ? { loaded: Boolean(profilesList), context: profileContext } : null }),
       destroy() { if (destroyed) return; destroyed = true; actionVersion++; readVersion++; unsubscribe?.(); controller.abort(); observer?.disconnect(); menu.remove(); slot.replaceChildren(); }
     };
   }
@@ -10283,6 +11224,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  function savedLeftOpen(){try{return window.localStorage.getItem(LEFT_VISIBILITY_KEY)!=='false'}catch(_){return true}}
  const state={panelOpen:false,panelTab:'results',sideView:'surface',artifact:'response',leftOpen:savedLeftOpen(),leftDrawer:false,documentEditing:false,busy:false,taskState:'needs-confirmation',newAssignments:true,lastSubmission:null};
  let surfaces=null,layout=null,settings=null,workspaceStore=null,workspaceViews=null,workspaceChrome=null,knowledge=null,modelSettings=null,chatModelPicker=null,demoStore=null,connectionManager=null,records=null,recordToolbar=null,workspaceOff=null,connectionOff=null,recordsOff=null;
+ let providerProfiles=null,modelProfilesAdapter=null;
  let piActivity=null,piView=null,piSubscription=null,piSession=null,piSessionUnsubscribe=null,piSessionEpoch=0,piRunId=null,piText='',piEngaged=false,piPreviewActive=false,appDestroyed=false;
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
  const piManualTools=new Map(), sessionDrafts=new Map();
@@ -10482,7 +11424,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   const projectId=snapshot.projectId||(live?'unassigned-project':'project-rc');
   if(projectId!==activeProjectId){activeProjectId=projectId;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
   modelSettings?.setExecution(snapshot.execution || null);
-  modelSettings?.setModelScopes(snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
+  const m3Scopes=modelProfilesAdapter?providerProfiles?.resolveScopes(snapshot):null;
+  modelSettings?.setModelScopes(m3Scopes||snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
+  if(modelProfilesAdapter){
+   const session=(snapshot.sessions||[]).find(item=>item.id===snapshot.sessionId),project=(snapshot.projects||[]).find(item=>item.id===snapshot.projectId);
+   chatModelPicker?.setProfileContext?.({sessionId:snapshot.sessionId||null,profileId:session?.profileId||null,projectId:snapshot.projectId||null,projectDefaultProfileId:project?.defaultProfileId||null,appDefaultProfileId:providerProfiles?.getAppDefaultProfileId()||null,hostModel:providerProfiles?.getHostModel()||null});
+  }
   chatModelPicker?.sync();
   q('#ac-example-projects').hidden=live;q('#ac-live-projects').hidden=!live;
   const signature=JSON.stringify([live,snapshot.projects,snapshot.sessions,snapshot.sessionId,snapshot.projectId,snapshot.taskManagerStatus]);
@@ -10964,6 +11911,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
  }});
+ providerProfiles=window.AthenaProviderProfiles.mount(q('#ast-provider-profiles-slot'),{icons,toast,hosted,getWorkspace:()=>workspaceStore.getState()});
  const modelConfig=modelSettings.getState().saved;
  chatModelPicker=window.AthenaChatModelPicker.mount(q('#ac-model-picker-slot'),{runtime:piRuntime,preferences:modelConfig,icons,announce,isBusy:()=>state.busy||piSubmitting||lifecyclePending||Boolean(nativeSessionTransition),isSessionBound:()=>workspaceStore.getState().sessionBound!==false,isUnavailable:()=>q('#ac-conversation').inert,beforeOpen(){composer.closeMenu?.();command?.close?.(false)},onOpenSettings(){piSession?openPi('model'):openSettings('models')}});
  workspaceStore.configure?.({parallelLimit:modelConfig.parallelLimit});
@@ -10988,9 +11936,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   loadDocument:(id,version)=>openDocument({documentId:id,version}),ensureDocument:document=>records.ensureDocument(document),
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
   openPi,executePi:(action,params)=>piRuntime.execute(action,params),refreshPi:()=>piRuntime.refresh(),respondPiUI:(id,response)=>piRuntime.respondUI(id,response),
+  attachModelProfiles:adapter=>{modelProfilesAdapter=adapter||null;providerProfiles?.setModelProfiles(adapter);chatModelPicker?.setModelProfiles(adapter);if(adapter)renderWorkspace(workspaceStore.getState());},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
   getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();

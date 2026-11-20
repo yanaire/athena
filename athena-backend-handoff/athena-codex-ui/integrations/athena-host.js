@@ -4,7 +4,7 @@
   window.AthenaHosted = true;
   let app, events, snapshot, connection, inputContract, retryButton, capabilities = [], piCapabilities = [];
   let generation = 0, activeSession = null, loading = null, destroyed = false;
-  let streamEpoch = 0, reload = false, cursor = null;
+  let streamEpoch = 0, reload = false, cursor = null, modelProfiles = null;
   const buffered = [];
   const workspaceListeners = new Set(), connectionListeners = new Set(), piListeners = new Set();
   const notify = (listeners, value) => { for (const fn of listeners) fn(value); };
@@ -18,6 +18,31 @@
     const body = await json('/api/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args }) });
     if (!Object.hasOwn(body, 'result')) throw new Error('The workspace service returned an invalid response.');
     return body.result;
+  }
+  // M3 model-profile surface. Advertised only when the host reports the
+  // 'model_profiles' capability; a legacy host keeps the M2 contract exactly.
+  // API keys are passed through as request values only and are never stored,
+  // rendered, or logged by this adapter.
+  function modelProfilesAdapter() {
+    if (!Array.isArray(capabilities) || !capabilities.includes('model_profiles')) return null;
+    return Object.freeze({
+      capability: 'model_profiles',
+      listProviders: (query = '') => rpc('listProviders', [String(query)]),
+      getProviderCatalog: (providerId, options = {}) => rpc('getProviderCatalog', [providerId, { query: String(options.query || ''), refresh: options.refresh === true }]),
+      saveProviderApiKey: (providerId, key) => rpc('saveProviderApiKey', [providerId, key]),
+      logoutProvider: providerId => rpc('logoutProvider', [providerId]),
+      startProviderOAuth: providerId => rpc('startProviderOAuth', [providerId]),
+      getProviderOAuth: flowId => rpc('getProviderOAuth', [flowId]),
+      cancelProviderOAuth: flowId => rpc('cancelProviderOAuth', [flowId]),
+      listModelProfiles: () => rpc('listModelProfiles', []),
+      saveModelProfile: input => rpc('saveModelProfile', [input]),
+      deleteModelProfile: (id, revision) => rpc('deleteModelProfile', [id, revision]),
+      setAppModelProfile: id => rpc('setAppModelProfile', [id]),
+      setProjectModelProfile: (projectId, id) => rpc('setProjectModelProfile', [projectId, id]),
+      setConversationModelProfile: (sessionId, id) => rpc('setConversationModelProfile', [sessionId, id]),
+      verifyModelProfile: id => rpc('verifyModelProfile', [id]),
+      registerCompatibleEndpoint: input => rpc('registerCompatibleEndpoint', [input])
+    });
   }
   function unbind() {
     generation++; activeSession = null; piListeners.clear(); app.detachPiSession();
@@ -121,6 +146,8 @@
         await app.attachTaskManager(manager);
         if (destroyed || streamBound !== streamEpoch) return;
         app.attachConnectionManager(connections);
+        modelProfiles = modelProfilesAdapter();
+        if (modelProfiles) app.attachModelProfiles?.(modelProfiles);
         if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
         await app.refreshPi();
         if (destroyed || streamBound !== streamEpoch) return;

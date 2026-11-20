@@ -7,6 +7,7 @@
  function savedLeftOpen(){try{return window.localStorage.getItem(LEFT_VISIBILITY_KEY)!=='false'}catch(_){return true}}
  const state={panelOpen:false,panelTab:'results',sideView:'surface',artifact:'response',leftOpen:savedLeftOpen(),leftDrawer:false,documentEditing:false,busy:false,taskState:'needs-confirmation',newAssignments:true,lastSubmission:null};
  let surfaces=null,layout=null,settings=null,workspaceStore=null,workspaceViews=null,workspaceChrome=null,knowledge=null,modelSettings=null,chatModelPicker=null,demoStore=null,connectionManager=null,records=null,recordToolbar=null,workspaceOff=null,connectionOff=null,recordsOff=null;
+ let providerProfiles=null,modelProfilesAdapter=null;
  let piActivity=null,piView=null,piSubscription=null,piSession=null,piSessionUnsubscribe=null,piSessionEpoch=0,piRunId=null,piText='',piEngaged=false,piPreviewActive=false,appDestroyed=false;
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
  const piManualTools=new Map(), sessionDrafts=new Map();
@@ -206,7 +207,12 @@
   const projectId=snapshot.projectId||(live?'unassigned-project':'project-rc');
   if(projectId!==activeProjectId){activeProjectId=projectId;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
   modelSettings?.setExecution(snapshot.execution || null);
-  modelSettings?.setModelScopes(snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
+  const m3Scopes=modelProfilesAdapter?providerProfiles?.resolveScopes(snapshot):null;
+  modelSettings?.setModelScopes(m3Scopes||snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
+  if(modelProfilesAdapter){
+   const session=(snapshot.sessions||[]).find(item=>item.id===snapshot.sessionId),project=(snapshot.projects||[]).find(item=>item.id===snapshot.projectId);
+   chatModelPicker?.setProfileContext?.({sessionId:snapshot.sessionId||null,profileId:session?.profileId||null,projectId:snapshot.projectId||null,projectDefaultProfileId:project?.defaultProfileId||null,appDefaultProfileId:providerProfiles?.getAppDefaultProfileId()||null,hostModel:providerProfiles?.getHostModel()||null});
+  }
   chatModelPicker?.sync();
   q('#ac-example-projects').hidden=live;q('#ac-live-projects').hidden=!live;
   const signature=JSON.stringify([live,snapshot.projects,snapshot.sessions,snapshot.sessionId,snapshot.projectId,snapshot.taskManagerStatus]);
@@ -688,6 +694,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
  }});
+ providerProfiles=window.AthenaProviderProfiles.mount(q('#ast-provider-profiles-slot'),{icons,toast,hosted,getWorkspace:()=>workspaceStore.getState()});
  const modelConfig=modelSettings.getState().saved;
  chatModelPicker=window.AthenaChatModelPicker.mount(q('#ac-model-picker-slot'),{runtime:piRuntime,preferences:modelConfig,icons,announce,isBusy:()=>state.busy||piSubmitting||lifecyclePending||Boolean(nativeSessionTransition),isSessionBound:()=>workspaceStore.getState().sessionBound!==false,isUnavailable:()=>q('#ac-conversation').inert,beforeOpen(){composer.closeMenu?.();command?.close?.(false)},onOpenSettings(){piSession?openPi('model'):openSettings('models')}});
  workspaceStore.configure?.({parallelLimit:modelConfig.parallelLimit});
@@ -712,9 +719,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   loadDocument:(id,version)=>openDocument({documentId:id,version}),ensureDocument:document=>records.ensureDocument(document),
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
   openPi,executePi:(action,params)=>piRuntime.execute(action,params),refreshPi:()=>piRuntime.refresh(),respondPiUI:(id,response)=>piRuntime.respondUI(id,response),
+  attachModelProfiles:adapter=>{modelProfilesAdapter=adapter||null;providerProfiles?.setModelProfiles(adapter);chatModelPicker?.setModelProfiles(adapter);if(adapter)renderWorkspace(workspaceStore.getState());},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
   getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();
