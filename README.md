@@ -4,6 +4,8 @@
 
 Athena의 로컬 Node 호스트는 기존 UI, 자체 TaskManager, 공식 Pi SDK로 실행됩니다. M2에서는 메인 모델이 독립 세션의 자식에게 파일 확인과 CSV 계산을 위임하고 그 결과를 합쳐 답합니다. OmO 설치·로그인·세션은 필요하지 않습니다. `athena-preview.html`을 파일로 직접 열면 독립 데모이므로 실제 작업은 아래 HTTP 주소에서 시작하세요.
 
+**M2.1 분석 코드 실행** — 허용한 프로젝트의 자식은 분석 소스를 작성하고 Node 또는 Python으로 실행해 여러 결과 파일을 만들 수 있습니다. [프로젝트별 활성화와 실행 예시](docs/m21/setup.md), [실모델 브라우저 인수 기록](docs/m21/acceptance.md)을 참고하세요. 기존 `read`와 `calculate_csv`에는 분석 이미지가 필요하지 않습니다.
+
 **실행** — Node.js 24.22.3에서 검증합니다. 먼저 도구 호출과 OpenAI 호환 스트리밍을 지원하는 모델 서버를 실행하세요. 모델 가중치 및 자격 증명은 저장소에 포함하지 않습니다.
 
 ```sh
@@ -38,7 +40,7 @@ npm start
 | 전송 / 실시간 답변 | 기존 composer → 세션별 프록시 → TaskManager → 공식 Pi SDK 1.5.2 | 수락 ID, 실제 이벤트, 모델·run·task·tool ID. SSE를 통해 채팅과 작업 화면으로 전달 |
 | 대화와 실행 다시 열기 | `/api/bootstrap`, `get_messages`, TaskManager snapshot | SQLite의 실행 기록과 세션 JSONL의 메시지를 읽음. 브라우저 저장소는 실행의 정본이 아님 |
 | Workflow / Agents / Execution | 같은 TaskManager snapshot, 독립 Pi 이력 | 작업 관계와 시도, 메일함, 모델이 호출한 도구, 프로세스의 명령·출력·종료 상태 및 취소 |
-| Artifacts | 생성 시도 및 입력 버전과 연결된 `statistics.json` | 호스트가 소유권과 바이트 해시를 확인한 후 내려보냅니다. 모델 답변에 적힌 경로는 정본이 아닙니다. |
+| Artifacts | 생성 시도 및 입력 버전과 연결된 CSV 계산 결과 또는 분석 소스·CSV·JSON·텍스트 | 호스트가 소유권과 바이트 해시를 확인한 후 내려보냅니다. 모델 답변에 적힌 경로는 정본이 아닙니다. |
 | Knowledge / Manuscript / 고급 Pi 기능 | 기존 화면과 capability 경계 | 영속 연구자료 서비스, 버전 PDF, 리뷰, 플러그인, 승인·자동 재시도는 구현하지 않았습니다. |
 
 호스트는 `127.0.0.1`에서만 듣고 요청의 Host·Origin·Content-Type을 제한합니다. `ATHENA_ENDPOINT`와 모델은 운영자가 고정합니다. 브라우저에서 다른 주소로 같은 키를 보내거나 실행 도중 모델을 교체할 수 없습니다. 모델 목록 검증 성공은 생성·도구 호출 검증과 구분합니다. `GET /api/bootstrap`, `POST /api/rpc`, `GET /api/events`의 브라우저 계약은 [`host-wire.d.ts`](athena-backend-handoff/athena-codex-ui/integrations/host-wire.d.ts)에 있습니다.
