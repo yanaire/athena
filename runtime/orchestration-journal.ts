@@ -108,18 +108,26 @@ export class Journal {
   }
   process(event:CsvJobEvent) {
     const job=event.attempt,tool=this.db.record<Tool & Context>('tool',job.toolId);
-    if(!tool || tool.sessionId!==job.sessionId || tool.taskId!==job.taskId)throw new Error('CSV process has no owning tool.');
+    if(!tool || tool.projectId!==job.projectId || tool.sessionId!==job.sessionId || tool.taskId!==job.taskId)throw new Error('Process has no owning tool.');
     const ctx=context(tool), processId=job.attemptId;
-    this.db.putRecord('process',{...ctx,id:processId,processId,toolId:tool.id,status:job.status,job} satisfies ProcessRow);
-    const file=job.artifact;
-    const links={toolId:tool.id,processId,artifactId:file?.id};
+    const evidence=job.analysis?.inputs.flatMap(f=>f.fileId && f.versionId?[{id:f.fileId,version:f.versionId}]:[])??
+      (job.grant?[{id:job.grant.fileId,version:job.grant.versionId}]:[]);
+    this.db.putRecord('process',{...ctx,id:processId,processId,toolId:tool.id,status:job.status,job,evidence} satisfies ProcessRow);
+    const files=job.artifacts??(job.artifact?[job.artifact]:[]);
+    const links={toolId:tool.id,processId,artifactId:files[0]?.id};
     this.event(ctx,event.type,event.type==='process_output'?event.stream+': '+event.text:event.type+': '+job.status,links);
     this.db.putRecord('tool',{...tool,processId,exitCode:job.exitCode,logs:event.type==='process_output'?[...tool.logs,{at:Date.now(),text:event.text}]:tool.logs});
-    if(file && job.status==='succeeded') {
-      this.db.putRecord('artifact',{...ctx,...links,id:file.id,file,version:file.sha256,title:file.name,kind:'json',status:'ready',location:{uri:artifactRef(file).uri,label:file.name},
-        review:{status:'unreviewed',version:file.sha256},evidence:job.grant?[{id:job.grant.fileId,version:job.grant.versionId}]:[]} satisfies ArtifactRow);
+    if(job.status==='succeeded' && files.length) {
+      for(const file of files){
+        if(file.projectId!==ctx.projectId || file.sessionId!==ctx.sessionId || file.attemptId!==processId || ('taskId' in file && file.taskId!==ctx.taskId))
+          throw new Error('Produced artifact has inconsistent scope.');
+        const ref=artifactRef(file);
+        this.db.putRecord('artifact',{...ctx,toolId:tool.id,processId,id:file.id,file,version:ref.version,title:file.name,kind:file.name.split('.').at(-1)??'text',status:'ready',location:{uri:ref.uri,label:file.name},
+          review:{status:'unreviewed',version:ref.version},evidence:[...evidence]} satisfies ArtifactRow);
+      }
       const task=this.db.record<TaskRow>('task',ctx.taskId);
-      if(task&&!task.artifactIds.includes(file.id))this.db.putRecord('task',{...task,artifactIds:[...task.artifactIds,file.id]});
+      if(!task)throw new Error('Process has no owning task.');
+      this.db.putRecord('task',{...task,artifactIds:[...new Set([...task.artifactIds,...files.map(f=>f.id)])]});
     }
   }
 }

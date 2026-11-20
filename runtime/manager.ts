@@ -6,9 +6,11 @@ import type { StoredSession } from './storage.ts';
 import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
 import type { PiOrchestration } from './agent-tools.ts';
-import { CsvJobRunner } from './jobs.ts';
+import { CsvJobRunner, ANALYSIS_LIMITS, CSV_LIMITS } from './jobs.ts';
+import { AnalysisFiles, ANALYSIS_FILE_LIMITS, validateAnalysisName, validateOutputNames } from './analysis-files.ts';
+import type { AnalysisSnapshot } from './analysis-files.ts';
 import type { CsvJobEvent } from './jobs.ts';
-import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef } from './orchestration.ts';
+import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef, executionProjects } from './orchestration.ts';
 import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
 import { projectHistory } from './history.ts';
@@ -78,12 +80,18 @@ export class TaskManager implements AthenaTaskManager {
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
   readonly #journal: Journal;
   readonly #jobs: CsvJobRunner;
+  readonly #files: AnalysisFiles;
+  readonly #enabledProjects = executionProjects();
+  readonly #concurrency = limit('ATHENA_PROCESS_CONCURRENCY', 1, 1, 4);
+  #access: Awaited<ReturnType<CsvJobRunner['analysisAccess']>> = {available:false,reason:'No project enabled by host.'};
+  readonly #timeoutMs = 5000;
   readonly #registry = new Map<string, ManagedPiSession>();
   readonly #loading = new Map<string, Promise<ManagedPiSession>>();
   readonly #turns = new Map<string, Live>();
   readonly #executing = new Map<string, Attempt>();
   readonly #waiters = new Set<() => void>();
-  readonly #scheduler = new TurnScheduler(limit('ATHENA_MODEL_CONCURRENCY', 2, 1, 64));
+  readonly #modelConcurrency = limit('ATHENA_MODEL_CONCURRENCY', 2, 1, 64);
+  readonly #scheduler = new TurnScheduler(this.#modelConcurrency);
   readonly #maxChildren = limit('ATHENA_MAX_CHILDREN', 8, 0, 128);
   readonly #depth = limit('ATHENA_MAX_DEPTH', 1, 0, 1);
   #active: string | null = null;
@@ -95,7 +103,8 @@ export class TaskManager implements AthenaTaskManager {
     this.#directory = options.dataDir;
     this.#storage = new Storage(options.dataDir);
     this.#journal = new Journal(this.#storage);
-    this.#jobs = new CsvJobRunner({dataDir: options.dataDir, concurrency: limit('ATHENA_PROCESS_CONCURRENCY', 1, 1, 4),
+    this.#files = new AnalysisFiles(options.dataDir);
+    this.#jobs = new CsvJobRunner({dataDir: options.dataDir, concurrency: this.#concurrency, timeoutMs:this.#timeoutMs,
       recoveredAttempts: this.#storage.sessions().flatMap(s => this.#storage.records<ProcessRow>('process', s.id).map(p => p.job)),
       onEvent: event => this.#processEvent(event) });
     this.#factory = options.createPiSession ?? (async options => {
@@ -122,6 +131,7 @@ export class TaskManager implements AthenaTaskManager {
         this.#storage.advanceRevision();
       });
       this.#active = this.#storage.get<string | null>('activeSession') ?? null;
+      if (this.#enabledProjects.size) this.#access = await this.#jobs.analysisAccess();
       if (this.#active) await this.#openRoot(this.#session(this.#active));
       this.#ready = true;
     } finally { this.#busy = false; }
@@ -153,6 +163,7 @@ export class TaskManager implements AthenaTaskManager {
     // and serialize its manager effects (including spawn then join) in SDK call order.
     let chain = Promise.resolve();
     runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, orchestration:{role,
+      executionEnabled:this.#enabledProjects.has(projectId),
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
         if (!a) throw new ManagerError('ATTEMPT_INACTIVE','No dispatched attempt owns this tool.');
@@ -181,8 +192,12 @@ export class TaskManager implements AthenaTaskManager {
     this.#assertReady();
     const session = this.#active ? this.#session(this.#active) : undefined;
     const run = session ? this.#currentRun(session.id) : undefined;
+    const projectId = session?.projectId ?? this.#storage.get<string | null>('activeProject') ?? null;
     return structuredClone({
-      revision: this.#storage.revision(), projectId: session?.projectId ?? this.#storage.get<string | null>('activeProject') ?? null, sessionId: session?.id ?? null,
+      revision: this.#storage.revision(), projectId, sessionId: session?.id ?? null,
+      execution: {projectId, enabled:projectId!==null && this.#enabledProjects.has(projectId), backend:'docker' as const,
+        shell:false as const, network:false as const, runtime:this.#access,
+        limits:{...ANALYSIS_FILE_LIMITS,...ANALYSIS_LIMITS,queue:CSV_LIMITS.queue,timeoutMs:this.#timeoutMs,concurrency:this.#concurrency,modelConcurrency:this.#modelConcurrency,maxDepth:this.#depth,maxChildren:this.#maxChildren}},
       projects: this.#storage.projects(),
       sessions: this.#storage.sessions().map(({ sessionFile: _file, sessionDir: _dir, ...metadata }) => metadata),
       run: { id: run?.id ?? null, status: run?.status ?? 'ready', startedAt: run?.startedAt ?? null,
@@ -463,10 +478,18 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('TASK_SCOPE_MISMATCH','This is not a direct child of the calling task.');
     return task;
   }
-  #summary(t:TaskRow) {return {taskId:t.id,parentTaskId:t.parentTaskId,agentSessionId:t.agentSessionId,attemptId:t.attemptId,
-    title:t.title,status:t.status,result:t.result??null,error:t.error,artifactIds:t.artifactIds,
-    artifacts:t.artifactIds.flatMap(id=>{const row=this.#storage.record<ArtifactRow>('artifact',id);
-      return row && row.sessionId===t.sessionId && row.taskId===t.id?[artifactRef(row.file)]:[];})};}
+  async #summary(t:TaskRow) {
+    const artifacts=[];
+    for(const id of t.artifactIds) {
+      const row=this.#storage.record<ArtifactRow>('artifact',id);
+      if(!row || row.projectId!==t.projectId || row.sessionId!==t.sessionId || row.runId!==t.runId || row.taskId!==t.id)
+        throw new ManagerError('ARTIFACT_DENIED','Task artifact linkage is inconsistent.');
+      await this.#readArtifact(row);
+      artifacts.push(artifactRef(row.file));
+    }
+    return {taskId:t.id,parentTaskId:t.parentTaskId,agentSessionId:t.agentSessionId,attemptId:t.attemptId,
+      title:t.title,status:t.status,result:t.result??null,error:t.error,artifactIds:t.artifactIds,artifacts};
+  }
   async #operation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,sdkSignal?:AbortSignal):Promise<unknown> {
     const turn=this.#turns.get(a.id);
     if(!turn || this.#executing.get(a.agentSessionId)!==a || this.#closed)throw new ManagerError('ATTEMPT_INACTIVE','This attempt is no longer active.');
@@ -474,9 +497,22 @@ export class TaskManager implements AthenaTaskManager {
     signal.throwIfAborted();
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
     switch(name){
+      case 'read':{
+        this.#requireEnabled(a);
+        const path=text(args.path,'Granted path');
+        const id=a.fileIds.find(id=>path==='uploads/'+id+'.txt');
+        if(!id)throw new ManagerError('GRANT_DENIED','Path is not an input attached to this turn.');
+        return this.#upload(a,id).bytes.toString('utf8');
+      }
       case 'spawn_agent':case 'send_to_agent':return this.#dispatch(a,name,raw,args,signal);
       case 'get_task':return this.#summary(this.#child(a,args.taskId));
-      case 'list_tasks':return {tasks:this.#children(a).map(t=>this.#summary(t))};
+      case 'list_tasks':return {tasks:await Promise.all(this.#children(a).map(t=>this.#summary(t)))};
+      case 'read_file':{
+        this.#requireEnabled(a);
+        if(Object.keys(args).length!==1)throw new ManagerError('INVALID_INPUT','Supply only an artifactId.');
+        const row=this.#artifact(a,args.artifactId);
+        return {artifact:artifactRef(row.file),content:(await this.#readArtifact(row)).toString('utf8')};
+      }
       case 'wait_for_agents':return this.#wait(a,args.taskIds,signal);
       case 'cancel_task':{
         const child=this.#child(a,args.taskId);
@@ -498,6 +534,19 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('DISPATCH_INTERRUPTED','This reservation will not be dispatched again.');
     }
     const child=kind==='send'?this.#child(a,args.taskId):undefined;
+    const previous=child?this.#storage.records<Attempt>('attempt',a.sessionId).filter(t=>t.taskId===child.id).at(-1):undefined;
+    const select=(arg:unknown,fallback:readonly string[])=>{
+      if(arg===undefined)return fallback;
+      if(!Array.isArray(arg)||arg.length>32||new Set(arg).size!==arg.length||!arg.every((id:unknown):id is string=>typeof id==='string' && id.length>0))
+        throw new ManagerError('INVALID_INPUT','Grants must be a bounded list of distinct IDs.');
+      return arg;
+    };
+    const fileIds=select(args.fileIds,previous?.fileIds??a.fileIds);
+    if(fileIds.some(id=>!a.fileIds.includes(id)))throw new ManagerError('GRANT_DENIED','Cannot transfer an input outside the parent grants.');
+    const artifactGrants=select(args.artifactIds,previous?.artifactGrants??[]);
+    const transfers=[];
+    if(artifactGrants.length)this.#requireEnabled(a);
+    for(const id of artifactGrants){const row=this.#artifact(a,id);await this.#readArtifact(row);transfers.push(artifactRef(row.file));}
     if(child && (child.status==='cancelled'||child.status==='paused'))throw new ManagerError('TASK_CLOSED','Cannot send to a cancelled or interrupted task.');
     if(!child && (this.#depth===0||this.#children(a).length>=this.#maxChildren))throw new ManagerError('CHILD_LIMIT','Direct child limit reached.');
     const taskId=child?.id??randomUUID();
@@ -510,9 +559,9 @@ export class TaskManager implements AthenaTaskManager {
     const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child');
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
     signal.throwIfAborted();
-    const grantInfo=a.fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
-    const prompt=child?message:message+'\nGranted input files: '+JSON.stringify(grantInfo);
-    const next=this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,a.fileIds);
+    const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
+    const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
+    const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds),artifactGrants};
     const response={taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId,attemptId:next.id,status:next.status};
     this.#commit(()=>{
       if(!child)this.#storage.putRecord('agent_session',{projectId:a.projectId,sessionId:a.sessionId,id:runtime.sessionId,
@@ -527,7 +576,7 @@ export class TaskManager implements AthenaTaskManager {
   async #wait(a:Attempt,list:unknown,signal:AbortSignal) {
     if(list!==undefined && !Array.isArray(list))throw new ManagerError('INVALID_INPUT','taskIds must be an array.');
     const tasks=Array.isArray(list)?list.map(id=>this.#child(a,id)):this.#children(a);
-    const summaries=()=>tasks.map(t=>this.#summary(this.#child(a,t.id)));
+    const current=()=>tasks.map(t=>this.#child(a,t.id));
     if(tasks.some(t=>pending(t.status))) {
       this.#commit(()=>{this.#journal.transition(a,'blocked');this.#journal.event(a,'wait_started','Waiting for '+tasks.length+' child tasks.');});
       this.#scheduler.release(a,true);
@@ -535,7 +584,7 @@ export class TaskManager implements AthenaTaskManager {
         await new Promise<void>((resolve,reject)=>{
           const clear=()=>{this.#waiters.delete(check);signal.removeEventListener('abort',abort);};
           const abort=()=>{clear();reject(signal.reason);};
-          const check=()=>{if(!summaries().some(t=>pending(t.status))){clear();resolve();}};
+          const check=()=>{if(!current().some(t=>pending(t.status))){clear();resolve();}};
           signal.throwIfAborted();
           this.#waiters.add(check);signal.addEventListener('abort',abort,{once:true});check();
         });
@@ -544,18 +593,97 @@ export class TaskManager implements AthenaTaskManager {
           this.#commit(()=>{this.#journal.transition(a,'running');this.#journal.event(a,'wait_completed','Child tasks settled; model slot reacquired.');});}
       }
     }
-    return {tasks:summaries()};
+    return {tasks:await Promise.all(current().map(t=>this.#summary(t)))};
   }
-  async #childTool(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
-    if(name!=='read' && name!=='calculate_csv')throw new ManagerError('TOOL_DENIED','Workers can only read granted inputs or calculate CSV statistics.');
-    const keys=name==='read'?['fileId']:['fileId','column'];
-    if(Object.keys(args).some(k=>!keys.includes(k)))throw new ManagerError('INVALID_INPUT','Unexpected child tool arguments.');
-    const id=args.fileId===undefined && a.fileIds.length===1?a.fileIds[0]:args.fileId;
+  #upload(a:Attempt,selected:unknown) {
+    const id=selected===undefined && a.fileIds.length===1?a.fileIds[0]:selected;
     if(typeof id!=='string' || !a.fileIds.includes(id))throw new ManagerError('GRANT_DENIED','Choose one of the explicitly granted file IDs.');
     const f=this.#storage.record<StoredFile>('file',id);
     if(!f || f.sessionId!==a.sessionId || f.projectId!==a.projectId)throw new ManagerError('GRANT_DENIED','File is outside this conversation.');
     const bytes=readFileSync(f.path);
     if(hash(bytes)!==f.digest)throw new ManagerError('FILE_CHANGED','Granted file bytes changed.');
+    return {f,bytes};
+  }
+  #requireEnabled(a:Context) {
+    if(!this.#enabledProjects.has(a.projectId))throw new ManagerError('EXECUTION_DISABLED','Offline execution is not enabled for this project.');
+  }
+  #artifact(a:Attempt,id:unknown) {
+    const row=this.#storage.record<ArtifactRow>('artifact',text(id,'Artifact ID'));
+    if(!row || row.projectId!==a.projectId || row.sessionId!==a.sessionId || row.runId!==a.runId ||
+      (a.parentTaskId ? row.taskId!==a.taskId && !a.artifactGrants?.includes(row.id) : row.parentTaskId!==a.taskId))
+      throw new ManagerError('ARTIFACT_DENIED','Artifact is outside the calling task grants.');
+    return row;
+  }
+  async #readArtifact(row:ArtifactRow) {
+    const f=row.file;
+    if (f.id!==row.id || f.projectId!==row.projectId || f.sessionId!==row.sessionId || f.attemptId!==row.processId ||
+      artifactRef(f).version!==row.version || ('taskId' in f && f.taskId!==row.taskId)) throw new ManagerError('ARTIFACT_DENIED','Inconsistent artifact ownership.');
+    return 'kind' in f ? this.#files.download(f) : this.#jobs.download(f);
+  }
+  async #analysisInput(a:Attempt,ref:unknown):Promise<AnalysisSnapshot & {fileId?:string;versionId?:string}> {
+    const name=validateAnalysisName(text(typeof ref==='string'?ref:object(ref)?ref.name:null,'Input name'));
+    if(typeof ref==='string') {
+      if(await this.#files.has(a,name)) {
+        const [snapshot]=await this.#files.snapshot(a,[name]);
+        if(!snapshot)throw new ManagerError('INVALID_INPUT','Private snapshot missing.');
+        return snapshot;
+      }
+      const matches=a.fileIds.filter(id=>this.#storage.record<StoredFile>('file',id)?.name===name);
+      if(matches.length!==1)throw new ManagerError('GRANT_DENIED','Input name is absent or ambiguous; specify an exact granted fileId.');
+      const {f,bytes}=this.#upload(a,matches[0]);
+      return {name,bytes,fileId:f.id,versionId:f.digest};
+    }
+    if(!object(ref) || Object.keys(ref).length!==2)throw new ManagerError('INVALID_INPUT','Choose exactly one input source.');
+    if(typeof ref.fileId==='string') {
+      const {f,bytes}=this.#upload(a,ref.fileId);
+      return {name,bytes,fileId:f.id,versionId:f.digest};
+    }
+    const row=this.#artifact(a,ref.artifactId);
+    return {name,bytes:await this.#readArtifact(row),fileId:row.id,versionId:row.version};
+  }
+  async #analysis(a:Attempt,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    const {language,inputs=[],outputs,args:argv=[]}=args;
+    if(Object.keys(args).some(k=>!['language','inputs','outputs','args','script'].includes(k)) ||
+      (language!=='node' && language!=='python') || !Array.isArray(inputs) || inputs.length>ANALYSIS_FILE_LIMITS.batchFiles ||
+      !Array.isArray(outputs) || !outputs.every((o:unknown)=>typeof o==='string') || !Array.isArray(argv) ||
+      !argv.every((o:unknown)=>typeof o==='string'))throw new ManagerError('INVALID_INPUT','Invalid analysis command.');
+    const declared=validateOutputNames(outputs);
+    const [script]=await this.#files.snapshot(a,[text(args.script,'Script name')]);
+    if(!script)throw new ManagerError('INVALID_INPUT','A private script is required.');
+    const snapshots=await Promise.all(inputs.map(i=>this.#analysisInput(a,i)));
+    signal.throwIfAborted();
+    const processId=randomUUID();
+    const job=this.#jobs.startAnalysis({projectId:a.projectId,sessionId:a.sessionId,taskId:a.taskId,requestId:raw,attemptId:processId,
+      toolId:toolId(a,raw),language,script,inputs:snapshots,outputs:declared,args:argv});
+    const cancel=()=>job.cancel();signal.addEventListener('abort',cancel,{once:true});
+    try {
+      const result=await job.result;
+      const diagnostics={processId,status:result.status,stdout:result.stdout,stderr:result.stderr,exitCode:result.exitCode};
+      if(result.status!=='succeeded')throw new ManagerError('ANALYSIS_FAILED',JSON.stringify({...diagnostics,error:result.error??('Analysis '+result.status)}));
+      if(!result.artifacts?.length)throw new ManagerError('ANALYSIS_FAILED','Successful analysis is missing artifact receipts.');
+      const artifacts=[];
+      for(const f of result.artifacts){const row=this.#artifact(a,f.id);await this.#readArtifact(row);artifacts.push(artifactRef(row.file));}
+      return {...diagnostics,artifacts};
+    }finally{signal.removeEventListener('abort',cancel);}
+  }
+  async #childTool(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    if(['read_file','write_file','run_command'].includes(name)) {
+      this.#requireEnabled(a);
+      if(name==='run_command')return this.#analysis(a,raw,args,signal);
+      if(name==='write_file') {
+        if(typeof args.content!=='string' || Object.keys(args).length!==2)throw new ManagerError('INVALID_INPUT','Supply a filename and UTF-8 content.');
+        const filename=text(args.name,'Name');await this.#files.write(a,filename,args.content);
+        return {name:filename,bytes:Buffer.byteLength(args.content),sha256:hash(args.content)};
+      }
+      if(Object.keys(args).length!==1)throw new ManagerError('INVALID_INPUT','Choose exactly one file source.');
+      if(typeof args.fileId==='string')return this.#upload(a,args.fileId).bytes.toString('utf8');
+      if(typeof args.artifactId==='string')return (await this.#readArtifact(this.#artifact(a,args.artifactId))).toString('utf8');
+      return Buffer.from((await this.#analysisInput(a,text(args.name,'Name'))).bytes).toString('utf8');
+    }
+    if(name!=='read' && name!=='calculate_csv')throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
+    const keys=name==='read'?['fileId']:['fileId','column'];
+    if(Object.keys(args).some(k=>!keys.includes(k)))throw new ManagerError('INVALID_INPUT','Unexpected child tool arguments.');
+    const {f,bytes}=this.#upload(a,args.fileId);
     if(name==='read')return bytes.toString('utf8');
     const grant=await this.#jobs.grant({projectId:a.projectId,sessionId:a.sessionId,fileId:f.id,versionId:text(f.versionId,'Version'),name:f.name,bytes});
     signal.throwIfAborted();
@@ -594,7 +722,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#assertReady();
     const file=this.#storage.record<ArtifactRow>('artifact',artifactId);
     if(!file || file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
-    return {bytes:await this.#jobs.download(file.file),name:file.file.name};
+    return {bytes:await this.#readArtifact(file),name:file.file.name,mimeType:file.file.mimeType};
   }
   async #cancel(task:TaskRow){
     const turns=[...this.#turns.values()].filter(t=>t.attempt.taskId===task.id || (!task.parentTaskId && t.attempt.runId===task.runId));

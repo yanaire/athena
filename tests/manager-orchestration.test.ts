@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -40,6 +41,89 @@ function finished(manager:TaskManager){
 }
 function parent(w:Wire){return w.tools.some(t=>t.function.name==='spawn_agent');}
 function outputs(w:Wire){return w.messages.filter(m=>m.role==='tool').map(m=>String(m.content));}
+
+test('offline analysis joins source and both outputs with immutable input provenance after restart',
+  {timeout:60000,skip:!process.env.ATHENA_ANALYSIS_IMAGE && 'Set ATHENA_ANALYSIS_IMAGE to a trusted local image to run the Docker integration.'}, async t=>{
+  const script="from pathlib import Path\nimport sys,json\nx=int(Path('scores.csv').read_text().splitlines()[1])+int(sys.argv[1])\nPath('/outputs/result.json').write_text(json.dumps(x))\nPath('/outputs/note.txt').write_text('sum='+str(x))";
+  let joined: {id:string;sha256:string;uri:string;name:string}[]=[];let checked='',diagnostic='';
+  const launch=await setup(t,w=>{
+    const r=outputs(w);
+    if(parent(w)){
+      if(!r.length)return {name:'spawn_agent',args:{title:'Writer',prompt:'Author a script.'}};
+      if(r.length===1)return {name:'wait_for_agents',args:{}};
+      if(r.length===2){const tasks=JSON.parse(r[1]??'').tasks;joined=tasks[0].artifacts;
+        return {name:'read_file',args:{artifactId:joined.find(f=>f.name==='result.json')?.id??'missing'}};}
+      checked=r[2]??'';return 'Coordinator finished.';
+    }
+    if(!r.length)return {name:'write_file',args:{name:'analysis.py',content:script}};
+    if(r.length===1)return {name:'run_command',args:{language:'python',script:'analysis.py',inputs:['scores.csv'],outputs:['result.json','note.txt'],args:['5']}};
+    if(r.length===2)return {name:'write_file',args:{name:'fail.py',content:"import sys\nprint('out witness')\nprint('err witness',file=sys.stderr)\nsys.exit(7)"}};
+    if(r.length===3)return {name:'run_command',args:{language:'python',script:'fail.py',outputs:[]}};
+    diagnostic=r.at(-1)??'';
+    return 'Worker finished.';
+  });
+  let manager=await launch();const {project}=await manager.createProject({name:'Analysis'});
+  const s=await manager.createSession({projectId:project.id,title:'Reports'});await manager.close();
+  const previous=process.env.ATHENA_EXECUTION_PROJECTS;t.after(()=>{if(previous===undefined)delete process.env.ATHENA_EXECUTION_PROJECTS;else process.env.ATHENA_EXECUTION_PROJECTS=previous;});
+  process.env.ATHENA_EXECUTION_PROJECTS=project.id;manager=await launch();
+  const {fileReferences}=await manager.stageFiles(s.sessionId,[{name:'scores.csv',mimeType:'text/csv',data:Buffer.from('score\n32\n').toString('base64')}]);
+  const end=finished(manager);await manager.pi(s.sessionId,{type:'prompt',id:'analyze',message:'Delegate.',fileReferences});await end;
+  const snapshot=manager.getSnapshot(),proc=snapshot.processes[0];assert.ok(proc);assert.equal(proc.status,'succeeded',proc.job.error);
+  const failed=snapshot.processes[1];assert.ok(failed);assert.equal(snapshot.processes.length,2,'Each command runs once.');
+  assert.deepEqual(JSON.parse(diagnostic),{processId:failed.id,status:'failed',stdout:'out witness\n',stderr:'err witness\n',exitCode:7,error:failed.job.error});
+  assert.equal(snapshot.tools.find(t=>t.id===failed.toolId)?.status,'failed');
+  assert.deepEqual(joined.map(a=>a.name),['analysis.py','result.json','note.txt']);assert.equal(JSON.parse(checked).content,'37');
+  await manager.close();manager=await launch();
+  const restored=manager.getSnapshot();const expected=[script,'37','sum=37'];
+  for(const [i,ref] of joined.entries()){
+    const row=restored.artifacts.find(a=>a.id===ref.id);assert.ok(row);
+    assert.deepEqual(row.evidence,[{id:fileReferences[0]?.id,version:fileReferences[0]?.versionId}]);
+    assert.equal(row.toolId,proc.toolId);assert.equal(row.processId,proc.id);assert.equal(row.attemptId,proc.attemptId);assert.equal(row.location.uri,ref.uri);
+    const {bytes}=await manager.artifactDownload(s.sessionId,row.id);assert.equal(bytes.toString(),expected[i]);assert.equal(createHash('sha256').update(bytes).digest('hex'),ref.sha256);
+  }
+});
+
+test('grant transfer admits one sibling artifact only after explicit follow-up; parent reads verified bytes', {timeout:30000}, async t=>{
+  const observed:string[]=[];
+  let artifactId='', otherChild='';
+  const launch=await setup(t,w=>{
+    const results=outputs(w);
+    if(parent(w)){
+      switch(results.length){
+        case 0:return {name:'spawn_agent',args:{title:'Producer',prompt:'Produce statistics.'}};
+        case 1:return {name:'wait_for_agents',args:{}};
+        case 2:artifactId=JSON.parse(results[1]??'').tasks[0].artifacts[0].id;return {name:'read_file',args:{artifactId}};
+        case 3:observed.push(results[2]??'');return {name:'spawn_agent',args:{title:'Reviewer',prompt:'Inspect dataset.',fileIds:[]}};
+        case 4:otherChild=JSON.parse(results[3]??'').taskId;return {name:'wait_for_agents',args:{}};
+        case 5:return {name:'send_to_agent',args:{taskId:otherChild,message:'Now review the transferred result.',artifactIds:[artifactId]}};
+        case 6:return {name:'wait_for_agents',args:{}};
+        default:return 'Coordinator done.';
+      }
+    }
+    const users=w.messages.filter(m=>m.role==='user');
+    if(JSON.stringify(users[0]?.content).includes('Produce statistics.'))return results.length?'Produced.':{name:'calculate_csv',args:{}};
+    if(users.length===1){
+      if(results.length===0)return {name:'read_file',args:{artifactId}};
+      if(results.length===1)return {name:'write_file',args:{name:'note.txt',content:'private draft'}};
+      if(results.length===2)return {name:'read_file',args:{name:'note.txt'}};
+      observed.push(...results);return 'Private review ready.';
+    }
+    if(results.length===3)return {name:'read_file',args:{artifactId}};
+    observed.push(results.at(-1)??'');return 'Reviewed.';
+  });
+  let manager=await launch();const {project}=await manager.createProject({name:'Transfer'});
+  const {sessionId}=await manager.createSession({projectId:project.id,title:'Review'});
+  await manager.close();const saved=process.env.ATHENA_EXECUTION_PROJECTS;
+  t.after(()=>{if(saved===undefined)delete process.env.ATHENA_EXECUTION_PROJECTS;else process.env.ATHENA_EXECUTION_PROJECTS=saved;});
+  process.env.ATHENA_EXECUTION_PROJECTS=project.id;manager=await launch();
+  const {fileReferences}=await manager.stageFiles(sessionId,[{name:'scores.csv',mimeType:'text/csv',data:Buffer.from('score\n43\n').toString('base64')}]);
+  const end=finished(manager);await manager.pi(sessionId,{type:'prompt',id:'review',message:'Delegate.',fileReferences});await end;
+  assert.equal(manager.getSnapshot().run.status,'succeeded');
+  assert.match(observed[0]??'',/"content":/);assert.match(observed[1]??'',/outside the calling task grants/);
+  assert.equal(observed[3],'private draft');assert.equal(JSON.parse(observed.at(-1)??'').statistics[0].mean,43);
+  await manager.close();manager=await launch();
+  assert.deepEqual(manager.getSnapshot().attempts.filter(a=>a.taskId===otherChild).map(a=>[a.fileIds,a.artifactGrants]),[[[],[]],[[],[artifactId]]]);
+});
 
 test('one slot drains a durable child mailbox; duplicate spawns reuse the task and ungranted staged files remain unreadable', {timeout:25000},async t=>{
   let foreign='',requests=0;const evidence:string[]=[];

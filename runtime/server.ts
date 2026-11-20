@@ -105,8 +105,8 @@ const server = createServer(async (req, res) => {
       const url = new URL(req.url ?? '/', `http://${host}`);
       const artifact = /^\/api\/artifacts\/([\w-]+)\/([\w-]+)$/.exec(url.pathname);
       if (artifact?.[1] && artifact[2]) {
-        const { bytes, name } = await manager.artifactDownload(artifact[1], artifact[2]);
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': bytes.length,
+        const { bytes, name, mimeType } = await manager.artifactDownload(artifact[1], artifact[2]);
+        res.writeHead(200, { 'Content-Type': mimeType, 'Content-Length': bytes.length,
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }).end(bytes);
         return;
       }
@@ -114,7 +114,10 @@ const server = createServer(async (req, res) => {
         case '/': res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html); return;
         case '/athena-host.js': res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(bridge); return;
         case '/favicon.ico': res.writeHead(204).end(); return;
-        case '/api/bootstrap': json(200, { snapshot: manager.getSnapshot(), cursor: feed.cursor, connection: connections.getState(), capabilities: manager.capabilities, piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+        case '/api/bootstrap': {
+          const snapshot = manager.getSnapshot();
+          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connections.getState(), capabilities: manager.capabilities, piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+        }
         case '/api/events': {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
           const last = req.headers['last-event-id'];

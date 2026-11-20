@@ -2,9 +2,11 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { TObject } from "typebox";
 import { createProjectReadTool } from "./files.ts";
+import { ANALYSIS_LIMITS } from "./analysis-container.ts";
 
 export interface PiOrchestration {
   readonly role: "parent" | "child";
+  readonly executionEnabled?: boolean;
   readonly execute: (
     name: string, rawToolCallId: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal,
   ) => Promise<unknown>;
@@ -18,7 +20,7 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
   const projectRead = createProjectReadTool(projectDir);
   if (!orchestration) return { customTools: [projectRead], systemPrompt: standalonePrompt };
 
-  const { role, execute } = orchestration;
+  const { role, execute, executionEnabled } = orchestration;
   const delegated = <T extends TObject>(spec: {
     readonly name: string; readonly label: string; readonly description: string;
     readonly parameters: T; readonly readOnly?: boolean;
@@ -36,15 +38,20 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
   const closed = { additionalProperties: false } as const;
   const oneTask = Type.Object({ taskId: id }, closed);
   const uniqueGrant = Type.Optional(Type.String({ minLength: 1, maxLength: 256, description: "Exact granted file ID from the task. Omit this field unless an ID was given." }));
+  const ids = Type.Array(id, {maxItems: 32, uniqueItems: true});
+  const transfers = {fileIds: Type.Optional(ids), artifactIds: Type.Optional(ids)};
+  const artifact = Type.Object({artifactId: id}, closed);
+  const source = Type.Union([id, Type.Object({name:id,fileId:id},closed), Type.Object({name:id,artifactId:id},closed)]);
 
   switch (role) {
     case "parent": return {
-      systemPrompt: parentPrompt,
-      customTools: [projectRead,
+      systemPrompt: executionEnabled ? "You coordinate analysis. Delegate with spawn_agent, join using wait_for_agents. Verify the actual returned artifacts with read_file({artifactId}); if needed send_to_agent for a correction and join again. Use fileIds or artifactIds to explicitly pass inputs. Cite only canonical returned artifact titles and URIs. Disclose failures." : parentPrompt,
+      customTools: [executionEnabled ? delegated({name:"read",label:"Read attached input",description:"Read an input attachment using its exact granted project-relative path.",readOnly:true,parameters:Type.Object({path:id},closed)}) : projectRead,
+        ...(executionEnabled ? [delegated({name:"read_file",label:"Verify artifact",description:"Read the verified contents of a direct child's completed artifact in this run.",parameters:artifact,readOnly:true})] : []),
         delegated({ name: "spawn_agent", label: "Spawn agent", description: "Start a direct child research task. Returns its task ID. Omit requestId unless retrying the same request.",
-          parameters: Type.Object({ title: id, prompt: message, requestId: Type.Optional(id) }, closed) }),
+          parameters: Type.Object({ title: id, prompt: message, requestId: Type.Optional(id), ...transfers }, closed) }),
         delegated({ name: "send_to_agent", label: "Send to agent", description: "Send a message to a direct child by task ID.",
-          parameters: Type.Object({ taskId: id, message, requestId: Type.Optional(id) }, closed) }),
+          parameters: Type.Object({ taskId: id, message, requestId: Type.Optional(id), ...transfers }, closed) }),
         delegated({ name: "wait_for_agents", label: "Wait for agents", description: "Join direct child tasks and return their outcomes, including failures. Use {} to wait for all direct children.", readOnly: true,
           parameters: Type.Object({ taskIds: Type.Optional(Type.Array(id)) }, closed) }),
         delegated({ name: "get_task", label: "Get task", description: "Get one direct child's state and result.", readOnly: true, parameters: oneTask }),
@@ -53,8 +60,13 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       ],
     };
     case "child": return {
-      systemPrompt: childPrompt,
+      systemPrompt: executionEnabled ? "You are an Athena research worker. Use the standard library only (no pandas). First write_file({name:'analysis.py',content:<your script text>}), then run_command({language:'python',script:'analysis.py',inputs:['original.csv'],outputs:['result.json']}). Substitute the actual input and output names. The script field is a filename; put code only in write_file.content. calculate_csv accepts granted uploads only. If a call fails, do not repeat identical arguments. A string input names a private workspace file first, or exactly one granted upload with that original filename. For ambiguous upload names pass {fileId,name}; pass transferred artifacts as {artifactId,name}. Your script reads /workspace/<name> and writes /outputs/<name>. No shell, package installation, network or host filesystem. Verify with read_file. Cite only real artifacts returned by successful tools. Report failures." : childPrompt,
       customTools: [
+        ...(executionEnabled ? [
+          delegated({name:"read_file",label:"Read scoped file",description:"Specify exactly one of: a private name, granted fileId, or authorized artifactId.",readOnly:true,parameters:Type.Object({name:Type.Optional(id),fileId:Type.Optional(id),artifactId:Type.Optional(id)},closed)}),
+          delegated({name:"write_file",label:"Write private file",description:"Write UTF-8 content to a flat filename in this child's private workspace.",parameters:Type.Object({name:id,content:Type.String()},closed)}),
+          delegated({name:"run_command",label:"Run offline analysis",description:"Execute a private script with Node or Python in offline Docker. Specify only needed input snapshots, program arguments and flat output names. Write outputs under /outputs. Source and declared outputs are returned as verified artifacts.",parameters:Type.Object({language:Type.Union([Type.Literal("node"),Type.Literal("python")]),script:id,inputs:Type.Optional(Type.Array(source,{maxItems:ANALYSIS_LIMITS.maxFiles})),outputs:Type.Array(id,{maxItems:ANALYSIS_LIMITS.maxFiles,uniqueItems:true}),args:Type.Optional(Type.Array(Type.String(),{maxItems:ANALYSIS_LIMITS.maxArgs}))},closed)}),
+        ] : []),
         delegated({ name: "read", label: "Read granted file", description: "Read the assigned text file with {}. Specify fileId only to select an exact ID from the task.", readOnly: true,
           parameters: Type.Object({ fileId: uniqueGrant }, closed) }),
         delegated({ name: "calculate_csv", label: "Calculate CSV statistics", description: 'Create a statistics.json file for the assigned CSV. Use {} for all columns, or specify the requested column name. Specify fileId only to select an exact ID from the task.',

@@ -14,9 +14,10 @@ test('HTTP reconnect replays a project created in the bootstrap gap and rejects 
     for (const stop of stops) await stop();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const start = async () => {
+  const start = async (projects:string) => {
     const child = spawn(process.execPath, ['runtime/server.ts'], { env: { ...process.env, ATHENA_API_KEY: '',
-      ATHENA_DATA_DIR: dataDir, ATHENA_PORT: '0', ATHENA_MODEL: 'unrequested', ATHENA_ENDPOINT: 'http://127.0.0.1:1/v1' },
+      ATHENA_DATA_DIR: dataDir, ATHENA_PORT: '0', ATHENA_MODEL: 'unrequested', ATHENA_ENDPOINT: 'http://127.0.0.1:1/v1',
+      ATHENA_EXECUTION_PROJECTS:projects, ATHENA_ANALYSIS_IMAGE:'' },
       stdio: ['ignore', 'pipe', 'inherit'] });
     const exit = once(child, 'exit');
     const stop = async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); await exit; };
@@ -27,7 +28,7 @@ test('HTTP reconnect replays a project created in the bootstrap gap and rejects 
     }
     throw new Error('Host exited before listening.');
   };
-  const first = await start();
+  const first = await start('*');
   const initial = await fetch(first.base + '/api/bootstrap').then(r => r.json());
   const created = await fetch(first.base + '/api/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method: 'createProject', args: [{ name: 'At the boundary' }] }) }).then(r => r.json());
@@ -43,12 +44,19 @@ test('HTTP reconnect replays a project created in the bootstrap gap and rejects 
   assert.ok(line);
   const frame = JSON.parse(line.slice(6));
   assert.equal(frame.snapshot.projectId, created.result.project.id);
+  assert.equal(frame.snapshot.execution.enabled,false,'A wildcard never enables a project.');
   assert.equal(frame.sequence, initial.cursor.sequence + 1);
   await first.stop();
-  const second = await start();
+  const second = await start('other, '+created.result.project.id);
   const reset = await fetch(second.base + path).then(r => r.text());
   assert.equal(JSON.parse(reset.slice(6)).type, 'reset');
   const restored = await fetch(second.base + '/api/bootstrap').then(r => r.json());
   assert.equal(restored.snapshot.projectId, created.result.project.id);
+  assert.deepEqual(restored.execution,restored.snapshot.execution);
+  assert.equal(restored.execution.enabled,true);
+  assert.equal(restored.execution.runtime.available,false,'Missing host image must not advertise a usable runtime.');
+  assert.equal(restored.execution.network,false);
+  assert.equal(restored.execution.shell,false);
+  assert.equal(restored.execution.limits.workspaceFiles,32);
   assert.notEqual(restored.cursor.epoch, initial.cursor.epoch);
 });

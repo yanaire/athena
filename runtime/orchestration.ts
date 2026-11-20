@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Artifact, Task, Status } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { CsvArtifact, CsvAttempt } from './jobs.ts';
+import type { AnalysisArtifact } from './analysis-files.ts';
 
 export class ManagerError extends Error {
   readonly code: string;
@@ -15,6 +16,9 @@ export function text(value: unknown, name: string): string {
 }
 export function hash(value: string | Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }
 export function pending(status: Status): boolean { return status === 'queued' || status === 'running' || status === 'blocked'; }
+export function executionProjects(): ReadonlySet<string> {
+  return new Set((process.env.ATHENA_EXECUTION_PROJECTS ?? '').split(',').map(id => id.trim()).filter(id => id && id !== '*'));
+}
 export function limit(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
   const n = raw === undefined ? fallback : Number(raw);
@@ -25,15 +29,19 @@ export type Context = { readonly projectId: string; readonly sessionId: string; 
   readonly taskId: string; readonly parentTaskId: string | null; readonly agentSessionId: string; readonly attemptId: string };
 export type Attempt = Context & { readonly id: string; readonly requestId: string; readonly status: Status;
   readonly prompt: string; readonly acceptedAt: number; readonly startedAt: number | null; readonly endedAt: number | null;
-  readonly result?: string; readonly error?: string; readonly fileIds: readonly string[] };
+  readonly result?: string; readonly error?: string; readonly fileIds: readonly string[];
+  readonly artifactGrants?: readonly string[] };
 export type TaskRow = Task & Context & { readonly result?: string; readonly error?: string };
 export type AgentSession = { readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly sessionDir: string; readonly sessionFile: string; readonly role: 'parent' | 'child' };
+export type Evidence = {readonly id:string; readonly version:string};
 export type ProcessRow = Context & { readonly id: string; readonly processId: string; readonly toolId: string;
-  readonly status: CsvAttempt['status']; readonly job: CsvAttempt };
-export type ArtifactRow = Artifact & Context & { readonly file: CsvArtifact; readonly toolId: string; readonly processId: string };
-export function artifactRef(file: CsvArtifact) {
-  return { id: file.id, title: file.name, name: file.name,
+  readonly status: CsvAttempt['status']; readonly job: CsvAttempt; readonly evidence?: readonly Evidence[] };
+export type ArtifactRow = Artifact & Context & { readonly file: CsvArtifact | AnalysisArtifact; readonly toolId: string; readonly processId: string };
+export function artifactRef(file: CsvArtifact | AnalysisArtifact) {
+  const versionId='versionId' in file?file.versionId:file.sha256;
+  return { id: file.id, title: file.name, name: file.name, version: versionId, versionId, sha256: file.sha256,
+    bytes: file.bytes, mimeType: file.mimeType,
     uri: '/api/artifacts/' + encodeURIComponent(file.sessionId) + '/' + encodeURIComponent(file.id) };
 }
 
