@@ -1,0 +1,650 @@
+{
+  "generatedAt": "2026-11-20T15:06:41.876Z",
+  "runtime": {
+    "node": "v24.22.3",
+    "linkedom": "0.18.15"
+  },
+  "mode": "Node + LinkeDOM functional integration; no browser, server, visual rendering or external execution",
+  "inputs": [
+    "build.py",
+    "app.html",
+    "ui/pi-activity.js",
+    "ui/pi-runtime.js",
+    "motion/composer.js",
+    "motion/controls.js",
+    "motion/agent-steps.js",
+    "motion/reply.js",
+    "motion/task-list.js",
+    "ui/agent-avatars.js",
+    "ui/workspace-store.js",
+    "ui/workspace-session.js",
+    "ui/research-records.js",
+    "ui/result-files.js",
+    "ui/workspace-views.js",
+    "ui/connection-manager.js",
+    "ui/model-settings.js",
+    "ui/provider-profiles.js",
+    "ui/knowledge.js",
+    "ui/workspace-chrome.js",
+    "ui/pi-session-view.js",
+    "ui/surfaces.js",
+    "ui/resize.js",
+    "ui/settings.js",
+    "ui/pi-workbench.js",
+    "ui/chat-model-picker.js",
+    "app.js",
+    "app.css",
+    "motion/composer.css",
+    "motion/controls.css",
+    "ui/pi-activity.css",
+    "motion/agent-steps.css",
+    "motion/reply.css",
+    "motion/task-list.css",
+    "ui/agent-avatars.css",
+    "ui/workspace-chrome.css",
+    "ui/pi-session-view.css",
+    "ui/workspace-views.css",
+    "ui/model-settings.css",
+    "ui/provider-profiles.css",
+    "ui/knowledge.css",
+    "ui/surfaces.css",
+    "ui/layout.css",
+    "ui/resize.css",
+    "ui/settings.css",
+    "ui/pi-workbench.css",
+    "ui/pi-shell.css",
+    "ui/chat-model-picker.css",
+    "ui/research-records.css",
+    "vendor/lucide.min.js",
+    "integrations/athena-host.js",
+    "qa/host-restart-snapshot.json"
+  ],
+  "sourceSha256": {
+    "build.py": "95690938dcf823245ab1a6d8b181f767bde47231b377e7073e4592e304f3ff37",
+    "app.html": "31c75f7b206571e8497265e4676225d8ff01e934696a567a25eed917eead42cd",
+    "ui/pi-activity.js": "597685c53f2b6ec8d5d5819b8594b8a452460dccfe5c56259cfcc19a96829e90",
+    "ui/pi-runtime.js": "a66e247433062183b450139e362e0a12235f8b466879c2f2f229c2deec3fc045",
+    "motion/composer.js": "f917dd05ee794c8792d1d3d8b3d774d465a9224025f7744cd94bcf2f77351f7e",
+    "motion/controls.js": "b0704cbd93da41b78f0b20fb2c1f6221b8268d0102ef1c8adda88634b45241f3",
+    "motion/agent-steps.js": "6d108448b881167bdcdc70e5c79fea9e2c70d38a93467db440f3f07430883fd4",
+    "motion/reply.js": "ccc298620c9dff77912f3eed6c537acf781c25c3829597a54dc151f0d5769ce9",
+    "motion/task-list.js": "362465773664478c7f255c05301e93ebcb16464727d3c0cab0aeb10f58fb264d",
+    "ui/agent-avatars.js": "9cffe79717737bb5e6c78e71b3fbeac0f224e3ee85b196f178fc5d1aa6c6c0f8",
+    "ui/workspace-store.js": "0c439119b0a301108e56ace4c22fbf92b00196f5a4e0824da82cb9896e7b98d8",
+    "ui/workspace-session.js": "8ae6ede94e9cdb246d64231459df7ba47109937419dfb408de21a46898137569",
+    "ui/research-records.js": "a1b35488323857a589da1f06bbe2dba40416f543a69d4ae0b8b1d767d9b75654",
+    "ui/result-files.js": "e468c7f6fa9076024af7a768b1ace88da849245a29bb219114ea5a76716f15fd",
+    "ui/workspace-views.js": "dd875e7e3cea428f983883c7835b809841247fe026862a5ce235c3a4c10b189b",
+    "ui/connection-manager.js": "a0f5403c7cbddb9736ff07650ed17bc2ffd6e8db5171a2d195fd648b068d5bd0",
+    "ui/model-settings.js": "59ff65225ad08c29de26d3be9c64d4178ab22d1ef79636e1af9a7572eb5b8b1e",
+    "ui/provider-profiles.js": "924f0908a2944b4b968b9fb806afd70ee346b065d0bfcb78541e30bfa7020e38",
+    "ui/knowledge.js": "0afda3fe0aae2e3daac20a122329966aed443ee35dc0596a9476d1b7f9cf13af",
+    "ui/workspace-chrome.js": "3be265df0dbc6185732f1e9947794302ba72aa0f9249d9dec9f3d6709893ca6d",
+    "ui/pi-session-view.js": "78174909cbab814206f7f9666cd56aba3cc889ee94161e6fd56bc165abbe719c",
+    "ui/surfaces.js": "7509a07164057e875514a40a5cd69d6ab04fdbec5270b90ca384613e2a54a3bf",
+    "ui/resize.js": "40448180d5b4e0fe98eb41e5448cb12facdea614f041f9b77555917c0ddce12a",
+    "ui/settings.js": "78c3e9590e48cfe568cd10bd459e020d2e8b07da7bcc70b166680bbdd81c369d",
+    "ui/pi-workbench.js": "ba81950dd4e212bc8464ab9789a0e6b2a33caab05163ebb7325876094e2a074a",
+    "ui/chat-model-picker.js": "65cccfbe4339bb0a4b8d2655b90999929075bf617918e6e5ac8986af4df919fc",
+    "app.js": "5de0b3ea0585ebf905b2a173b57775bf74e5c41b58e67e99c0a5066a1089ae70",
+    "app.css": "ce87e4661f24120a9fe564a3916020daa10e7ad078ce7a1afc28fd8fff4f449e",
+    "motion/composer.css": "815da5aa67cb21e02f6e33a1fce92fabda9cb1f7cb4f7df28c9faf87488445c5",
+    "motion/controls.css": "a7d887942191496accc0f14eb8bc19e9480aade4e931970e4308adc4f4863d3b",
+    "ui/pi-activity.css": "844ec9b26ac057d4954dbc8ea4b81f07e828e83cefa27b7f1f9f4eac45784a47",
+    "motion/agent-steps.css": "4d3a471968cb7ea6edf2b6a2010a343f13d0e101d013fbd87936c5325484c284",
+    "motion/reply.css": "3fa080bcdaa860980b93f780bbc12125aaaa22c58c00505699afb43abfd8b335",
+    "motion/task-list.css": "23c1c84a4d281abddbfa3981413501856f66bda0bce66efda958a72b861ba1b5",
+    "ui/agent-avatars.css": "ffc83d36ad6dde566ac53463c5652625d45855fef3613db7cdd46a82ee76402d",
+    "ui/workspace-chrome.css": "86e7b95ce101a0df6884840295160c9bf5cb25e05eaa298c72e3c46735315ee1",
+    "ui/pi-session-view.css": "d64587fc620450cae0784cbfd688cfa8551e313963e913be37b97f12f42f9fd9",
+    "ui/workspace-views.css": "d3768b8d491600f51d65b5f67edf82c0bb4704ac8a0ebf6d8e9fb9223d4fb0d1",
+    "ui/model-settings.css": "b6152de059c4a4ed929254cad817532c525f97c3cc951890257e677662cd9ade",
+    "ui/provider-profiles.css": "b6ad56e342b89919481e8b2d375ddc96b8e857a777fc561b151170221416c15e",
+    "ui/knowledge.css": "1c97693d1b3b697b31995c7bc0428e856fde238e518af4014347311e191313da",
+    "ui/surfaces.css": "657cfab7bc6c7336ce1b53f6f2e0c3253525ef32fbd81e031cf94dd983ccd5d6",
+    "ui/layout.css": "f775b2a831f82190120a885b3be14df9f9b880b3f02104081b06dc9ae4ed339d",
+    "ui/resize.css": "d0dc47221fd5ff813bd38bd4ae71ccbf1c94607ba81d7c8eac21d3c15677632e",
+    "ui/settings.css": "6055c10a10cd4966d2dd0161824e86403c9aec5a7cf3d51213710d8b7dcd913b",
+    "ui/pi-workbench.css": "adced0e4c2f5fc22d74154f6de87c87d9c8309a16324f718b162d97ef8f8dc67",
+    "ui/pi-shell.css": "4fd4165b82481590e25da98d9f5ac2e66f2e069b047ddb40527bb87715dc68f0",
+    "ui/chat-model-picker.css": "0ed4a0d848f955e8dee2b67b36aee003a37de4219117682e06b6733b1b17c3e9",
+    "ui/research-records.css": "ff61509b3d7ad1089a518aac1d3d4f38451b419152fd759257314849e098db4f",
+    "vendor/lucide.min.js": "ab85225ecc1daa2033607856f03dd2dabcbc08e2d260a5b97e17c690aa929766",
+    "integrations/athena-host.js": "6c9c2c95db8d75dfac460fe6c8ce705e52b8bbf0d6441e717bf8df0693ddec13",
+    "qa/host-restart-snapshot.json": "7b4f5f4a99729694ad194495c80355cfb37cbaf75fd6d5018c65e570352c795c"
+  },
+  "sourceChangedDuringRun": [],
+  "limitations": [
+    "matchMedia: controlled prefers-reduced-motion state; no actual OS preference.",
+    "requestAnimationFrame, performance.now and timers: deterministic virtual 60 Hz clock.",
+    "Web Animations API: lifecycle/finish/cancel only; no interpolation or rendering.",
+    "Geometry, getComputedStyle, ResizeObserver: fixed approximate boxes and manual resize notifications; scrollIntoView calls are recorded without scrolling; CSS is not rendered.",
+    "Focus/activeElement/focus events, tabIndex reflection, textarea selection/range editing, select values, native details toggling and abortable DOM listeners are compatibility shims for LinkeDOM.",
+    "Native form submission defaults and constraint validation are not simulated; form submit events are dispatched explicitly to exercise application validation.",
+    "Lucide icon replacement is a no-op; accessibility assertions check DOM attributes, not a browser accessibility tree or screen reader.",
+    "File input changes use real Node File objects in a supplied array; no native file picker, upload, or file-system access is exercised.",
+    "localStorage, clipboard, window.open, object URLs and anchor downloads are in-memory records; no external page, OS clipboard, PDF viewer, or downloaded file is opened."
+  ],
+  "summary": {
+    "total": 103,
+    "passed": 103,
+    "failed": 0
+  },
+  "tests": [
+    {
+      "name": "Hosted bootstrap hydrates saved history and pinned unsaved configuration after SSE opens",
+      "status": "passed",
+      "durationMs": 124
+    },
+    {
+      "name": "Hosted restart mounts bridge controls with cached markup and renders a completed actual run",
+      "status": "passed",
+      "durationMs": 87
+    },
+    {
+      "name": "Hosted model hydration preserves fields edited while bootstrap is pending",
+      "status": "passed",
+      "durationMs": 92
+    },
+    {
+      "name": "Hosted bootstrap errors and detach never expose demo data or accept a demo send",
+      "status": "passed",
+      "durationMs": 43
+    },
+    {
+      "name": "New research can create the first conversation in another project using its default model",
+      "status": "passed",
+      "durationMs": 159
+    },
+    {
+      "name": "Hosted activations isolate events and restore drafts while new projects have empty workspaces",
+      "status": "passed",
+      "durationMs": 155
+    },
+    {
+      "name": "Hosted staging sends actual bytes and rejected prompts retain text and attachments",
+      "status": "passed",
+      "durationMs": 97
+    },
+    {
+      "name": "Hosted reconnect reloads saved history and preserves the current composer draft",
+      "status": "passed",
+      "durationMs": 149
+    },
+    {
+      "name": "Hosted cancellation targets the confirmed run without inventing a terminal outcome",
+      "status": "passed",
+      "durationMs": 91
+    },
+    {
+      "name": "Hosted events received during history hydration reach the active conversation",
+      "status": "passed",
+      "durationMs": 96
+    },
+    {
+      "name": "Initial workspace: ready, no summoned avatars, no run output, and mounted local controls",
+      "status": "passed",
+      "durationMs": 37
+    },
+    {
+      "name": "One canonical right-side toggle opens and closes split and overlay views with synchronized labels",
+      "status": "passed",
+      "durationMs": 59
+    },
+    {
+      "name": "Legacy execution panel preferences migrate to the picker and no execution surface is exposed",
+      "status": "passed",
+      "durationMs": 59
+    },
+    {
+      "name": "Geometric agent identities remain stable across status and display size with no facial markup",
+      "status": "passed",
+      "durationMs": 22
+    },
+    {
+      "name": "Pi state and operation icons use the bundled icon set with distinct accessible phase labels",
+      "status": "passed",
+      "durationMs": 36
+    },
+    {
+      "name": "Pi message events drive phases and authoritative text without exposing thinking or fabricating completion",
+      "status": "passed",
+      "durationMs": 24
+    },
+    {
+      "name": "Pi tool output stays correlated by call ID, replaces cumulative output and supports explicitly configured deltas",
+      "status": "passed",
+      "durationMs": 20
+    },
+    {
+      "name": "Pi retry, compaction and input-wait events have appropriate nonfinal and terminal states",
+      "status": "passed",
+      "durationMs": 19
+    },
+    {
+      "name": "Pi inline tool rows preserve disclosure, focus and output identity while safely rendering streamed data",
+      "status": "passed",
+      "durationMs": 39
+    },
+    {
+      "name": "Shell Pi events update inline phases and tool rows and remain busy until session settlement",
+      "status": "passed",
+      "durationMs": 57
+    },
+    {
+      "name": "Pi session subscriptions prompt only on explicit send, abort honestly and reject obsolete session deliveries",
+      "status": "passed",
+      "durationMs": 133
+    },
+    {
+      "name": "Explicit response preview demonstrates all built-in operations and finishes or stops its own timers",
+      "status": "passed",
+      "durationMs": 75
+    },
+    {
+      "name": "Demo playback stays inside its disclosure and ordinary conversation has no Pause or Stop toolbar",
+      "status": "passed",
+      "durationMs": 29
+    },
+    {
+      "name": "Streamed replies show truthful phases, append received chunks, reconcile final text and end all active indicators",
+      "status": "passed",
+      "durationMs": 25
+    },
+    {
+      "name": "Reduced motion removes streaming motion while preserving an unfinished Pi reply until its end event",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "Agent steps retain keyed rows and readable milestones, collapse on success and finish terminal motion",
+      "status": "passed",
+      "durationMs": 29
+    },
+    {
+      "name": "Reply milestones record only observed Waiting, Thinking and Replying phases and stay truthful under reduced motion",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "Pi runtime gates all controls by connection capabilities and never reports unsupported work as successful",
+      "status": "passed",
+      "durationMs": 20
+    },
+    {
+      "name": "Pi runtime correlates overlapping RPC responses and rejects mismatches, explicit failures and timeouts without leaked requests",
+      "status": "passed",
+      "durationMs": 24
+    },
+    {
+      "name": "Pi runtime rebind and disposal ignore late events, pending replies, old cleanup and late extension responses",
+      "status": "passed",
+      "durationMs": 29
+    },
+    {
+      "name": "Pi runtime keeps cancelled sessions and queues intact, clears recoverable text before cancellation, and blocks session switches during a run",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "Pi runtime accepts image-only prompts and validates model-dependent thinking levels and installed commands",
+      "status": "passed",
+      "durationMs": 20
+    },
+    {
+      "name": "Pi model changes discard stale state and supported-level reads before exposing new reasoning choices",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "Pi workbench preserves dirty drafts through state updates, reports failed actions and keeps unavailable native controls inert",
+      "status": "passed",
+      "durationMs": 37
+    },
+    {
+      "name": "Pi workbench refreshes supported reasoning choices and offers cleared queue text for explicit draft recovery",
+      "status": "passed",
+      "durationMs": 25
+    },
+    {
+      "name": "Pi extension events cover all nine UI methods, reject invalid selections and sanitize stored results",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "Pi extension dialogs queue, validate, restore focus, retain failed responses and expire without invented answers",
+      "status": "passed",
+      "durationMs": 79
+    },
+    {
+      "name": "Extension request pages retain every pending request and a failed cancellation keeps its original dialog",
+      "status": "passed",
+      "durationMs": 77
+    },
+    {
+      "name": "Chat model menu stays in the composer, explains offline state, and supports search, keyboard focus and outside dismissal",
+      "status": "passed",
+      "durationMs": 55
+    },
+    {
+      "name": "Chat picks wait for host confirmation, preserve failures and drafts, and share model and reasoning state with Settings",
+      "status": "passed",
+      "durationMs": 109
+    },
+    {
+      "name": "Chat reasoning follows model capabilities and model choices are gated during work and after disconnect",
+      "status": "passed",
+      "durationMs": 119
+    },
+    {
+      "name": "Connected Pi commands appear in the composer menu and only stage exact command names without sending or losing instructions",
+      "status": "passed",
+      "durationMs": 65
+    },
+    {
+      "name": "Connected Pi images and text files reach the attached host, unsupported files and rejected sends preserve retryable drafts",
+      "status": "passed",
+      "durationMs": 80
+    },
+    {
+      "name": "Composer sends the exact leading, trailing and indented whitespace entered by the user",
+      "status": "passed",
+      "durationMs": 42
+    },
+    {
+      "name": "A newer composer draft survives an asynchronous attachment read and acknowledgment of the original send",
+      "status": "passed",
+      "durationMs": 46
+    },
+    {
+      "name": "An attachment-only newer draft survives delayed file staging for an earlier send",
+      "status": "passed",
+      "durationMs": 52
+    },
+    {
+      "name": "Disconnect before prompt acknowledgment keeps the complete original message and Files recoverable beside a newer draft",
+      "status": "passed",
+      "durationMs": 48
+    },
+    {
+      "name": "A newly created session without a matching model binding blocks sends and model choices from the old session",
+      "status": "passed",
+      "durationMs": 67
+    },
+    {
+      "name": "A TaskManager-only workspace never substitutes demonstration tasks or artifacts for an empty live snapshot",
+      "status": "passed",
+      "durationMs": 34
+    },
+    {
+      "name": "Pi shell queues explicit instructions without completing the active run and preserves newer drafts until recovery is chosen",
+      "status": "passed",
+      "durationMs": 88
+    },
+    {
+      "name": "Pi extension dialogs take modal priority over Settings and editor offers append only after explicit user selection",
+      "status": "passed",
+      "durationMs": 56
+    },
+    {
+      "name": "Manual Pi shell requests produce one keyed inline row and finalize actual output on success and failure",
+      "status": "passed",
+      "durationMs": 96
+    },
+    {
+      "name": "Manual Pi compaction, summarization retry and idle extension errors keep the composer idle while submitted compaction waits for actual settlement",
+      "status": "passed",
+      "durationMs": 135
+    },
+    {
+      "name": "Pi branch changes clear the prior live response while keeping composer drafts and rejecting stale session reads",
+      "status": "passed",
+      "durationMs": 81
+    },
+    {
+      "name": "프로젝트 목록: 상시 기본 표시, 아이콘으로 접기/펼치기, 저장값 false/true 복원",
+      "status": "passed",
+      "durationMs": 59
+    },
+    {
+      "name": "프로젝트 목록 유지: 화면 폭·오른쪽 화면·현재 대화 선택이 자동으로 접지 않음",
+      "status": "passed",
+      "durationMs": 46
+    },
+    {
+      "name": "Conversation artifact links open exact previews and preserve the selected artifact across closing",
+      "status": "passed",
+      "durationMs": 49
+    },
+    {
+      "name": "원고 편집: 패널 닫기/재열기 및 탭 전환 뒤 입력과 편집 상태 보존",
+      "status": "passed",
+      "durationMs": 37
+    },
+    {
+      "name": "원고 편집: 수정 후 원래 텍스트로 되돌리면 표시 원고도 동기화",
+      "status": "passed",
+      "durationMs": 27
+    },
+    {
+      "name": "Command 검색: 검색창 열기, Enter 결과, 결과 선택, Ctrl+K/Escape",
+      "status": "passed",
+      "durationMs": 26
+    },
+    {
+      "name": "검색 대화상자 닫기: 접힌 검색 입력 대신 표시 중인 Command 버튼으로 초점 복귀",
+      "status": "passed",
+      "durationMs": 31
+    },
+    {
+      "name": "전송 버튼 툴팁: 캐시된 문구가 전송 → 응답 중단 → 전송 상태와 동기화",
+      "status": "passed",
+      "durationMs": 23
+    },
+    {
+      "name": "검색: 사이드바 검색과 무결과 문구, 입력 HTML은 실행 요소가 되지 않음",
+      "status": "passed",
+      "durationMs": 28
+    },
+    {
+      "name": "Workflow and inline tool activity share real transitions, expandable logs, approval state and completed outputs",
+      "status": "passed",
+      "durationMs": 110
+    },
+    {
+      "name": "답변 전송과 즉시 중지: 빈 요청 차단, busy 중 중복 전송 차단, 중지 후 지연 답변 없음",
+      "status": "passed",
+      "durationMs": 33
+    },
+    {
+      "name": "스트리밍 중지와 새 전송: 보인 단어만 남고 다음 예시 답변은 완료 상태로 복귀",
+      "status": "passed",
+      "durationMs": 66
+    },
+    {
+      "name": "한국어 입력 안전: 조합 중 Enter와 조합 종료 직후 Enter는 전송하지 않음",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "추천 입력과 자료 연결: Tab 수락, @ 선택, 연결을 포함한 요청 전송",
+      "status": "passed",
+      "durationMs": 31
+    },
+    {
+      "name": "+ 메뉴: 파일 추가가 맨 위, 검색·키보드 닫기·바깥 클릭·작은 화면 좌표",
+      "status": "passed",
+      "durationMs": 30
+    },
+    {
+      "name": "+ 메뉴 선택: 플러그인·스킬 칩, 검색 Enter, 해제, 요청 메타데이터 전달",
+      "status": "passed",
+      "durationMs": 28
+    },
+    {
+      "name": "실제 File 메타데이터: 여러 첨부·중복 제거·파일명 안전 표시·본문 없이 전송",
+      "status": "passed",
+      "durationMs": 75
+    },
+    {
+      "name": "Surface shortcuts retain workspace views while legacy execution and terminal routes reveal inline activity",
+      "status": "passed",
+      "durationMs": 55
+    },
+    {
+      "name": "Inline agents: only spawned tasks receive stable geometric identities, including workflow and timeline views",
+      "status": "passed",
+      "durationMs": 52
+    },
+    {
+      "name": "Approval modal: scope, focus trap, close without decision, reject and renewed explicit approval",
+      "status": "passed",
+      "durationMs": 105
+    },
+    {
+      "name": "Pause and resume preserve progress and pending decisions, including approval recorded while paused",
+      "status": "passed",
+      "durationMs": 88
+    },
+    {
+      "name": "Recoverable analysis error: inline failed log and blocked graph lead to retry without repeating completed prerequisites",
+      "status": "passed",
+      "durationMs": 104
+    },
+    {
+      "name": "Cancel stops queued callbacks and explicit Run again resets agents and outputs before a fresh start",
+      "status": "passed",
+      "durationMs": 68
+    },
+    {
+      "name": "Graph/list selection and inline log actions retain inspectable task output without an execution window",
+      "status": "passed",
+      "durationMs": 55
+    },
+    {
+      "name": "Inline tool navigation closes an overlay, preserves the project sidebar and keeps pending tasks avatar-free",
+      "status": "passed",
+      "durationMs": 25
+    },
+    {
+      "name": "Inline log mode and expanded state survive progress updates; copy failure remains an inline selectable field",
+      "status": "passed",
+      "durationMs": 46
+    },
+    {
+      "name": "Timeline filters persist during ticks and exact approval/artifact events open the right targets",
+      "status": "passed",
+      "durationMs": 90
+    },
+    {
+      "name": "Artifact evidence links, report citations and selector route exact outputs while preserving preview provenance",
+      "status": "passed",
+      "durationMs": 41
+    },
+    {
+      "name": "Knowledge search, note validation, pins and excerpts persist without submitting or executing the draft",
+      "status": "passed",
+      "durationMs": 55
+    },
+    {
+      "name": "Knowledge import reads session text, labels PDF metadata, rejects duplicates and keeps files out of storage",
+      "status": "passed",
+      "durationMs": 59
+    },
+    {
+      "name": "Six settings categories reuse one runtime view and distinguish explicit, device and session-scoped changes",
+      "status": "passed",
+      "durationMs": 56
+    },
+    {
+      "name": "Model configuration keeps four scopes distinct and only host-confirmed saves change its saved default",
+      "status": "passed",
+      "durationMs": 21
+    },
+    {
+      "name": "Model settings validate fields, save nonsecret routing, and enforce the saved demo concurrency limit",
+      "status": "passed",
+      "durationMs": 78
+    },
+    {
+      "name": "Settings focus trapping includes embedded read-only text, editable textareas and model form controls",
+      "status": "passed",
+      "durationMs": 37
+    },
+    {
+      "name": "Timeline default view persists and the overlay leaves header and project controls usable",
+      "status": "passed",
+      "durationMs": 62
+    },
+    {
+      "name": "파일 화면: 대화에서 직접 열기, 검색·선택·복사, 외부 주소 검증",
+      "status": "passed",
+      "durationMs": 33
+    },
+    {
+      "name": "양쪽 패널 폭: 키보드·드래그·취소·복원·모바일 전환·저장",
+      "status": "passed",
+      "durationMs": 117
+    },
+    {
+      "name": "오른쪽 overlay: 비모달, 헤더·프로젝트 조작 가능, 대화만 inert, 닫기 초점 복귀",
+      "status": "passed",
+      "durationMs": 50
+    },
+    {
+      "name": "600px 이하 왼쪽 drawer: 기본 열림, 바깥 클릭 유지, 아이콘·Escape 닫기와 포커스 제한",
+      "status": "passed",
+      "durationMs": 29
+    },
+    {
+      "name": "대화상자 포커스 제한은 유지되며 닫은 뒤 프로젝트 표시 상태 유지",
+      "status": "passed",
+      "durationMs": 38
+    },
+    {
+      "name": "Settings: English defaults, accessible section tabs, modal focus and close restoration",
+      "status": "passed",
+      "durationMs": 36
+    },
+    {
+      "name": "Settings preserves modal focus across workflow ticks and restores the current inline control after completion",
+      "status": "passed",
+      "durationMs": 98
+    },
+    {
+      "name": "Settings: Connections content and its Pi resource action and read-only About remain keyboard-focusable",
+      "status": "passed",
+      "durationMs": 51
+    },
+    {
+      "name": "Settings: text size, reduced motion, default view and send shortcut persist and take effect",
+      "status": "passed",
+      "durationMs": 77
+    },
+    {
+      "name": "Settings: workspace checkbox preserves the project preference and reset restores panel widths",
+      "status": "passed",
+      "durationMs": 49
+    },
+    {
+      "name": "Settings: reduced-motion changes settle an active response and keep the system preference",
+      "status": "passed",
+      "durationMs": 47
+    },
+    {
+      "name": "Settings: unavailable storage keeps local controls usable and reports session-only preferences",
+      "status": "passed",
+      "durationMs": 30
+    },
+    {
+      "name": "동작 줄이기 설정: 시작 및 실행 중 전환에서 답변 완료와 입력 상태 복원",
+      "status": "passed",
+      "durationMs": 27
+    },
+    {
+      "name": "Destroy releases shared workflow timers, motion, subscriptions, connected listeners, observers and object URLs",
+      "status": "passed",
+      "durationMs": 33
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+/* M3 provider and profile surfaces; warm ivory cards on the ams grid. */
+#athena-codex .amp-root { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .amp-root[hidden] { display: none; }
+#athena-codex .amp-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding-top: 23px; border-top: 1px solid #e7e6dc; }
+#athena-codex .amp-heading h2 { margin: 0; color: #35372f; font-size: 23px; font-weight: 550; line-height: 1.3; letter-spacing: -.6px; }
+#athena-codex .amp-section { padding: 23px 0 22px; min-width: 0; border-bottom: 1px solid #e7e6dc; }
+#athena-codex .amp-section:last-child { border-bottom: 0; }
+#athena-codex .amp-search { display: flex; align-items: center; gap: 8px; max-width: 360px; padding: 8px 10px; background: #fdfcf7; border: 1px solid #dcded1; border-radius: 8px; }
+#athena-codex .amp-search svg { width: 14px; height: 14px; color: #879078; flex: none; }
+#athena-codex .amp-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: #3b4234; font: inherit; font-size: 12px; outline: none; }
+#athena-codex .amp-list { margin-top: 13px; min-width: 0; }
+#athena-codex .amp-list:empty { margin-top: 0; }
+#athena-codex .amp-empty { margin: 0; padding: 14px 12px; border: 1px dashed #dfe2d5; border-radius: 9px; background: #fbfbf6; color: #74766a; font-size: 11px; }
+#athena-codex .amp-error { margin: 10px 0 0; color: #9a524b; font-size: 11px; }
+#athena-codex .amp-error[hidden] { display: none; }
+#athena-codex .amp-status { min-height: 17px; margin: 0; color: #808676; font-size: 10px; }
+#athena-codex .amp-status[data-tone="error"] { color: #9a524b; }
+#athena-codex .amp-status[data-tone="success"] { color: #6c8155; }
+#athena-codex .amp-status:not([hidden]) { margin: 8px 0 0; }
+#athena-codex .amp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 13px; }
+#athena-codex .amp-field { min-width: 0; }
+#athena-codex .amp-field > label { display: block; margin-bottom: 6px; color: #515648; font-size: 11px; font-weight: 500; }
+#athena-codex .amp-optional { color: #9a9f8f; font-weight: 400; }
+
+#athena-codex .amp-provider { padding: 13px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-provider + .amp-provider, #athena-codex .amp-provider + .amp-empty, #athena-codex .amp-empty + .amp-provider { margin-top: 8px; }
+#athena-codex .amp-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#athena-codex .amp-provider-head strong { color: #454d3a; font-size: 12px; font-weight: 550; }
+#athena-codex .amp-auth { flex: none; padding: 2px 7px; border: 1px solid #dfe2d5; border-radius: 5px; background: #f0f2e9; color: #626f53; font-size: 10px; white-space: nowrap; }
+#athena-codex .amp-auth-configured { border-color: #cddcc2; background: #e9f2e0; color: #4f6b3e; }
+#athena-codex .amp-auth-refresh_required, #athena-codex .amp-auth-error { border-color: #e0cfc4; background: #f7ede4; color: #8a5b3e; }
+#athena-codex .amp-methods { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 7px 0 0; }
+#athena-codex .amp-method { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 5px; background: #f5f5ee; color: #747f67; font-size: 10px; }
+#athena-codex .amp-method svg { width: 11px; height: 11px; }
+#athena-codex .amp-method-reason { display: flex; align-items: center; gap: 6px; margin: 7px 0 0; color: #727b65; font-size: 10px; }
+#athena-codex .amp-method-reason svg { width: 12px; height: 12px; flex: none; color: #879078; }
+#athena-codex .amp-key-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+#athena-codex .amp-key-row .ams-input { flex: 1 1 220px; min-height: 38px; }
+#athena-codex .amp-oauth { margin-top: 9px; padding: 10px 11px; border: 1px solid #e2e4d7; border-radius: 8px; background: #f7f6ee; }
+#athena-codex .amp-oauth-status { display: flex; align-items: center; gap: 7px; margin: 0; color: #6d7361; font-size: 11px; }
+#athena-codex .amp-oauth-status svg { width: 13px; height: 13px; flex: none; }
+#athena-codex .amp-oauth-url { display: flex; margin: 8px 0 0; }
+#athena-codex .amp-oauth-url a { display: inline-flex; align-items: center; gap: 6px; color: #5d6d4c; font-size: 11px; }
+#athena-codex .amp-oauth-url svg { width: 12px; height: 12px; }
+#athena-codex .amp-oauth > .ams-button { margin-top: 8px; }
+#athena-codex .amp-register { margin-top: 14px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-register > summary { display: flex; align-items: center; gap: 7px; padding: 11px 12px; color: #515648; font-size: 11px; font-weight: 500; cursor: pointer; list-style: none; }
+#athena-codex .amp-register > summary::-webkit-details-marker { display: none; }
+#athena-codex .amp-register > summary svg { width: 13px; height: 13px; color: #7c8b69; }
+#athena-codex .amp-register-form { padding: 0 12px 13px; }
+#athena-codex .amp-register-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+#athena-codex .amp-catalog-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 13px; }
+#athena-codex .amp-catalog-bar > select { flex: 0 1 200px; min-height: 38px; }
+#athena-codex .amp-catalog-search { flex: 1 1 200px; max-width: 320px; padding: 7px 10px; }
+#athena-codex .amp-catalog-meta { margin: 9px 0 0; color: #727b65; font-size: 10px; }
+#athena-codex .amp-model { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 11px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-model + .amp-model, #athena-codex .amp-model + .amp-empty { margin-top: 7px; }
+#athena-codex .amp-model-copy strong { display: block; color: #454d3a; font-size: 12px; font-weight: 550; }
+#athena-codex .amp-model-copy small { display: block; margin-top: 2px; color: #727b65; font-size: 10px; }
+#athena-codex .amp-model-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+#athena-codex .amp-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #dfe2d5; border-radius: 5px; background: #f5f5ee; color: #747f67; font-size: 10px; white-space: nowrap; }
+#athena-codex .amp-badge svg { width: 11px; height: 11px; }
+#athena-codex .amp-badge-sdk { background: #f0f2e9; color: #626f53; }
+#athena-codex .amp-badge-eligible { border-color: #cddcc2; background: #e9f2e0; color: #4f6b3e; }
+#athena-codex .amp-badge-unknown { border-color: #e0e0cf; background: #f7f6ee; color: #828579; }
+#athena-codex .amp-badge-listed { border-color: #e0dcd2; background: #f6f1e9; color: #7a6c56; }
+#athena-codex .amp-badge-default { border-color: #cddcc2; background: #e9f2e0; color: #4f6b3e; }
+#athena-codex .amp-badge-failed { border-color: #ddc5bd; background: #f8ece9; color: #9a524b; }
+
+#athena-codex .amp-profile { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 13px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #fbfbf6; }
+#athena-codex .amp-profile + .amp-profile, #athena-codex .amp-profile + .amp-empty { margin-top: 8px; }
+#athena-codex .amp-profile-copy strong { display: block; color: #454d3a; font-size: 12px; font-weight: 550; }
+#athena-codex .amp-profile-copy small { display: block; margin-top: 2px; color: #727b65; font-size: 10px; }
+#athena-codex .amp-profile-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+#athena-codex .amp-profile-actions .ams-button { min-height: 30px; padding: 5px 9px; font-size: 10px; }
+#athena-codex .amp-danger { color: #9a524b; }
+#athena-codex .amp-profiles-actions { margin-top: 13px; }
+#athena-codex .amp-profile-form { margin-top: 14px; padding: 14px 12px; border: 1px solid #e2e4d7; border-radius: 10px; background: #f7f6ee; }
+#athena-codex .amp-profile-form[hidden] { display: none; }
+#athena-codex .amp-profile-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+#athena-codex .amp-profile-form .amp-actions { margin-top: 12px; }
+#athena-codex .amp-root[data-busy="true"] .amp-profile-actions .ams-button[disabled], #athena-codex .amp-root[data-busy="true"] [data-amp-profile-save][disabled] { opacity: .6; }

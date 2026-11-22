@@ -1,0 +1,44 @@
+# Sign in with ChatGPT: M4.2 verification
+
+For M4.4 consent handling and controlled verification, see the [updated SIWC integration record](../openai-siwc-backend-integration.md). The private comparison app's tracked authentication implementation did not establish this distribution's eligibility, and its saved login was not used. The distributed host's `chatGPTEnabled` composition gate stays off until eligibility is established for that build.
+
+**Real deployment: PENDING.** OpenAI documents a dynamic-registration route for eligible open-source and locally hosted apps, while its separate client-ID request page describes a commercial-partner waitlist. Publishing source alone is not proof that this exact Athena deployment meets the route's requirements. No live account acceptance is recorded here; the shipped host leaves SIWC and independent `openai-codex` authentication disabled.
+
+| Official source reviewed | Contract |
+|---|---|
+| [Quickstart](https://developers.openai.com/siwc/quickstart) | Identity and ChatGPT plan usage are separate and eligibility is deployment-specific. |
+| [Open-source token sharing](https://developers.openai.com/siwc/token-sharing-open-source) | Use the host's own stable identity. Each issued client represents a user and workspace registration. |
+| [Registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) | System browser, loopback callback, fresh state and nonce, PKCE S256, ID-token verification, issued client ID and granted direct-use scope. |
+| [Catalog and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) | Use that registration’s bearer for official `/v1/models` and `/v1/responses`. Only list visible entries. Count success on `response.completed`. |
+| [Profiles and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions) | Separate registrations even for the same email. Rotate and store the token set together. On sign-out revoke the selected renewable session. |
+| [Preview limits](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) | HTTP uses `store: false`, `stream: true`, full required input history, and no `previous_response_id`. Hosted tools are not available. |
+| [Codex app-server](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) | Can use an independently authorized SIWC bearer. Its bundled or cached model list is not entitlement evidence. |
+
+[Token reference](https://developers.openai.com/siwc/token-sharing-open-source/token-reference) and [errors and recovery](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery) additionally describe short-lived access tokens, serialized rotating refresh, terminal versus transient refresh errors, and provider diagnostics. The interest form returned HTTP 403 to the research request; this is not an eligibility decision.
+
+An OpenAI API key, ChatGPT identity claims, ChatGPT plan permission, and a Codex model entitlement are different. A plan model is available only when that registration receives the slug in the official catalog and can complete a request for it. App-server support does not authorize using another product’s OAuth client or token.
+
+The controlled catalog test removes `gpt-4o` while leaving the same registration connected and another model available. Athena rejects attempts to run or save a profile for the withdrawn model with `MODEL_UNAVAILABLE`, preserves the saved profile, and can still select the available model. An in-memory mutation that reintroduced the SDK fallback failed at the saved-profile assertion. No real subscription was used.
+
+The saved-profile check also exercises the SIWC Responses adapter over controlled transport. A 403 becomes `permission`; a 429 becomes `rate_limited`. In both cases streaming fails and the tool probe remains unchecked. The registration stays saved.
+
+**Controlled coverage:** `tests/provider-oauth.test.ts`, `tests/chatgpt-registrations.test.ts`, `tests/chatgpt-account.test.ts`, and `tests/desktop-host.test.ts` exercise local callback and claim rejection, distinct registrations, serialized rotation, sign-out with confirmed or unconfirmed remote revocation, protected vault persistence, selected-account catalog and actual Pi requests over controlled transport, and the release gate. The desktop host regression withdraws filesystem write permission from a disposable workspace after startup acquires its lock. The host emits `VAULT_WRITE_FAILED`, exits before announcing a listener, and leaves no vault or temporary credential file. This exercises the filesystem failure with a generated test key. Real Finder callback, live subscription permission or usage rejection, native Keychain lock, denial and write failure, live refresh and remote revocation require separate evidence. Controlled tests do not grant eligibility.
+
+The scoped refresh regression verifies that a terminal token rejection clears only the unusable tokens, saves the selected registration as `reauth_required`, and preserves the separate API key across reopen. Temporary failure keeps the saved token set. The controlled Responses regression holds the first parent request open, switches the conversation to a profile for a second registration, and verifies that the current parent and child requests still use the first registration's bearer and model. It checks the pinned history and both saved registrations after reopening. Controlled HTTP 403 and 429, network failure, and incomplete streams produce errors without leaking the bearer or deleting the valid registration. These cases do not exercise an actual account's usage limits or entitlements.
+
+The disabled-registration test in `tests/desktop-host.test.ts` also passed against the bundled Node and runtime from the checksum-verified `a8c26d3` ZIP after strict bundle signature verification. With a synthetic expired registration, the host returned an empty account list and model catalog, rejected sign-in and browser RPCs with `UNSUPPORTED_AUTH`, and left the encrypted vault byte-identical. Reopening the vault recovered the original fixture tokens. A guard would have stopped the host on a provider fetch. This verifies the shipped host's disabled state; it does not establish how a real provider handles a model permission denial.
+
+## Real-account acceptance
+
+Begin only after confirming eligibility for the exact Athena distribution and obtaining the participant's direct consent to run the test. Record the build revision and ZIP SHA-256, macOS build, and whether eligibility and consent were verified. Use an isolated workspace and a candidate configured for Athena's own registration. The participant operates the official browser sign-in and consent screens. Keep login details, callback URLs and codes, tokens, account identifiers, and private approval correspondence out of the evidence.
+
+| Acceptance step | Evidence required | Status |
+|---|---|---|
+| Browser sign-in and callback | A system browser sign-in returns to Athena's loopback listener. Athena validates the callback and shows the selected registration as `connected`, with the direct-use grant confirmed. | PENDING |
+| Catalog and GPT/Codex | The selected registration's official `/v1/models` response supplies the visible model choices. For each GPT or Codex slug verified, record the selected slug and a Pi streaming turn ending in `response.completed`. If no Codex slug is offered, record it as unavailable for that registration. | PENDING |
+| Tools, parent and child | A Pi parent and its child complete turns on the selected registration and model using test data. Record Athena's run IDs, successful tool result, and parent read of the child's output; keep prompts and account identifiers out of the receipt. | PENDING |
+| Restart and refresh | After a full quit and relaunch, the saved profile and run are restored. Record a subsequent authorized request that succeeds after a refresh, then verify the saved session still works after another restart. | PENDING |
+| Sign-out | The selected registration becomes `signed_out` and no longer makes authorized requests. Record remote revocation as confirmed only if the server confirms it. If unconfirmed, report that separately from local sign-out and direct the participant to ChatGPT Settings. | PENDING |
+| Model permission | Record an actual catalog omission or a provider permission rejection for the selected model and the app's resulting status. Report rate limits separately. Do not use a guessed slug, cached catalog, or another app's credentials as evidence. | PENDING |
+
+Native Keychain denial and lock are separate from this table. They remain manual tests; see [Keychain security](../keychain-security.md). Do not change an existing user's Keychain or workspace for this preview.

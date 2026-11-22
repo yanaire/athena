@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-11-19T23:53:32.676463+00:00",
+  "command": "node --test --test-reporter=tap qa/runtime-integrity-test.cjs qa/workspace-session-test.cjs qa/pi-host-adapter-test.mjs qa/connection-manager-test.cjs qa/research-records-test.cjs qa/workspace-views-test.cjs",
+  "summary": {
+    "tests": 51,
+    "pass": 51,
+    "fail": 0,
+    "skipped": 0
+  },
+  "sourceHashes": {
+    "ui/pi-runtime.js": "20bcb3502299d3eae07bf5351f8d991d4c4bdd13572ae6df2d27bdd55864ed2f",
+    "ui/pi-activity.js": "597685c53f2b6ec8d5d5819b8594b8a452460dccfe5c56259cfcc19a96829e90",
+    "ui/workspace-session.js": "ed371ebc081e5330dbc36240d02814283da6aa751e9a1257e836c9d4b10248ad",
+    "ui/connection-manager.js": "9336df44a4b50b97cb61db69481f3a99b5fc857b5672938cc9acbbf73b9ecee6",
+    "ui/research-records.js": "a1b35488323857a589da1f06bbe2dba40416f543a69d4ae0b8b1d767d9b75654",
+    "ui/knowledge.js": "006805ef65c1648549a94909416220fed664b82cc72ce3fc12d33c77c5ace518",
+    "ui/workspace-views.js": "1ba81ea8e10268e8040ec3f70dcbca124c1d5beb534a3eed66c0c93cfdef182d",
+    "integrations/pi-host-adapter.mjs": "2a01f630f364b6681cb02d25a7b02cc716a084f76baef3c0c128f4e1d7d07334",
+    "qa/runtime-integrity-test.cjs": "7a2e2fb11602e8647745603ba30f5024f52c82992ae8f960f1c0a750be2c6036",
+    "qa/workspace-session-test.cjs": "bc129d87d0a4695537603aabb637150e74dec4da362af663e2d349cf15dc2f3a",
+    "qa/pi-host-adapter-test.mjs": "acd291ae43aba30070f5e1ff7724104bcae818e8359c26da1c495606caaba6d5",
+    "qa/connection-manager-test.cjs": "ff81a16adc59d7b0e3c5cee35f7d2f0654194e48cb9218f7dd38f5e71df05e05",
+    "qa/research-records-test.cjs": "5c696aa9150bb50ae09c30d3de159b0f6f7e290af42b2e33713a46e433104340",
+    "qa/workspace-views-test.cjs": "b6e6f7876c3c7bac39b2619f98586e557883443d5e185d995625d3bff62f2c38"
+  },
+  "evidence": "Node/VM and LinkeDOM contract tests with explicit fixtures",
+  "actualBrowserVerified": false,
+  "liveProviderVerified": false,
+  "actualBackendPersistenceVerified": false,
+  "typeDeclarationsCompilerChecked": false,
+  "limitations": [
+    "The optional DOM dependency was resolved from the preinstalled QA dependency path via ATHENA_QA_DEPENDENCIES.",
+    "No TypeScript compiler is available; declarations are reviewed contracts, not a compiled host implementation."
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "input": "/workspace/scratch/79c4ece81d27/athena-codex-ui/athena-codex-preview.html",
+  "output": "/workspace/scratch/79c4ece81d27/athena-codex-ui/export",
+  "extraction": "hand-authored-vector-scenes",
+  "screens": [
+    {
+      "view": "conversation",
+      "width": 1440,
+      "height": 960,
+      "counts": {
+        "rect": 11,
+        "group": 3,
+        "svg": 32,
+        "text": 42
+      },
+      "warnings": []
+    },
+    {
+      "view": "results",
+      "width": 1440,
+      "height": 960,
+      "counts": {
+        "rect": 17,
+        "group": 4,
+        "svg": 45,
+        "text": 70
+      },
+      "warnings": []
+    },
+    {
+      "view": "manuscript",
+      "width": 1440,
+      "height": 960,
+      "counts": {
+        "rect": 16,
+        "group": 4,
+        "svg": 40,
+        "text": 64
+      },
+      "warnings": []
+    },
+    {
+      "view": "workflow",
+      "width": 1440,
+      "height": 960,
+      "counts": {
+        "rect": 21,
+        "group": 4,
+        "svg": 47,
+        "text": 71
+      },
+      "warnings": []
+    }
+  ],
+  "nativeComponentDefinitions": 5,
+  "runtimeErrors": null,
+  "browserExecution": "not-run",
+  "nativeFigmaExecution": "not-tested-quota-blocked"
+}

@@ -1,0 +1,7 @@
+# Privacy and local data
+
+Athena keeps SQLite workspace and connection metadata, Pi JSONL conversations and agent histories, attachments, generated code, process output, and artifact files on the machine in `~/.athena/workspace` unless `ATHENA_DATA_DIR` is set. The app and workspace are separate. Research data is not encrypted by Athena. Close the host before backing up its databases. Moving the workspace may affect saved Pi sessions and locating a legacy Keychain item.
+
+New credentials are stored unencrypted in an owner-only local file, separate from the standard workspace. Other programs running as your user can read it. Athena does not use Keychain during normal startup. An optional import reads the existing Athena vault and Keychain item without replacing either; see [credential security](docs/keychain-security.md).
+
+The selected model server receives prompts, context, attachments’ metadata, tool calls and tool results as applicable. Reading an attachment or artifact may put its contents into a subsequent inference request. A guest running offline does not keep the contents of its outputs off the provider’s servers once a model reads them. Profile verification and model listing also contact the selected provider. Athena disables Pi analytics, install telemetry and cache warming; these settings do not govern provider retention. Choose a trusted local provider when research content must stay on the machine.

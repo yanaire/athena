@@ -1,0 +1,85 @@
+/* Only panel handles and their drag state. The app owns the grid tracks. */
+#athena-codex .ac-sidebar {
+  position: relative;
+}
+
+#athena-codex .ac-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  z-index: 35;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#athena-codex .ac-resize-left { right: 0; }
+#athena-codex .ac-resize-right { left: 0; }
+
+#athena-codex .ac-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #9b9a92;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+#athena-codex .ac-resize-left::before { right: 0; }
+#athena-codex .ac-resize-right::before { left: 0; }
+
+#athena-codex .ac-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: calc(50% - 16px);
+  width: 3px;
+  height: 32px;
+  border-radius: 3px;
+  background: #7a7a73;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+#athena-codex .ac-resize-left::after { right: 3px; }
+#athena-codex .ac-resize-right::after { left: 3px; }
+
+#athena-codex .ac-resize-handle:hover::before,
+#athena-codex .ac-resize-handle:focus-visible::before,
+#athena-codex .ac-resize-handle:hover::after,
+#athena-codex .ac-resize-handle:focus-visible::after,
+#athena-codex[data-resizing='left'] .ac-resize-left::before,
+#athena-codex[data-resizing='left'] .ac-resize-left::after,
+#athena-codex[data-resizing='right'] .ac-resize-right::before,
+#athena-codex[data-resizing='right'] .ac-resize-right::after {
+  opacity: 1;
+}
+
+#athena-codex .ac-resize-handle:focus-visible {
+  background: #7a7a7314;
+}
+
+#athena-codex[data-resizing],
+#athena-codex[data-resizing] * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+#athena-codex[data-resizing] iframe { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #athena-codex .ac-resize-handle::before,
+  #athena-codex .ac-resize-handle::after { transition: none; }
+}

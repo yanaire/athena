@@ -1,0 +1,6 @@
+{
+  "package": "motion",
+  "version": "14.14.0",
+  "tarball": "https://registry.npmjs.org/motion/-/motion-14.14.0.tgz",
+  "purpose": "Build-time sampling of the exact duration/bounce spring; no runtime dependency"
+}

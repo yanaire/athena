@@ -1,0 +1,20 @@
+# OSS Preview status
+
+This is a private source-preview candidate, not authorization to publish. Verify the exact commit used for each build and test; earlier M4.2 results do not establish the outcome for a later revision.
+
+## Open source gates
+
+- **CONTROLLED:** The [UI motion source audit](ui-motion-provenance.md) distinguishes prompt-led Athena implementation from specific source overlaps and an unused exact TSX copy. The review tree replaces the overlapping blocks and excludes the TSX. The old snapshot ancestry still contains both and must remain private.
+- **PASS:** The prior brand art and sample PDF were replaced by new Athena artwork and a synthetic sample. Old screenshot and SVG exports are excluded. See the [artwork record](../athena-backend-handoff/athena-codex-ui/assets/README.md). The [third-party inventory](../THIRD_PARTY_NOTICES.md) still records separate dependency notice obligations.
+- **BLOCKED_EXTERNAL:** Photon’s npm root notice and partial linked-crate notice evidence are verified. Obtain a build record for the exact npm WASM or replace it. The full authoritative notice for [`proxy-agent-negotiate`](m42/notices/proxy-agent-negotiate.md) is still missing.
+- **PASS / BLOCKED_EXTERNAL:** The [source distribution evidence](m42/notices/source-distribution.md) records fresh Photon license/byte comparisons and verified proxy SLSA plus npm publish signatures against the integration lock. These narrow passes preserve the two notice blockers; they do not make the source or app publishable.
+- **NEEDS_USER:** The original development history contains author or committer metadata that the owner does not permit publishing. Do not publish that history. An independently prepared source snapshot must have its own commit metadata and tracked files checked for the protected address, and must retain required attribution and notices.
+- **PENDING_REMOTE:** The macOS workflow has not been demonstrated by a remote run. It includes checksum-pinned actionlint and Gitleaks checks, native arm64 preflights, and an npm declared-license check; the latter does not establish that required license texts or third-party notices are complete. The [local CI record](m42/notices/ci-readiness.md) separates actual checks from unrun runner and desktop work.
+- **PENDING_REMOTE / NEEDS_USER:** The owner selected GitHub private vulnerability reporting. [GitHub documents the feature for public repositories](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository). Arrange a monitored private maintainer channel for the gap, then enable and verify the GitHub route when visibility change has been separately approved. No remote action has been taken.
+- **CONTROLLED:** Gitleaks 8.30.1 found six non-credential matches in the old snapshot root: a generated Figma component ID (two files), a browser storage namespace (source and HTML), and two controlled QA fixtures. The revised source tree replaces those patterns without scanner exceptions or a baseline. Scan the staged source now and rescan all refs after creating the authorized fresh root commit.
+- **NEEDS_USER:** Normal startup no longer calls Keychain. Executing the optional migration against a real older vault requires direct macOS approval; controlled tests do not establish that outcome.
+- **PENDING_TEST:** A real Qwen parent-and-children run, artifact recovery, and app restart must be established separately for the exact candidate; earlier M4.2 evidence is not transferable.
+- **DEFERRED_RELEASE:** Developer ID signing, notarization, stapling, Gatekeeper distribution acceptance and a public DMG belong to a later desktop release. No VM is required for this source preview.
+- **PENDING_TEST:** ChatGPT OAuth real-account acceptance is separate. SIWC stays disabled until the exact deployment's authorization path is established.
+
+The developer-source build can run without Docker, but the sandbox is not complete OS isolation; see [sandbox security](sandbox-security.md). The project requires a monitored private security-reporting route before opening public contributions.

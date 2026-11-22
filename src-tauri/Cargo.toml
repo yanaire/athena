@@ -1,0 +1,33 @@
+[package]
+name = "athena-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+# Keep codegen and plugin build tooling on the same Tauri release series.
+tauri-codegen = "=2.6.3"
+tauri-plugin = "=2.6.3"
+
+[dependencies]
+anyhow = "1"
+getrandom = "0.3"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "=2.11.6", features = [] }
+tauri-macros = "=2.6.3"
+# The 2.12 runtime changed RuntimeHandle::available_monitors to return Result.
+tauri-runtime = "=2.11.3"
+tauri-runtime-wry = "=2.11.4"
+tauri-utils = "=2.9.3"
+tauri-plugin-dialog = "=2.7.3"
+# Dialog's caret dependency also permits fs releases requiring Tauri 2.12.
+tauri-plugin-fs = { version = "=2.5.2", default-features = false }
+tauri-plugin-single-instance = "=2.4.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

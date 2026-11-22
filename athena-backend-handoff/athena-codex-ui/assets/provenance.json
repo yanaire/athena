@@ -1,0 +1,217 @@
+{
+  "schema_version": 2,
+  "created": "2026-11-22",
+  "license": "Apache-2.0",
+  "scope": "Current replacement artwork and excluded historical derivatives only; unrelated handoff rights are not adjudicated.",
+  "origin": {
+    "kind": "original-geometric-artwork",
+    "source": "assets/icon.svg",
+    "method": "Circles and polygon coordinates written in this workspace; no imported image, traced outline, private rendering tool or external service.",
+    "generator": "assets/render-artwork.swift",
+    "command": "swift assets/render-artwork.swift [optional-output-directory]",
+    "tools": [
+      "macOS AppKit SVG rasterizer",
+      "macOS /usr/bin/iconutil",
+      "Swift Foundation PDF serializer"
+    ],
+    "pdf": "Independent synthetic three-page RC fixture; standard PDF Helvetica only; no embedded font programs."
+  },
+  "files": [
+    {
+      "path": "assets/icon.svg",
+      "bytes": 881,
+      "sha256": "5a286d6a08ec9306fce7466221f05a5e7ff9ce53f2f09c99e17a507dfae31b56"
+    },
+    {
+      "path": "athena-backend-handoff/athena-codex-ui/assets/athena-icon-128.png",
+      "bytes": 4962,
+      "sha256": "ac5a6e8ea31442264a1ffa84ca977d12a3d5464d11d36cb3a230b94937c21fc4"
+    },
+    {
+      "path": "athena-backend-handoff/athena-codex-ui/assets/athena-icon-32.png",
+      "bytes": 1310,
+      "sha256": "254919c5c26663ba39355ed4f372d6ee80bef6c0a57ac30f54c22105deb560ba"
+    },
+    {
+      "path": "athena-backend-handoff/athena-codex-ui/assets/sample-research-note.pdf",
+      "bytes": 3549,
+      "sha256": "01da7674f5fd08caeaf8576a5eb0e68f3eaf44b10d863608626cb3519add2267"
+    },
+    {
+      "path": "src-tauri/icons/icon.png",
+      "bytes": 63274,
+      "sha256": "bbec38db6c4250d09f0ee4726a9538e041dd03e211d6ab961f706eec1d5442da"
+    },
+    {
+      "path": "src-tauri/icons/icon.icns",
+      "bytes": 146818,
+      "sha256": "d06fdae67a97d33807eb3d750dc6a12f57faf741df6597217dffce080841cd91"
+    },
+    {
+      "path": "assets/render-artwork.swift",
+      "bytes": 6435,
+      "sha256": "09e1fcc87437d19bd638715cf5bb4a5fe1f463d2b746ad175a8b56836cddba9e"
+    }
+  ],
+  "superseded": {
+    "repository": "local Athena private source snapshot",
+    "commit": "406b4d024b0e4d11e2c4139a591acd086f1ceb75",
+    "permission_gap": "Existing app icon reused unchanged at the request of the repository owner.",
+    "permission_gap_classification": "Origin evidence only, not a redistribution license grant.",
+    "beta_origin": {
+      "repository": "yanaire/beta",
+      "commit": "3aab244b7296035efb8f09a3971fac913fe30efd"
+    },
+    "preservation": "Originals remain in existing worktrees and immutable Git objects; no history rewriting.",
+    "artifacts": [
+      {
+        "path": "assets/icon.svg",
+        "bytes": 303,
+        "sha256": "8cff39dd9137bbe77a340b3e8852f35cf89830b29ba5456050fdea9a7c263559",
+        "git_blob_sha": "3d18ba6fc6a597d06f0e37dafeb94cd11e27e252",
+        "disposition": "replaced-in-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/assets/athena-icon-128.png",
+        "bytes": 16062,
+        "sha256": "97fe3fe2d0ed8dc97efc53bb2f7ead4c7ed88c5317123b1e3b7e95e5f7cf86f7",
+        "git_blob_sha": "27c34a16c7b183a6aeaaeb77189e51817ec3e295",
+        "disposition": "replaced-in-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/assets/athena-icon-32.png",
+        "bytes": 2001,
+        "sha256": "d617fed292efe4f8f7f2defe0e693baba2b027a32c915b04f8626023ce063a7a",
+        "git_blob_sha": "5aead4f0b0c48186b918297084c6674f38fb1e35",
+        "disposition": "replaced-in-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/assets/sample-research-note.pdf",
+        "bytes": 5911,
+        "sha256": "34bca3569c4fd28ad6e29af51d38ad47c363045433fa894d9235d67aeb006319",
+        "git_blob_sha": "922245a7190f4b5b9b389190b2c50d3bdc1e4ace",
+        "disposition": "replaced-in-candidate"
+      },
+      {
+        "path": "src-tauri/icons/icon.png",
+        "bytes": 16062,
+        "sha256": "97fe3fe2d0ed8dc97efc53bb2f7ead4c7ed88c5317123b1e3b7e95e5f7cf86f7",
+        "git_blob_sha": "27c34a16c7b183a6aeaaeb77189e51817ec3e295",
+        "disposition": "replaced-in-candidate"
+      },
+      {
+        "path": "src-tauri/icons/icon.icns",
+        "bytes": 82002,
+        "sha256": "8f74f66abfbc9c9bcef9cd219ea576fea9c6522c0e2c37b50e278a92c82bee4c",
+        "git_blob_sha": "3884a9d52544e94671e374c9b59b71d8bea70dd6",
+        "disposition": "replaced-in-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/desktop.png",
+        "bytes": 56505,
+        "sha256": "b1d961f17e891071f94d1145bbe4e6b91eec6583ba5bbe3c0e20a547f9979879",
+        "git_blob_sha": "a0c603dd16f78a8fff474659bb4ab882c7280e55",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/disconnected-desktop.png",
+        "bytes": 46841,
+        "sha256": "c547a34ac181cccefa7646aba7fbadc6e51b79e404d8dfd0cf77a9c15020f919",
+        "git_blob_sha": "3af51295522880dc4933dea6bc9b613d5a3e1bd4",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/disconnected-mobile.png",
+        "bytes": 93098,
+        "sha256": "9988f96b334c719898fd6a806955529953032ae6c118a84a3c76b2580766e12a",
+        "git_blob_sha": "26908e871798bb5d47218d7c5dcd74835138b195",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/mobile.png",
+        "bytes": 120795,
+        "sha256": "c4447f251d85d47ccf6324556dc5c696502a700238d941b014b33cba43e9fb55",
+        "git_blob_sha": "f2667057c9eb8a0d604e71510354e7a7824059a8",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/preinit.png",
+        "bytes": 21129,
+        "sha256": "d4e6beae8604f97e4f236fc69aab7f0871ffa14d930756dd16f0fb53081fcc9a",
+        "git_blob_sha": "23fff5bd667e9ef74c3a99a6ad6d171bb8a7bc87",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/real-host-restart.png",
+        "bytes": 88485,
+        "sha256": "c8a5071d90b3e23052801f235b5f2a95e57adb0070432041486106193f3a5383",
+        "git_blob_sha": "1cee7aab76cffdd1f2d4739db6ec0e6d7327d20b",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/qa/hosted-evidence/send-failure.png",
+        "bytes": 54641,
+        "sha256": "2d0310e39c5db1b7efa214031b03702da8757532633eb7bf9522c313f7a22aa6",
+        "git_blob_sha": "30b2a4d806391aff73946523e765dfc47f4342fa",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/svg/01-conversation-collapsed.svg",
+        "bytes": 21687,
+        "sha256": "f422094b13354c3489e322c8490e54d123d0bb299c2df8b57dcecd9aa4064002",
+        "git_blob_sha": "508855d46e5e4ad1390e8a180659aa9e768feae1",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/svg/03-manuscript-sidebar-open.svg",
+        "bytes": 36487,
+        "sha256": "e60130a3b79b60a76aaf08a0e8e8667c14e5b468b596e52b240213054ae78417",
+        "git_blob_sha": "3c09c95026984319852d84e23c6cb65672b9f08f",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/svg/04-workflow-sidebar-open.svg",
+        "bytes": 34003,
+        "sha256": "7003d57bef8b0f601a009ba968cba947be50b0d92f666e84648f27631619b7fb",
+        "git_blob_sha": "861b2ba1f424b6df8e81fb5dce83afcf28ab6a9c",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/svg/02-results-sidebar-open.svg",
+        "bytes": 39509,
+        "sha256": "88d31d99b3680ca79ce737ef0480a09d12586ff04cfb0d7d593d188497c08806",
+        "git_blob_sha": "ac680ff9e5e95172c713038a6580635b769d86f8",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/qa/04-workflow-sidebar-open.png",
+        "bytes": 185513,
+        "sha256": "50084efd0c1702b27b736b5dd19b71b9f4f9664aea5455030e30e76047c2d627",
+        "git_blob_sha": "60e17ccecf207a4fb49d25f814e2bae665e0b64a",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/qa/03-manuscript-sidebar-open.png",
+        "bytes": 192519,
+        "sha256": "924c95b142659cf6b11fe4f68a7a4284fe47d772e744ff3d40a7f4c257409d5a",
+        "git_blob_sha": "4782ecbb2d5375e1e360b04ee8cc24b98af90a60",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/qa/01-conversation-collapsed.png",
+        "bytes": 125952,
+        "sha256": "7ccb4b2ad0685eec983319805a3ec049c2c329ccb3ea174c124d4e8e52b39140",
+        "git_blob_sha": "2010bb26cb5c7940afc433142d6cf08a557333d3",
+        "disposition": "excluded-from-candidate"
+      },
+      {
+        "path": "athena-backend-handoff/athena-codex-ui/export/qa/02-results-sidebar-open.png",
+        "bytes": 178883,
+        "sha256": "8cfe07cd8b7de26d181690c77e1c6589095be11a85d9fe9f89cfd5585c667098",
+        "git_blob_sha": "4b87abceba6bc72ae9cc33e0ee7fdd97166945bc",
+        "disposition": "excluded-from-candidate"
+      }
+    ]
+  },
+  "generated_preview": "Not edited by artwork task; integration lead must regenerate from these inputs before final candidate verification."
+}

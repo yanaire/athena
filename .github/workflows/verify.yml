@@ -1,0 +1,93 @@
+name: Verify Athena
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  history-secrets:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the native Apple Silicon runner
+        run: test "$(uname -s)" = Darwin && test "$(uname -m)" = arm64
+      - name: Validate workflow syntax
+        run: |
+          curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_arm64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
+          printf '%s  %s\n' aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f "$RUNNER_TEMP/actionlint.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck="" -pyflakes="" .github/workflows/verify.yml
+      - name: Scan reachable Git history with Gitleaks
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_arm64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          printf '%s  %s\n' b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5 "$RUNNER_TEMP/gitleaks.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          if "$RUNNER_TEMP/gitleaks" git --no-banner --no-color --redact=100 --log-level=error --report-format=json --report-path="$RUNNER_TEMP/gitleaks.json" --log-opts=--all .; then
+            echo "Git history secret scan passed."
+          else
+            status=$?
+            echo "Git history scan reported findings or an error; inspect locally without exposing secrets." >&2
+            exit "$status"
+          fi
+  apple-silicon:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Require the native Apple Silicon runner
+        run: test "$(uname -s)" = Darwin && test "$(uname -m)" = arm64
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            athena-backend-handoff/athena-codex-ui/qa/package-lock.json
+      - name: Install locked toolchain and packages
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target aarch64-apple-darwin
+          rustup override set 1.99.1
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check types
+        run: npm run check
+      - name: Prepare the offline runner
+        run: npm run analysis:prepare
+      - name: Run host and controlled provider tests
+        run: npm test
+      - name: Audit production npm dependencies
+        run: npm audit --omit=dev
+      - name: Check declared production npm licenses
+        run: |
+          node --input-type=module -e '
+          import { readFileSync } from "node:fs";
+          const allowed = new Set(["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "BlueOak-1.0.0", "Unlicense", "0BSD"]);
+          const packages = JSON.parse(readFileSync("package-lock.json", "utf8")).packages;
+          const invalid = Object.entries(packages).filter(([name, entry]) => name && !entry.dev && !allowed.has(entry.license));
+          if (invalid.length) {
+            console.error("Production dependencies with missing or unreviewed license declarations:", invalid.map(([name]) => name));
+            process.exit(1);
+          }
+          console.log("Production npm license declarations checked; source notices require separate review.");
+          '
+      - name: Check generated UI and exercise DOM contracts
+        working-directory: athena-backend-handoff/athena-codex-ui
+        run: |
+          python3 build.py
+          git diff --exit-code -- athena-preview.html
+          cd qa
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          node --test pi-host-adapter-test.mjs runtime-integrity-test.cjs workspace-session-test.cjs connection-manager-test.cjs research-records-test.cjs workspace-views-test.cjs model-profiles-test.cjs
+      - name: Build and verify the arm64 app bundle
+        run: npm run desktop:build
+      - name: Test desktop startup safeguards
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop

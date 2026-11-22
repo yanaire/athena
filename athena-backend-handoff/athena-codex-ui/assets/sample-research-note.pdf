@@ -1,0 +1,91 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 896 >>
+stream
+0.15 0.24 0.26 rg 48 712 516 4 re f
+0 0 0 rg
+BT /F1 22 Tf 48 738 Td (Model and assumptions) Tj ET
+BT /F1 12 Tf 48 674 Td (Synthetic RC low-pass example / 1 of 3) Tj ET
+BT /F1 12 Tf 48 649 Td (This fixture contains calculated values only. It is not an external paper,) Tj ET
+BT /F1 12 Tf 48 624 Td (a measurement record, or a clinical result.) Tj ET
+BT /F1 12 Tf 48 599 Td () Tj ET
+BT /F1 12 Tf 48 574 Td (R = 1000 ohms. C = 100 nanofarads. Output is across the capacitor.) Tj ET
+BT /F1 12 Tf 48 549 Td (The source is ideal and the load has infinite impedance.) Tj ET
+BT /F1 12 Tf 48 524 Td (H\(jw\) = 1 / \(1 + jwRC\)) Tj ET
+BT /F1 12 Tf 48 499 Td (Gain in dB = -10 log10\(1 + \(2 pi f R C\)^2\)) Tj ET
+BT /F1 12 Tf 48 474 Td (Cutoff in Hz = 1 / \(2 pi R C\)) Tj ET
+BT /F1 12 Tf 48 449 Td () Tj ET
+BT /F1 12 Tf 48 424 Td (Loading, parasitics, temperature and noise are outside this model.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 813 >>
+stream
+0.15 0.24 0.26 rg 48 712 516 4 re f
+0 0 0 rg
+BT /F1 22 Tf 48 738 Td (Calculated response) Tj ET
+BT /F1 12 Tf 48 674 Td (Synthetic RC low-pass example / 2 of 3) Tj ET
+BT /F1 12 Tf 48 649 Td (Nominal cutoff: 1591.549 Hz.) Tj ET
+BT /F1 12 Tf 48 624 Td (Gain at nominal cutoff: -3.0103 dB.) Tj ET
+BT /F1 12 Tf 48 599 Td () Tj ET
+BT /F1 12 Tf 48 574 Td (For resistor limits of +/-1% and capacitor limits of +/-5%,) Tj ET
+BT /F1 12 Tf 48 549 Td (the cutoff bounds are 1500.754 Hz and 1692.238 Hz.) Tj ET
+BT /F1 12 Tf 48 524 Td (These are deterministic component bounds, not confidence intervals.) Tj ET
+BT /F1 12 Tf 48 499 Td () Tj ET
+BT /F1 12 Tf 48 474 Td (A higher product R C produces a lower cutoff frequency.) Tj ET
+BT /F1 12 Tf 48 449 Td (No physical instrument or external service produced these values.) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 849 >>
+stream
+0.15 0.24 0.26 rg 48 712 516 4 re f
+0 0 0 rg
+BT /F1 22 Tf 48 738 Td (Reproduction and scope) Tj ET
+BT /F1 12 Tf 48 674 Td (Synthetic RC low-pass example / 3 of 3) Tj ET
+BT /F1 12 Tf 48 649 Td (Recalculate the cutoff with 1 / \(2 * pi * 1000 * 100e-9\).) Tj ET
+BT /F1 12 Tf 48 624 Td (At the cutoff, the squared magnitude is 1/2.) Tj ET
+BT /F1 12 Tf 48 599 Td (The gain is therefore -10 * log10\(2\) dB.) Tj ET
+BT /F1 12 Tf 48 574 Td () Tj ET
+BT /F1 12 Tf 48 549 Td (This PDF was newly typeset by assets/render-artwork.swift.) Tj ET
+BT /F1 12 Tf 48 524 Td (Its layout contains plain text and geometric rules only.) Tj ET
+BT /F1 12 Tf 48 499 Td (The artwork and fixture sources use Apache-2.0; see root LICENSE.) Tj ET
+BT /F1 12 Tf 48 474 Td () Tj ET
+BT /F1 12 Tf 48 449 Td (Keep actual observations separate from this synthetic demonstration.) Tj ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000127 00000 n
+0000000197 00000 n
+0000000323 00000 n
+0000001269 00000 n
+0000001395 00000 n
+0000002258 00000 n
+0000002384 00000 n
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+3283
+%%EOF

@@ -1,0 +1,7 @@
+{
+  "scope": "Controlled read-only handoff audit; no production service",
+  "finding": "historical_load_promotes_local_head",
+  "before": "v2",
+  "after": "v1",
+  "selected": "v1"
+}

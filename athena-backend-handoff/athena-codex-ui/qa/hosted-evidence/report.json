@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-20",
+  "scope": "Frontend source, browser bridge, wire declarations, generated preview and frontend QA only.",
+  "checks": {
+    "domIntegration": { "passed": 102, "failed": 0, "report": "../integration-results.json" },
+    "frontendContracts": { "passed": 52, "failed": 0 },
+    "wireTypes": "Passed TypeScript 5.9.3 with strict, NodeNext and noEmit.",
+    "javascriptSyntax": "Passed node --check for edited JavaScript modules.",
+    "build": "python3 build.py passed; athena-preview.html rebuilt.",
+    "sourceDraftGuard": "Passed for app.html and ui/pi-shell.css.",
+    "receiptIdMutation": "Replacing the random prefix with a fixed prefix caused the reopened-browser test to fail with the previous browser's receipt; restoring UUID passed."
+  },
+  "browser": {
+    "engine": "Isolated Chromium headless shell through omowright",
+    "viewports": ["1440x900 desktop", "390x844 mobile at DPR 3"],
+    "verified": [
+      "Persisted user and assistant messages render after bootstrap.",
+      "The real acceptance host's completed calibration run restores history, tool records and model binding.",
+      "SSE/bootstrap failures preserve hosted mode and expose Retry connection.",
+      "Retry connection restores history after a real HTTP/SSE fixture interruption.",
+      "Rejected prompts restore the original composer draft and show an error.",
+      "Authored project, user, count and conversation fixtures are hidden before app initialization.",
+      "Mobile document scroll width equals the 390 CSS pixel viewport width."
+    ],
+    "realHostRestartNote": "The fixed bridge was loaded into the real host's cached HTML after closing its old bridge. The host must restart to serve the rebuilt cached assets normally.",
+    "captures": [
+      "desktop.png",
+      "mobile.png",
+      "preinit.png",
+      "real-host-restart.png",
+      "send-failure.png",
+      "disconnected-desktop.png",
+      "disconnected-mobile.png"
+    ]
+  },
+  "limitations": [
+    "The rendered contrast/reflow detector failed inside its renderer with a SyntaxError; no full WCAG AA result is claimed.",
+    "TypeScript, Python and CSS language servers are not installed. Compiler, syntax checks, build, functional tests and actual Chromium were used instead.",
+    "B07 receipt lookup requires an agreed host wire method; uncertain prompt requests are not automatically resent."
+  ]
+}

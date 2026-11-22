@@ -1,0 +1,51 @@
+# WASM shipped by Pi 1.5.2
+
+## Integration verification, 2026-11-22
+
+The source integration overlay was checked separately from the historical app inventories below. The official Photon 0.3.4 npm tarball (728,547 bytes) matches the integration `package-lock.json` SHA-512:
+
+```text
+sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA==
+```
+
+Its 1,881,634-byte `photon_rs_bg.wasm` again has SHA-256 `10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c`. The npm `LICENSE.md`, the [crate license at npm's reported gitHead](https://raw.githubusercontent.com/silvia-odwyer/photon/685f5b155b36c5611c08ca678bb78ddbab3edbac/crate/LICENSE.md), and the retained [root notice](photon-LICENSE.txt) match after CRLF-to-LF normalization; the normalized SHA-256 is `db5502bc3655d2665d535496106117b522be88275d3ae459185fa20fa087a9b9`.
+
+The [official npm attestation endpoint](https://registry.npmjs.org/-/npm/v1/attestations/@silvia-odwyer%2fphoton-node@0.3.4) returned HTTP 404 on this check. This is an observation about that endpoint, not proof that no build record exists anywhere. The verified root license and matching binary do not establish the exact Rust dependency graph or complete linked-code notices. **BLOCKED_EXTERNAL:** obtain authoritative build and notice evidence for these exact npm bytes, or coordinate a verified dependency replacement. No dependency version was changed. See the [source distribution scope](../source-distribution.md).
+
+## Historical app evidence
+
+This inventory is for the ARM64 app candidate built at `16f37e2`. The two npm archives matched their `package-lock.json` SHA-512 integrity values. All seven WASM files below and both packages' root notices matched the extracted app byte for byte. This is separate from the [Athena analysis runtime](../wasi/README.md).
+
+| npm package | File | SHA-256 |
+|---|---|---|
+| `quickjs-wasi@3.6.2` | `quickjs.wasm` | `d4c9375f2b1ca4dc95f72c8aa2982a7a9951ac8011490d79c6582df732b4bbd9` |
+| same | `extensions/crypto/crypto.so` | `fa26b6fafda251c3b1442dcc4c876b3ac73689639519f4ddfc2c410ebdb5b7c2` |
+| same | `extensions/encoding/encoding.so` | `d501aa2a8410ee07c196103f0d169b226ec61c922883713510fd723fe14036c3` |
+| same | `extensions/headers/headers.so` | `42c847104d6aa8d4666fa41bb74d324c2ee9a4d15c2492fca013b1631232b011` |
+| same | `extensions/structured-clone/structured-clone.so` | `0ac5a36c0545c659ba6f9f8de5af11862df84546d151d0f15ec5184c95fd6cb3` |
+| same | `extensions/url/url.so` | `af780a79f1fb131b5e6fa1d6fedc481e265420cf2f254fe966255230f4c1bc62` |
+| `@silvia-odwyer/photon-node@0.3.4` | `photon_rs_bg.wasm` | `10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c` |
+
+Sigstore verified the [SLSA provenance statement for `quickjs-wasi@3.6.2`](https://registry.npmjs.org/-/npm/v1/attestations/quickjs-wasi@3.6.2) against the GitHub Actions issuer (`https://token.actions.githubusercontent.com`) and the exact workflow identity `https://github.com/vercel-labs/quickjs-wasi/.github/workflows/release.yml@refs/heads/main`, with certificate and transparency log thresholds of one each. The statement identifies [source commit `5a7a0eed`](https://github.com/vercel-labs/quickjs-wasi/tree/5a7a0eeda87c99542f8cf3095b6d61ecfa755977). Its subject SHA-512 matched both the downloaded npm tarball and `package-lock.json`. Requiring a different workflow returned `UNTRUSTED_SIGNER_ERROR`; changing the signed subject digest returned `TLOG_BODY_ERROR`.
+
+The commit's QuickJS-ng submodule [`6d46d07d`](https://github.com/quickjs-ng/quickjs/tree/6d46d07d04041b40f4f49eaa7fdebe44c314c699) has the same MIT text as the packaged Athena QuickJS-ng notice. The npm package itself already ships the matching Vercel MIT text.
+
+The [QuickJS-WASI makefile](https://github.com/vercel-labs/quickjs-wasi/blob/5a7a0eeda87c99542f8cf3095b6d61ecfa755977/Makefile) specifies WASI SDK 32, Ada for `url.so`, and Mbed TLS/PSA for `crypto.so`. SDK 32 pins [wasi-libc `2fc32bc8`](https://github.com/WebAssembly/wasi-libc/tree/2fc32bc81b9f07f8d9525edea59bfbaf760c06d6) and the same LLVM revision as SDK 33. The seven libc notice files listed in the [WASI notice inventory](../wasi/README.md) are identical at that pin. The [vendored Mbed TLS 4.0.0 notice](mbed-tls-4.0.0-LICENSE) and the [Ada 3.4.3 MIT](ada-3.4.3-LICENSE-MIT) and [Apache-2.0](ada-3.4.3-LICENSE-APACHE) texts are preserved here for release review. Ada's version comes from the [vendored amalgamation](https://github.com/vercel-labs/quickjs-wasi/blob/5a7a0eeda87c99542f8cf3095b6d61ecfa755977/extensions/url/ada/ada.h). These are build and source records; they do not establish the full linked dependency set, including other SDK libraries and nested crypto components.
+
+For `url.so`, the same makefile extracts `string.cpp.o` from the SDK 32 `libc++.a` and passes that object to the linker. The locked npm payload contains `basic_string` and `__grow_by` strings. The [libc++ notice](libcxx-LICENSE.TXT) is a byte-identical copy of the [file at the pinned LLVM revision](https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/libcxx/LICENSE.TXT). The separate `725e4bc` and `a8c26d3` notices-draft ZIPs both contain `source-notices/pi-wasm/libcxx-LICENSE.TXT`. Extracting this entry from the `a8c26d3` notice ZIP gives the upstream SHA-256, `539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b`. The compiler-rt notice is a different file.
+
+Photon's npm `gitHead` is [`685f5b15`](https://github.com/silvia-odwyer/photon/tree/685f5b155b36c5611c08ca678bb78ddbab3edbac). Its [crate notice](https://github.com/silvia-odwyer/photon/blob/685f5b155b36c5611c08ca678bb78ddbab3edbac/crate/LICENSE.md) matches the root notice in the candidate after CRLF normalization. The WASM name section identifies code from `dlmalloc`, `flate2`, `image`, `imageproc`, `jpeg_decoder`, `miniz_oxide`, `palette`, `png`, `rusttype`, and `wasm_bindgen`. The [npm root license copy](photon-LICENSE.txt) is preserved here with LF line endings.
+
+The source preview follow-up re-downloaded the locked npm tarball, verified its SHA-512 and matched the 1,881,634-byte WASM to the digest above. It independently verified the existing review ZIP against its documented SHA-256 and verified all 47 notice members against the manifest (23 identified crates). The archive covers only identified inputs and is not a complete Photon notice pack. The exact npm build record or a verified replacement is still required.
+
+The [published Rust crate `photon-rs` 0.3.3](https://crates.io/crates/photon-rs/0.3.3) names the same commit in `.cargo_vcs_info.json`. Its archive matched the registry SHA-256 `06e9b6d764d6656aba14f5ae43fbf48ce98ff1b1a6beb4d2e801eb0729f88773`. It contains a `Cargo.lock` with SHA-256 `aa3e9c86b0380b8cd5cb768985f7e270aab01a5b35c24cbfa8533fa74343318f`, although the Git source tree has no tracked lock file. This establishes the lock file that accompanies the Rust crate.
+
+The [push workflow at the npm `gitHead`](https://github.com/silvia-odwyer/photon/blob/685f5b155b36c5611c08ca678bb78ddbab3edbac/.github/workflows/compile_wasm.yaml) has separate check and build jobs. The check job selects `stable`, installs `wasm32-unknown-unknown` and checks `--all-features`. The build job installs `wasm-pack` without a version pin and runs `wasm-pack build --target nodejs --out-name photon-node ./crate` without explicit Cargo features or a Rust version pin. It publishes `crate/pkg` to the `compiled-wasm` branch. This workflow does not publish to npm or tie its output to the shipped `photon_rs_bg.wasm` digest.
+
+The [compiled-wasm artifact immediately preceding the npm publication](https://github.com/silvia-odwyer/photon/tree/232df2fe11218cac0856a56d94ab560b22d5b414) references a parent of the npm `gitHead`. Its `photon-node_bg.wasm` is 1,664,273 bytes with SHA-256 `651870eb6466366b89ad46429aaba97e7cfc32992045cc97b9e54a2e63d4e980`. The npm payload in Athena is `photon_rs_bg.wasm`, 1,881,634 bytes, with the different digest in the table. The npm registry did not return a provenance attestation for this version. Neither the crate lock file nor the workflow branch verifies the Rust versions linked into the actual npm payload. Obtain its build record or replace the dependency with one whose build and notices can be verified before distribution.
+
+In the `a8c26d3` app ZIP, the Photon WASM still matches the SHA-256 in the table. A scan of its bytes for source paths ending in `<crate>-<version>/src/` or `<crate>-<version>/lib/` found 23 distinct name/version pairs. Of those, 21 occur in the checksum-verified `photon-rs` 0.3.3 lock file. The other two, `dlmalloc` 0.2.7 and `hashbrown` 0.15.2, have no package entries there. The binary therefore provides two additional leads for the notice review. Embedded paths show which source versions are referenced; they cannot enumerate code built without such paths or establish the complete build graph.
+
+The local delivery includes `Athena-m42-arm64-a8c26d3-photon-notices-review.zip` (SHA-256 `8afbf49624e2dbb589209754663dd0c64a00787cff743ef3aba358e2f89ce4ea`). All 23 source archives matched their crates.io index checksums; the 21 entries in the Photon crate lock also matched its checksums. The ZIP contains 47 notice files copied from these archives and a manifest identifying each source version, archive checksum, notice path and notice checksum. All 48 entries were read back and compared with the originals. This collection covers only the versions identified above.
+
+The Photon binary with the SHA-256 in the table contains `/rustc/3f43b1a636738f41c48df073c5bcb97a97bf8459/` source paths. At that commit, Rust's `src/version` reads `1.86.0`, and its [standard-library lock file](https://github.com/rust-lang/rust/blob/3f43b1a636738f41c48df073c5bcb97a97bf8459/library/Cargo.lock) pins both versions absent from the Photon crate lock: `dlmalloc` 0.2.7 and `hashbrown` 0.15.2. Their archive checksums match the notice ZIP manifest. The [std manifest](https://github.com/rust-lang/rust/blob/3f43b1a636738f41c48df073c5bcb97a97bf8459/library/std/Cargo.toml) declares both dependencies. This accounts for the two version matches without treating every entry in Rust's lock file as part of the shipped WASM. The full npm build graph remains unverified.

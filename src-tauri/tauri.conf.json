@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Athena",
+  "version": "0.1.0",
+  "identifier": "com.athena.desktop",
+  "build": {
+    "frontendDist": "frontend",
+    "beforeBuildCommand": "npm run desktop:prepare"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+      "capabilities": []
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "externalBin": ["desktop-generated/bin/athena-node", "desktop-generated/bin/athena-sandbox"],
+    "resources": {
+      "desktop-generated/host": "host"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.5"
+    }
+  }
+}

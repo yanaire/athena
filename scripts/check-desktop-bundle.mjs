@@ -1,0 +1,220 @@
+import assert from 'node:assert/strict';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { once } from 'node:events';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const [mode, appPath, ...extra] = process.argv.slice(2);
+assert.ok(mode === undefined || (['--verify-only', '--pre-notarization', '--release'].includes(mode) && appPath && extra.length === 0),
+  'Usage: node scripts/check-desktop-bundle.mjs [--verify-only|--pre-notarization|--release /path/to/Athena.app]');
+const bundle = appPath ? resolve(appPath)
+  : fileURLToPath(new URL('../src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Athena.app', import.meta.url));
+const binary = join(bundle, 'Contents/MacOS/athena-node');
+const sandbox = join(bundle, 'Contents/MacOS/athena-sandbox');
+const host = join(bundle, 'Contents/Resources/host');
+const environment = { PATH: '/usr/bin:/bin', HOME: tmpdir() };
+
+// On local builds Tauri leaves the main arm64 executable linker-signed. Seal
+// the actual .app resources without changing a Developer ID signature.
+if (!mode && !process.env.APPLE_SIGNING_IDENTITY) {
+  // Exercise the shipped helper with Hardened Runtime and no JIT entitlements.
+  // Sign the inner executable before sealing the containing app.
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--options', 'runtime', sandbox], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--identifier', 'com.athena.desktop', bundle], { stdio: 'inherit' });
+}
+execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' });
+
+if (mode === '--pre-notarization' || mode === '--release') {
+  const jit = 'com.apple.security.cs.allow-jit';
+  const native = join(host, 'node_modules', '@earendil-works', 'pi-tui', 'native', 'darwin', 'prebuilds', 'darwin-arm64', 'darwin-platform.node');
+  const requirement = 'anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists';
+  let expectedTeam;
+  for (const [path, label, runtime, entitlements] of [
+    [bundle, 'Athena.app', true, {}],
+    [binary, 'athena-node', true, { [jit]: true }],
+    [sandbox, 'athena-sandbox', true, {}],
+    [native, 'Pi ARM64 module', false, {}],
+  ]) {
+    execFileSync('/usr/bin/codesign', ['--verify', '--strict', `-R=${requirement}`, path], { stdio: 'inherit' });
+    const { stderr, status, error } = spawnSync('/usr/bin/codesign', ['-dvvv', path], { encoding: 'utf8' });
+    if (error) throw error;
+    assert.equal(status, 0, `${label}: could not read the signature`);
+    const team = /^TeamIdentifier=([A-Z0-9]{10})$/m.exec(stderr)?.[1];
+    assert.ok(team, `${label}: missing Developer ID Team ID`);
+    expectedTeam ??= team;
+    assert.equal(team, expectedTeam, `${label}: unexpected signing team`);
+    const flags = /^CodeDirectory .* flags=0x[0-9a-f]+\(([^)]+)\)/m.exec(stderr)?.[1].split(',');
+    if (runtime) assert.ok(flags?.includes('runtime'), `${label}: Hardened Runtime is required`);
+    const xml = execFileSync('/usr/bin/codesign', ['-d', '--entitlements', '-', '--xml', path],
+      { stdio: ['ignore', 'pipe', 'pipe'] });
+    const actual = xml.length === 0 ? {} : JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '-'], { input: xml }));
+    assert.deepEqual(actual, entitlements, `${label}: unexpected entitlements`);
+  }
+  if (mode === '--release') {
+    execFileSync('/usr/bin/xcrun', ['stapler', 'validate', bundle], { stdio: 'inherit' });
+    execFileSync('/usr/sbin/spctl', ['--assess', '--type', 'execute', bundle], { stdio: 'inherit' });
+    console.log('Verified stapled notarization ticket and Gatekeeper assessment.');
+  }
+  execFileSync(binary, ['-e', `const helper = require(process.argv[1]);
+    if (typeof helper.getText !== 'function' || typeof helper.getImage !== 'function') process.exit(1);`, native],
+  { env: environment, timeout: 10_000, stdio: 'inherit' });
+  console.log('Verified Developer ID, signing team, entitlements, and ARM64 Pi native module.');
+}
+
+assert.equal(existsSync(join(host, 'node_modules', '@earendil-works', 'pi-coding-agent',
+  'examples', 'extensions', 'doom-overlay')), false, 'The non-runtime Pi DOOM example must not ship.');
+assert.equal(execFileSync(binary, ['-p', '[process.version,process.arch].join(" ")'], { encoding: 'utf8', env: environment }).trim(), 'v24.22.3 arm64');
+assert.equal(execFileSync('/usr/bin/file', ['-b', sandbox], { encoding: 'utf8', env: { ...environment, LC_ALL: 'C' } }).trim(),
+  'Mach-O 64-bit executable arm64', 'The analysis helper must be a thin ARM64 executable.');
+assert.equal(execFileSync(sandbox, ['--version'], { encoding: 'utf8', env: environment }).trim(), 'athena-sandbox/1 wasmtime/50.0.3');
+const analysis = join(host, 'analysis-runtime');
+const { files: digests } = JSON.parse(await readFile(join(analysis, 'provenance.json'), 'utf8'));
+for (const name of ['python.wasm', 'qjs.wasm']) {
+  assert.equal(createHash('sha256').update(await readFile(join(analysis, name))).digest('hex'), digests[name]);
+}
+if (!mode) {
+  // The provenance hash is for the build input, before bundle signing.
+  const stagedHelper = join(fileURLToPath(new URL('../src-tauri/desktop-generated/bin/', import.meta.url)), 'athena-sandbox-aarch64-apple-darwin');
+  assert.equal(createHash('sha256').update(await readFile(stagedHelper)).digest('hex'), digests['athena-sandbox']);
+}
+
+const workspace = await mkdtemp(join(tmpdir(), 'athena-bundle-check-'));
+const fixtureKey = randomBytes(32).toString('hex');
+let successfulRequests = 0;
+const fixture = createServer((request, response) => {
+  if (request.headers.authorization !== `Bearer ${fixtureKey}`) { response.writeHead(401).end(); return; }
+  successfulRequests++;
+  if (request.method === 'GET' && request.url === '/v1/models') {
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'bundle-fixture' }] }));
+    return;
+  }
+  if (request.method !== 'POST' || request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return; }
+  const chunks = [];
+  request.on('data', chunk => chunks.push(chunk));
+  request.on('end', () => {
+    const body = JSON.parse(Buffer.concat(chunks));
+    const tool = body.tools?.[0]?.function?.name;
+    const delta = tool ? { tool_calls: [{ index: 0, id: 'bundle-call', type: 'function', function: { name: tool, arguments: '{}' } }] } : { content: 'Athena' };
+    const event = (change, finish_reason) => `data: ${JSON.stringify({ id: 'bundle-answer', object: 'chat.completion.chunk', model: 'bundle-fixture', choices: [{ index: 0, delta: change, finish_reason }] })}\n\n`;
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    response.end(event({ role: 'assistant', ...delta }, null) + event({}, tool ? 'tool_calls' : 'stop') + 'data: [DONE]\n\n');
+  });
+});
+fixture.listen(0, '127.0.0.1');
+await once(fixture, 'listening');
+
+async function withHost(step) {
+  const token = randomBytes(32).toString('hex');
+  const child = spawn(binary, ['runtime/server.ts', '--desktop'], {
+    cwd: host, env: { ...environment, HOME: workspace, ATHENA_DATA_DIR: workspace }, stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  const exited = once(child, 'close');
+  const watchdog = setTimeout(() => child.kill('SIGKILL'), 20_000);
+  try {
+    let output = '';
+    let workspaceRequested = false;
+    let port;
+    for await (const chunk of child.stdout) {
+      output += chunk.toString();
+      assert.ok(output.length <= 8192, 'Unexpected bundle startup output.');
+      if (!workspaceRequested && output.includes('ATHENA_DESKTOP_BOOTSTRAP\n')) {
+        workspaceRequested = true;
+        if (step === 'abort-bootstrap') child.stdin.end();
+        else child.stdin.write(JSON.stringify({ token }) + '\n');
+      }
+      const ready = output.match(/^ATHENA_DESKTOP_READY ([0-9]{1,5})\n/m);
+      if (ready) {
+        assert.notEqual(step, 'abort-bootstrap', 'Bundled sidecar became ready without a bootstrap token.');
+        port = Number(ready[1]);
+        break;
+      }
+    }
+    if (step === 'abort-bootstrap') {
+      assert.deepEqual(await exited, [1, null], 'Bundled sidecar must exit when bootstrap closes before token delivery.');
+      assert.ok(output === 'ATHENA_DESKTOP_BOOTSTRAP\nATHENA_DESKTOP_ERROR STARTUP_FAILED\n',
+        'Bundled sidecar must report failure without publishing readiness.');
+      return;
+    }
+    assert.ok(port, 'Bundled sidecar did not become ready.');
+    const origin = `http://127.0.0.1:${port}`;
+    const cookie = `athena_desktop=${token}`;
+    const signal = AbortSignal.timeout(10_000);
+    assert.equal((await fetch(origin + '/api/bootstrap', { signal })).status, 401);
+    const response = await fetch(origin + '/api/bootstrap', { headers: { Cookie: cookie }, signal });
+    assert.equal(response.status, 200);
+    assert.ok((await response.json()).capabilities.includes('model_profiles'));
+    await step(async (method, args = []) => {
+      const reply = await fetch(origin + '/api/rpc', {
+        method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, args }), signal,
+      });
+      const wire = await reply.text();
+      assert.equal(wire.includes(fixtureKey), false, 'A credential reached the response.');
+      assert.equal(reply.status, 200, `${method} failed.`);
+      return JSON.parse(wire).result;
+    });
+    child.stdin.end();
+    assert.deepEqual(await exited, [0, null]);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await exited;
+    clearTimeout(watchdog);
+  }
+}
+
+try {
+  execFileSync(binary, ['--input-type=module', '--eval', `
+    import assert from 'node:assert/strict';
+    import { CsvJobRunner } from './runtime/jobs.ts';
+    import { AnalysisFiles } from './runtime/analysis-files.ts';
+    const dataDir = process.argv[1];
+    const runner = new CsvJobRunner({ dataDir });
+    const files = new AnalysisFiles(dataDir);
+    for (const [language, name, source] of [
+      ['python', 'job.py', "with open('/outputs/proof.txt','w') as f: f.write(open('input.txt').read().upper())"],
+      ['node', 'job.mjs', "import * as std from 'qjs:std'; const f=std.open('/outputs/proof.txt','w'); f.puts(std.loadFile('input.txt').toUpperCase()); f.close();"],
+    ]) {
+      const result = await runner.startAnalysis({ projectId:'bundle', sessionId:'bundle', taskId:language, attemptId:language,
+        requestId:language, toolId:language, language, script:{name,bytes:Buffer.from(source)}, outputs:['proof.txt'],
+        inputs:[{name:'input.txt',bytes:Buffer.from('bundle input'),fileId:'bundle',versionId:'one'}] }).result;
+      assert.equal(result.status,'succeeded',JSON.stringify(result));
+      assert.equal(result.analysis.backend,'wasi');
+      assert.equal((await files.download(result.artifacts[1])).toString(),'BUNDLE INPUT');
+    }
+    await runner.close();
+  `, workspace, '--desktop'], { cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' }, timeout: 45_000 });
+  let profileId;
+  await withHost(async rpc => {
+    assert.equal((await rpc('listModelProfiles')).credentialMode, 'local_file');
+    const endpoint = `http://127.0.0.1:${fixture.address().port}/v1`;
+    const provider = await rpc('registerCompatibleEndpoint', [{ name: 'Bundle QA', endpoint, apiKey: fixtureKey }]);
+    const profile = await rpc('saveModelProfile', [{ name: 'Bundle QA', provider: provider.id, modelId: 'bundle-fixture' }]);
+    profileId = profile.id;
+    await rpc('setAppModelProfile', [profileId]);
+  });
+  const vaultPath = join(workspace, 'auth/credentials.v2.json');
+  const vault = await readFile(vaultPath);
+  assert.equal((await stat(vaultPath)).mode & 0o777, 0o600, 'Expected owner-only local credentials.');
+  await withHost('abort-bootstrap');
+  assert.ok(vault.equals(await readFile(vaultPath)), 'Interrupted bootstrap changed the existing vault.');
+  assert.equal((await stat(vaultPath)).mode & 0o777, 0o600, 'Expected an owner-only vault after interrupted bootstrap.');
+  await withHost(async rpc => {
+    const profiles = await rpc('listModelProfiles');
+    assert.equal(profiles.appDefaultProfileId, profileId);
+    assert.equal(profiles.credentialMode, 'local_file');
+    const restored = await rpc('verifyModelProfile', [profileId]);
+    assert.deepEqual([restored.lastCheck.streaming, restored.lastCheck.tools], ['passed', 'passed']);
+  });
+  assert.equal(successfulRequests, 3);
+  assert.ok(vault.equals(await readFile(vaultPath)), 'Authenticated restart changed the existing vault.');
+  console.log('Verified signed bundle, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).');
+} finally {
+  fixture.closeAllConnections();
+  await new Promise(resolve => fixture.close(resolve));
+  await rm(workspace, { recursive: true, force: true });
+}

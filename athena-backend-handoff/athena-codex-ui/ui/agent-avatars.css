@@ -1,0 +1,62 @@
+/* Agent identity is a quiet, code-native geometric mark. Geometry, rotation,
+ * and muted tone stay fixed throughout a run; adjacent text conveys status.
+ */
+#athena-codex .aav-avatar {
+  --aav-size: 40px;
+  --aav-turn: 0deg;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 var(--aav-size);
+  width: var(--aav-size);
+  height: var(--aav-size);
+  color: var(--ac-muted, #5e5d59);
+  line-height: 1;
+  vertical-align: middle;
+  user-select: none;
+  pointer-events: none;
+}
+#athena-codex .aav-avatar,
+#athena-codex .aav-avatar * { box-sizing: border-box; }
+#athena-codex .aav-avatar[data-avatar-tone="lavender"] { color: #8c82ad; }
+#athena-codex .aav-avatar[data-avatar-tone="teal"] { color: #66978f; }
+#athena-codex .aav-avatar[data-avatar-tone="blue"] { color: #7895b0; }
+#athena-codex .aav-avatar[data-avatar-tone="olive"] { color: #929c77; }
+#athena-codex .aav-glyph {
+  display: block;
+  width: 66%;
+  height: 66%;
+  background: currentColor;
+  transform: rotate(var(--aav-turn));
+  transform-origin: center;
+  opacity: .84;
+}
+#athena-codex .aav-shape-circle { border-radius: 50%; }
+#athena-codex .aav-shape-triangle { clip-path: polygon(50% 3%, 98% 91%, 2% 91%); }
+#athena-codex .aav-shape-diamond { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+#athena-codex .aav-shape-hexagon { clip-path: polygon(25% 7%, 75% 7%, 100% 50%, 75% 93%, 25% 93%, 0 50%); }
+#athena-codex .aav-shape-pentagon { clip-path: polygon(50% 0, 98% 36%, 80% 94%, 20% 94%, 2% 36%); }
+#athena-codex .aav-shape-octagon { clip-path: polygon(29% 0, 71% 0, 100% 29%, 100% 71%, 71% 100%, 29% 100%, 0 71%, 0 29%); }
+#athena-codex .aav-shape-arch { border-radius: 50% 50% 8% 8%; }
+#athena-codex .aav-shape-lozenge { width: 49%; border-radius: 50%; }
+#athena-codex .aav-shape-parallelogram { clip-path: polygon(30% 8%, 100% 8%, 70% 92%, 0 92%); }
+#athena-codex .aav-shape-cross { clip-path: polygon(34% 0, 66% 0, 66% 34%, 100% 34%, 100% 66%, 66% 66%, 66% 100%, 34% 100%, 34% 66%, 0 66%, 0 34%, 34% 34%); }
+#athena-codex .aav-shape-quarter { border-radius: 100% 0 0 0; }
+#athena-codex .aav-shape-ring {
+  border: max(2px, calc(var(--aav-size) * .105)) solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+}
+#athena-codex .aav-state-waiting .aav-glyph,
+#athena-codex .aav-state-paused .aav-glyph { opacity: .63; }
+#athena-codex .aav-state-stopped .aav-glyph { opacity: .54; }
+
+/* No continuous or hover animation: the mark stays stable even while text
+ * activity progresses. Explicitly honor both system and workspace preferences.
+ */
+@media (prefers-reduced-motion: reduce) {
+  #athena-codex .aav-avatar,
+  #athena-codex .aav-avatar * { animation: none !important; transition: none !important; }
+}
+#athena-codex[data-reduced-motion="true"] .aav-avatar,
+#athena-codex[data-reduced-motion="true"] .aav-avatar * { animation: none !important; transition: none !important; }

@@ -1,0 +1,15 @@
+#athena-codex .arr-toolbar { min-width: 0; padding: 11px 0 13px; border-bottom: 1px solid var(--ac-line); font-size: 10px; color: var(--ac-muted); }
+#athena-codex .arr-toolbar[hidden], #athena-codex .arr-error[hidden] { display: none; }
+#athena-codex .arr-revision-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+#athena-codex .arr-document-id { overflow-wrap: anywhere; margin-right: auto; font-family: ui-monospace, monospace; font-size: 9px; }
+#athena-codex .arr-revision-row select { max-width: 100%; padding: 5px 8px; border: 1px solid var(--ac-border); border-radius: 6px; background: var(--ac-surface); color: var(--ac-text); font: inherit; }
+#athena-codex .arr-review { padding: 3px 6px; border-radius: 5px; background: var(--ac-canvas); text-transform: capitalize; }
+#athena-codex .arr-storage { margin: 8px 0; font-size: 10px; line-height: 1.6; }
+#athena-codex .arr-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#athena-codex .arr-actions button { min-height: 30px; padding: 5px 8px; border: 1px solid var(--ac-border); border-radius: 6px; background: var(--ac-surface); color: var(--ac-muted); font: inherit; }
+#athena-codex .arr-actions button:not(:disabled):hover { background: var(--ac-canvas); color: var(--ac-text); }
+#athena-codex .arr-actions button:disabled { opacity: .5; cursor: default; }
+#athena-codex .arr-actions button:focus-visible, #athena-codex .arr-revision-row select:focus-visible { outline: 2px solid #8b8b80; outline-offset: 2px; }
+#athena-codex .arr-error { margin: 8px 0 0; color: #9b413b; font-size: 10px; overflow-wrap: anywhere; }
+#athena-codex .arr-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media(pointer: coarse) { #athena-codex .arr-actions button, #athena-codex .arr-revision-row select { min-height: 44px; } }

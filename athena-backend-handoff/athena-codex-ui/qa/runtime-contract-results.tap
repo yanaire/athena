@@ -1,0 +1,316 @@
+TAP version 13
+# Subtest: No attached host cannot verify, save, or create a session
+ok 1 - No attached host cannot verify, save, or create a session
+  ---
+  duration_ms: 5.592163
+  type: 'test'
+  ...
+# Subtest: Adapter availability alone does not claim connection and rejected saves do not install a default
+ok 2 - Adapter availability alone does not claim connection and rejected saves do not install a default
+  ---
+  duration_ms: 2.836273
+  type: 'test'
+  ...
+# Subtest: Explicit save, endpoint verification, and session creation stay distinct
+ok 3 - Explicit save, endpoint verification, and session creation stay distinct
+  ---
+  duration_ms: 2.729652
+  type: 'test'
+  ...
+# Subtest: An old host response cannot update a newly attached host
+ok 4 - An old host response cannot update a newly attached host
+  ---
+  duration_ms: 6.166691
+  type: 'test'
+  ...
+# Subtest: A host must confirm a new session ID; empty success-shaped responses are rejected
+ok 5 - A host must confirm a new session ID; empty success-shaped responses are rejected
+  ---
+  duration_ms: 2.212621
+  type: 'test'
+  ...
+# Subtest: attaching is observational and partial hosts advertise only callable capabilities
+ok 6 - attaching is observational and partial hosts advertise only callable capabilities
+  ---
+  duration_ms: 4.587587
+  type: 'test'
+  ...
+# Subtest: full SDK fixture advertises exactly all 33 RPC plus 18 implemented native capabilities
+ok 7 - full SDK fixture advertises exactly all 33 RPC plus 18 implemented native capabilities
+  ---
+  duration_ms: 1.471071
+  type: 'test'
+  ...
+# Subtest: prompt returns its accepted disposition before run completion; abort stays concurrent
+ok 8 - prompt returns its accepted disposition before run completion; abort stays concurrent
+  ---
+  duration_ms: 2.608969
+  type: 'test'
+  ...
+# Subtest: prompt rejects missing streaming policy and reports errors after acceptance as events
+ok 9 - prompt rejects missing streaming policy and reports errors after acceptance as events
+  ---
+  duration_ms: 4.038337
+  type: 'test'
+  ...
+# Subtest: queue methods preserve images, modes and recoverable draft text
+ok 10 - queue methods preserve images, modes and recoverable draft text
+  ---
+  duration_ms: 1.644022
+  type: 'test'
+  ...
+# Subtest: model catalogue is secret-safe but native setModel receives the original model
+ok 11 - model catalogue is secret-safe but native setModel receives the original model
+  ---
+  duration_ms: 2.640117
+  type: 'test'
+  ...
+# Subtest: session history has durable cursor semantics and never returns thinking content
+ok 12 - session history has durable cursor semantics and never returns thinking content
+  ---
+  duration_ms: 1.478672
+  type: 'test'
+  ...
+# Subtest: own replacement requests rebind without overwriting an existing runtime hook
+ok 13 - own replacement requests rebind without overwriting an existing runtime hook
+  ---
+  duration_ms: 2.850684
+  type: 'test'
+  ...
+# Subtest: explicit hook ownership and external subscriptions support outside replacements
+ok 14 - explicit hook ownership and external subscriptions support outside replacements
+  ---
+  duration_ms: 1.093221
+  type: 'test'
+  ...
+# Subtest: session list, exports, labels and navigation call verified public methods
+ok 15 - session list, exports, labels and navigation call verified public methods
+  ---
+  duration_ms: 4.927079
+  type: 'test'
+  ...
+# Subtest: bash preserves extension interception, options and RPC request id
+ok 16 - bash preserves extension interception, options and RPC request id
+  ---
+  duration_ms: 0.678375
+  type: 'test'
+  ...
+# Subtest: resources are normalized for UI and command discovery includes only callable sources
+ok 17 - resources are normalized for UI and command discovery includes only callable sources
+  ---
+  duration_ms: 1.229006
+  type: 'test'
+  ...
+# Subtest: native tool/scoped-model/cache/settings/context controls expose real outcomes
+ok 18 - native tool/scoped-model/cache/settings/context controls expose real outcomes
+  ---
+  duration_ms: 2.122645
+  type: 'test'
+  ...
+# Subtest: extension UI responses are correlated, validated, and never infer approval
+ok 19 - extension UI responses are correlated, validated, and never infer approval
+  ---
+  duration_ms: 0.956333
+  type: 'test'
+  ...
+# Subtest: timeouts, AbortSignal, session replacement and destruction safely dismiss pending dialogs
+ok 20 - timeouts, AbortSignal, session replacement and destruction safely dismiss pending dialogs
+  ---
+  duration_ms: 14.158528
+  type: 'test'
+  ...
+# Subtest: pending extension dialogs replay to later subscribers; all five notices are one-way
+ok 21 - pending extension dialogs replay to later subscribers; all five notices are one-way
+  ---
+  duration_ms: 1.303368
+  type: 'test'
+  ...
+# Subtest: raw streaming thoughts and credential fields are projected out without mutating events
+ok 22 - raw streaming thoughts and credential fields are projected out without mutating events
+  ---
+  duration_ms: 0.709261
+  type: 'test'
+  ...
+# Subtest: destroy detaches without aborting or disposing host work; unsupported requests fail clearly
+ok 23 - destroy detaches without aborting or disposing host work; unsupported requests fail clearly
+  ---
+  duration_ms: 1.127632
+  type: 'test'
+  ...
+# Subtest: teardown cannot reenter and leave a new approval pending
+ok 24 - teardown cannot reenter and leave a new approval pending
+  ---
+  duration_ms: 0.388487
+  type: 'test'
+  ...
+# Subtest: host prompt limits reject excess without truncation and standard Pi never ignores file references
+ok 25 - host prompt limits reject excess without truncation and standard Pi never ignores file references
+  ---
+  duration_ms: 2.367485
+  type: 'test'
+  ...
+# Subtest: optional real file service must confirm every reference and resolves context before SDK submission
+ok 26 - optional real file service must confirm every reference and resolves context before SDK submission
+  ---
+  duration_ms: 3.087292
+  type: 'test'
+  ...
+# Subtest: session replacement while resolving files cannot submit to the old or new session
+ok 27 - session replacement while resolving files cannot submit to the old or new session
+  ---
+  duration_ms: 1.006499
+  type: 'test'
+  ...
+# Subtest: new document revision keeps original text, evidence and review immutable and makes edited content unreviewed
+ok 28 - new document revision keeps original text, evidence and review immutable and makes edited content unreviewed
+  ---
+  duration_ms: 25.221703
+  type: 'test'
+  ...
+# Subtest: document save and PDF export require a real matching adapter receipt, preserve local drafts on rejection, and bind exports to a version
+ok 29 - document save and PDF export require a real matching adapter receipt, preserve local drafts on rejection, and bind exports to a version
+  ---
+  duration_ms: 2.166912
+  type: 'test'
+  ...
+# Subtest: project changes reject delayed document saves and keep review events version-scoped
+ok 30 - project changes reject delayed document saves and keep review events version-scoped
+  ---
+  duration_ms: 1.305221
+  type: 'test'
+  ...
+# Subtest: Knowledge keeps notes, files, search and unfinished drafts isolated by project and restores project notes from device storage
+ok 31 - Knowledge keeps notes, files, search and unfinished drafts isolated by project and restores project notes from device storage
+  ---
+  duration_ms: 26.602888
+  type: 'test'
+  ...
+# Subtest: Knowledge hands off original bytes explicitly, separates PDF preview/extraction, and preserves prior-version reviews
+ok 32 - Knowledge hands off original bytes explicitly, separates PDF preview/extraction, and preserves prior-version reviews
+  ---
+  duration_ms: 24.221593
+  type: 'test'
+  ...
+# Subtest: message limits reject intact before sending; valid long messages and slash arguments are never sliced
+ok 33 - message limits reject intact before sending; valid long messages and slash arguments are never sliced
+  ---
+  duration_ms: 56.050286
+  type: 'test'
+  ...
+# Subtest: file references require explicit host support and complete staging acknowledgement
+ok 34 - file references require explicit host support and complete staging acknowledgement
+  ---
+  duration_ms: 4.890134
+  type: 'test'
+  ...
+# Subtest: all extension requests and all offered options survive display-sized queues
+ok 35 - all extension requests and all offered options survive display-sized queues
+  ---
+  duration_ms: 195.382567
+  type: 'test'
+  ...
+# Subtest: timeouts send cancellation; rejected cancellations remain pending across detach and request-ID reuse
+ok 36 - timeouts send cancellation; rejected cancellations remain pending across detach and request-ID reuse
+  ---
+  duration_ms: 21.256956
+  type: 'test'
+  ...
+# Subtest: done and message_end finalize one message without merging distinct equal-text messages
+ok 37 - done and message_end finalize one message without merging distinct equal-text messages
+  ---
+  duration_ms: 2.561978
+  type: 'test'
+  ...
+# Subtest: assistant text stays complete while bounded tool previews expose full-length metadata
+ok 38 - assistant text stays complete while bounded tool previews expose full-length metadata
+  ---
+  duration_ms: 22.371068
+  type: 'test'
+  ...
+# Subtest: real connections isolate sample data and never run the demo scheduler
+ok 39 - real connections isolate sample data and never run the demo scheduler
+  ---
+  duration_ms: 6.155293
+  type: 'test'
+  ...
+# Subtest: accepted snapshots are immutable, retain common IDs, and isolate approvals by session
+ok 40 - accepted snapshots are immutable, retain common IDs, and isolate approvals by session
+  ---
+  duration_ms: 2.969273
+  type: 'test'
+  ...
+# Subtest: stale revisions and late snapshots from replaced managers cannot overwrite current state
+ok 41 - stale revisions and late snapshots from replaced managers cannot overwrite current state
+  ---
+  duration_ms: 4.720839
+  type: 'test'
+  ...
+# Subtest: capabilities require a confirmed snapshot and callable host method; rejected reads stay unconnected
+ok 42 - capabilities require a confirmed snapshot and callable host method; rejected reads stay unconnected
+  ---
+  duration_ms: 3.148514
+  type: 'test'
+  ...
+# Subtest: app, project, conversation and frozen run models remain separate
+ok 43 - app, project, conversation and frozen run models remain separate
+  ---
+  duration_ms: 3.31811
+  type: 'test'
+  ...
+# Subtest: Pi-only observations never manufacture a backend run ID and clear on session replacement
+ok 44 - Pi-only observations never manufacture a backend run ID and clear on session replacement
+  ---
+  duration_ms: 2.28454
+  type: 'test'
+  ...
+# Subtest: confirmed session activation waits for matching Pi and workspace identities without leaking the old session
+ok 45 - confirmed session activation waits for matching Pi and workspace identities without leaking the old session
+  ---
+  duration_ms: 6.012489
+  type: 'test'
+  ...
+# Subtest: session mutations without an inline snapshot refresh the authoritative host state
+ok 46 - session mutations without an inline snapshot refresh the authoritative host state
+  ---
+  duration_ms: 6.614317
+  type: 'test'
+  ...
+# Subtest: Pi-only runtime exposes no tasks or sample artifacts, even for a requested sample ID
+ok 47 - Pi-only runtime exposes no tasks or sample artifacts, even for a requested sample ID
+  ---
+  duration_ms: 24.503087
+  type: 'test'
+  ...
+# Subtest: runtime artifact identity and version never fall back to static example content
+ok 48 - runtime artifact identity and version never fall back to static example content
+  ---
+  duration_ms: 56.216362
+  type: 'test'
+  ...
+# Subtest: runtime workflow uses exact tool/artifact IDs and only shows authorized mutation controls; unknown progress stays unknown
+ok 49 - runtime workflow uses exact tool/artifact IDs and only shows authorized mutation controls; unknown progress stays unknown
+  ---
+  duration_ms: 6.58995
+  type: 'test'
+  ...
+# Subtest: canonical document is revision-bound; original sample PDF remains a separate explicit reference
+ok 50 - canonical document is revision-bound; original sample PDF remains a separate explicit reference
+  ---
+  duration_ms: 14.791504
+  type: 'test'
+  ...
+# Subtest: runtime document binding requires an actual host revision instead of reusing the preview record
+ok 51 - runtime document binding requires an actual host revision instead of reusing the preview record
+  ---
+  duration_ms: 12.201633
+  type: 'test'
+  ...
+1..51
+# tests 51
+# suites 0
+# pass 51
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 449.232465
