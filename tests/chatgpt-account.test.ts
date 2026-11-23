@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import { TaskManager } from '../runtime/manager.ts';
 import { ModelProfiles } from '../runtime/model-profiles.ts';
-import { openProviderCredentials } from '../runtime/provider-credentials.ts';
+import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import { ProviderError, ProviderManager } from '../runtime/provider-manager.ts';
 import { object } from '../runtime/connections.ts';
 import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
@@ -126,15 +125,10 @@ function sse(model: string, output: { readonly text: string } | { readonly funct
 }
 
 test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen', { timeout: 15_000 }, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-chatgpt-run-'));
-  const previous = process.env.ATHENA_CREDENTIAL_KEY;
-  process.env.ATHENA_CREDENTIAL_KEY = randomBytes(32).toString('hex');
-  t.after(async () => {
-    if (previous === undefined) delete process.env.ATHENA_CREDENTIAL_KEY;
-    else process.env.ATHENA_CREDENTIAL_KEY = previous;
-    await rm(directory, { recursive: true, force: true });
-  });
-  let { store } = await openProviderCredentials(directory);
+  const directory = await mkdtemp(join(await realpath(tmpdir()), 'athena-chatgpt-run-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const credentialDirectory = join(directory, 'auth');
+  let store = await openLocalCredentials(credentialDirectory);
   await store.modify('openai', async () => registration);
   const other = { ...registration, clientId: 'oaiapp_fixture_B', subject: 'fixture-subject-B', access: 'fixture-access-B',
     refresh: 'fixture-refresh-B', idToken: 'fixture-id-token-B' };
@@ -182,6 +176,13 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
       if (terminal === 'limited') return Response.json({ error: { message: access } }, { status: 429 });
       const declarations = payload.input.filter(item => item.type === 'additional_tools').flatMap(item => item.tools);
       assert.ok(declarations.length && declarations.every(tool => tool.type === 'function' && typeof tool.name === 'string'));
+      const spawn = declarations.find(tool => tool.name === 'spawn_agent');
+      if (spawn) {
+        assert.deepEqual(spawn.parameters.properties.fileIds.items.type, 'string');
+        assert.equal(spawn.parameters.properties.fileIds.maxItems, 32);
+        assert.equal(Object.hasOwn(spawn.parameters.properties.fileIds, 'uniqueItems'), false);
+        assert.equal(Object.hasOwn(spawn.parameters.properties.artifactIds, 'uniqueItems'), false);
+      }
       const parent = declarations.some(tool => tool.name === 'spawn_agent');
       const outputs = payload.input.filter(item => item.type === 'function_call_output').map(item => item.call_id);
       calls.push({ parent, outputs });
@@ -194,7 +195,14 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
         await proceed.promise;
         return sse(slug, { function: 'spawn_agent', args: { title: 'Child', prompt: 'Report fixture result.' } });
       }
-      if (parent && outputs.length === 1) return sse(slug, { function: 'wait_for_agents', args: {} });
+      if (parent && outputs.length === 1) return sse(slug, { function: 'wait_for_agents', args: { taskIds: [] } });
+      if (parent && outputs.length === 2) {
+        const joined = payload.input.find(item => item.type === 'function_call_output' && item.call_id === 'call_wait_for_agents');
+        assert.equal(typeof joined?.output, 'string');
+        const report: unknown = JSON.parse(joined.output);
+        assert.ok(object(report) && Array.isArray(report.tasks) && report.tasks.length === 1);
+        assert.equal(report.tasks[0]?.result, 'Child fixture result.');
+      }
       return sse(slug, { text: parent ? 'Parent received fixture report.' : 'Child fixture result.' }, terminal);
     } catch (error) {
       if (terminal === 'network' && error instanceof TypeError) throw error;
@@ -243,7 +251,7 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
   const history = await manager.getAgentHistory(conversation.sessionId, conversation.sessionId);
   assert.match(JSON.stringify(history), /Parent received fixture report/);
   await manager.close(); profiles.close(); await providers.close();
-  ({ store } = await openProviderCredentials(directory));
+  store = await openLocalCredentials(credentialDirectory);
   providers = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
   profiles = makeProfiles(); manager = makeManager(); await manager.initialize();
   assert.deepEqual(await store.read('openai'), registration);
@@ -251,7 +259,7 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
   assert.deepEqual(manager.getSnapshot().attempts, before.attempts);
   assert.deepEqual(await manager.getAgentHistory(conversation.sessionId, conversation.sessionId), history);
   for (const path of await readdir(directory, { recursive: true })) {
-    if (!/\.jsonl$|\.sqlite(?:-wal)?$|provider-secrets\.v1$/u.test(path)) continue;
+    if (!/\.jsonl$|\.sqlite(?:-wal)?$/u.test(path)) continue;
     const bytes = await readFile(join(directory, path));
     for (const value of [access, registration.refresh, registration.idToken, other.access, other.refresh, other.idToken]) {
       assert.equal(bytes.includes(value), false, path);

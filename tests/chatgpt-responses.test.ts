@@ -51,3 +51,21 @@ test('plan admission failures retain only validated diagnostics and never provid
     assert.equal(result.errorMessage?.includes(token), false);
   });
 });
+
+test('plan admission identifies a rejected nested request field without echoing provider text', async () => {
+  const result = await chatGPTResponsesApi().streamSimple(model, context, {
+    apiKey: token,
+    fetch: async () => Response.json({ error: { type: 'invalid_request_error', code: 'invalid_value',
+      param: 'input[0].tools[2].parameters', message: `Invalid schema for function 'read': ${token}` } }, { status: 400 }),
+  }).result();
+  assert.equal(result.stopReason, 'error');
+  assert.match(result.errorMessage ?? '', /code=invalid_value; type=invalid_request_error; param=input\[0\]\.tools\[2\]\.parameters; cause=tool_schema/);
+  assert.equal(result.errorMessage?.includes(token), false);
+
+  const unsafe = await chatGPTResponsesApi().streamSimple(model, context, {
+    apiKey: token,
+    fetch: async () => Response.json({ error: { type: token, code: token, param: `input[0].${token}`, message: token } }, { status: 400 }),
+  }).result();
+  assert.equal(unsafe.errorMessage?.includes(token), false);
+  assert.doesNotMatch(unsafe.errorMessage ?? '', /; (?:param|type|cause)=/);
+});

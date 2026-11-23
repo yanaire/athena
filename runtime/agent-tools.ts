@@ -52,7 +52,7 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
           parameters: Type.Object({ title: id, prompt: message, requestId: Type.Optional(id), ...transfers }, closed) }),
         delegated({ name: "send_to_agent", label: "Send to agent", description: "Send a message to a direct child by task ID.",
           parameters: Type.Object({ taskId: id, message, requestId: Type.Optional(id), ...transfers }, closed) }),
-        delegated({ name: "wait_for_agents", label: "Wait for agents", description: "Join direct child tasks and return their outcomes, including failures. Use {} to wait for all direct children.", readOnly: true,
+        delegated({ name: "wait_for_agents", label: "Wait for agents", description: "Join direct child tasks and return their outcomes, including failures. Omit taskIds or pass [] to wait for all direct children.", readOnly: true,
           parameters: Type.Object({ taskIds: Type.Optional(Type.Array(id)) }, closed) }),
         delegated({ name: "get_task", label: "Get task", description: "Get one direct child's state and result.", readOnly: true, parameters: oneTask }),
         delegated({ name: "list_tasks", label: "List tasks", description: "List direct child tasks and their current states.", readOnly: true, parameters: Type.Object({}, closed) }),

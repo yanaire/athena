@@ -10,22 +10,26 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const [mode, appPath, ...extra] = process.argv.slice(2);
-assert.ok(mode === undefined || (['--verify-only', '--pre-notarization', '--release'].includes(mode) && appPath && extra.length === 0),
-  'Usage: node scripts/check-desktop-bundle.mjs [--verify-only|--pre-notarization|--release /path/to/Athena.app]');
+assert.ok(mode === undefined || (['--verify-only', '--verify-local-chatgpt', '--pre-notarization', '--release'].includes(mode) && appPath && extra.length === 0),
+  'Usage: node scripts/check-desktop-bundle.mjs [--verify-only|--verify-local-chatgpt|--pre-notarization|--release /path/to/Athena.app]');
+const expectChatGPT = mode === '--verify-local-chatgpt' || (!mode && process.env.ATHENA_BUILD_CHATGPT_LOCAL === '1');
 const bundle = appPath ? resolve(appPath)
   : fileURLToPath(new URL('../src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Athena.app', import.meta.url));
 const binary = join(bundle, 'Contents/MacOS/athena-node');
 const sandbox = join(bundle, 'Contents/MacOS/athena-sandbox');
 const host = join(bundle, 'Contents/Resources/host');
 const environment = { PATH: '/usr/bin:/bin', HOME: tmpdir() };
+const bundleIdentifier = expectChatGPT ? 'com.athena.desktop.local-chatgpt' : 'com.athena.desktop';
+assert.equal(execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', join(bundle, 'Contents/Info.plist')],
+  { encoding: 'utf8' }).trim(), bundleIdentifier, 'Unexpected desktop bundle identifier.');
 
 // On local builds Tauri leaves the main arm64 executable linker-signed. Seal
 // the actual .app resources without changing a Developer ID signature.
-if (!mode && !process.env.APPLE_SIGNING_IDENTITY) {
+if (!mode && (expectChatGPT || !process.env.APPLE_SIGNING_IDENTITY)) {
   // Exercise the shipped helper with Hardened Runtime and no JIT entitlements.
   // Sign the inner executable before sealing the containing app.
   execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--options', 'runtime', sandbox], { stdio: 'inherit' });
-  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--identifier', 'com.athena.desktop', bundle], { stdio: 'inherit' });
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--identifier', bundleIdentifier, bundle], { stdio: 'inherit' });
 }
 execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' });
 
@@ -147,17 +151,21 @@ async function withHost(step) {
     assert.equal((await fetch(origin + '/api/bootstrap', { signal })).status, 401);
     const response = await fetch(origin + '/api/bootstrap', { headers: { Cookie: cookie }, signal });
     assert.equal(response.status, 200);
-    assert.ok((await response.json()).capabilities.includes('model_profiles'));
-    await step(async (method, args = []) => {
+    const { capabilities } = await response.json();
+    assert.ok(capabilities.includes('model_profiles'));
+    assert.equal(capabilities.includes('native_oauth_browser'), expectChatGPT, 'Unexpected ChatGPT capability for this bundle.');
+    const rpc = async (method, args = [], status = 200) => {
       const reply = await fetch(origin + '/api/rpc', {
         method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
         body: JSON.stringify({ method, args }), signal,
       });
       const wire = await reply.text();
       assert.equal(wire.includes(fixtureKey), false, 'A credential reached the response.');
-      assert.equal(reply.status, 200, `${method} failed.`);
-      return JSON.parse(wire).result;
-    });
+      assert.equal(reply.status, status, `${method} failed.`);
+      const body = JSON.parse(wire);
+      return status === 200 ? body.result : body;
+    };
+    await step(rpc);
     child.stdin.end();
     assert.deepEqual(await exited, [0, null]);
   } finally {
@@ -191,6 +199,26 @@ try {
   let profileId;
   await withHost(async rpc => {
     assert.equal((await rpc('listModelProfiles')).credentialMode, 'local_file');
+    assert.equal((await rpc('startProviderOAuth', ['openai-codex'], 400)).code, 'UNSUPPORTED_AUTH');
+    assert.deepEqual(await rpc('listChatGPTAccounts'), []);
+    if (expectChatGPT) {
+      const { id } = await rpc('startProviderOAuth', ['openai']);
+      const waitForFlow = async predicate => {
+        const deadline = Date.now() + 3000;
+        let state;
+        do {
+          state = await rpc('getProviderOAuth', [id]);
+          if (predicate(state) || state?.status !== 'pending') return state;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        } while (Date.now() < deadline);
+        return state;
+      };
+      assert.deepEqual(await waitForFlow(state => state?.browserReady === true), { id, status: 'pending', browserReady: true });
+      await rpc('cancelProviderOAuth', [id]);
+      assert.deepEqual(await waitForFlow(state => state?.status === 'cancelled'), { id, status: 'cancelled' });
+    } else {
+      assert.equal((await rpc('startProviderOAuth', ['openai'], 400)).code, 'UNSUPPORTED_AUTH');
+    }
     const endpoint = `http://127.0.0.1:${fixture.address().port}/v1`;
     const provider = await rpc('registerCompatibleEndpoint', [{ name: 'Bundle QA', endpoint, apiKey: fixtureKey }]);
     const profile = await rpc('saveModelProfile', [{ name: 'Bundle QA', provider: provider.id, modelId: 'bundle-fixture' }]);
@@ -212,7 +240,7 @@ try {
   });
   assert.equal(successfulRequests, 3);
   assert.ok(vault.equals(await readFile(vaultPath)), 'Authenticated restart changed the existing vault.');
-  console.log('Verified signed bundle, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).');
+  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
 } finally {
   fixture.closeAllConnections();
   await new Promise(resolve => fixture.close(resolve));

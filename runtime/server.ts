@@ -6,6 +6,7 @@ import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Connections, object } from './connections.ts';
+import { localChatGPTPlanUsage } from './desktop-distribution.ts';
 import { DesktopStartupError, desktopCsp, hasDesktopSession, listenHost, lockWorkspace, readDesktopStartup, reportDesktopStartupError } from './desktop-host.ts';
 import { TaskManager } from './manager.ts';
 import { WorkspaceFeed } from './feed.ts';
@@ -44,9 +45,10 @@ async function initialize() {
   });
   const migration = new CredentialMigration({ workspace: realWorkspace, store: credentials,
     requestKey: process.platform === 'darwin' ? desktop?.requestMigrationKey : undefined });
-  // Only an eligible distribution can opt in at composition time. Neither the
-  // local RPC nor an environment flag can authorize an external login.
-  const providers = await ProviderManager.create(credentials, directory, { nativeBrowser: Boolean(desktop && process.platform === 'darwin') });
+  const nativeBrowser = Boolean(desktop && process.platform === 'darwin');
+  const providers = await ProviderManager.create(credentials, directory, {
+    nativeBrowser, chatGPTEnabled: nativeBrowser && localChatGPTPlanUsage,
+  });
   const profiles = new ModelProfiles(directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
   for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
   const manager = new TaskManager({ dataDir: directory, models: {

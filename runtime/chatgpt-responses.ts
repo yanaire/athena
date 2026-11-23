@@ -26,15 +26,44 @@ const errorCodes = new Set([
   'subscription_sharing_route_not_supported', 'subscription_sharing_invalid_user',
   'subscription_sharing_user_unavailable', 'chatpass_v2_scope_not_authorized',
   'chatpass_v2_invalid_authorization_context', 'rate_limit_exceeded', 'invalid_api_key',
+  'invalid_request_error', 'invalid_value', 'invalid_type', 'invalid_json_schema',
+  'unknown_parameter', 'unsupported_parameter', 'missing_required_parameter', 'unsupported_value', 'model_not_found',
 ]);
+
+const extraDiagnosticFields = new Set([
+  'background', 'conversation', 'max_output_tokens', 'max_tool_calls', 'metadata', 'moderation', 'multi_agent',
+  'previous_response_id', 'prompt', 'prompt_cache_options', 'prompt_cache_retention', 'safety_identifier',
+  'service_tier', 'temperature', 'top_logprobs', 'top_p', 'truncation', 'user',
+]);
+const pathField = /^(?:input|tools)(?:\[(?:0|[1-9]\d{0,4})\]|\.(?:arguments|call_id|content|description|id|input|name|namespace|output|parameters|role|status|strict|text|tools|type))+$/u;
+const errorTypes = new Set(['invalid_request_error', 'server_error', 'authentication_error', 'permission_error', 'rate_limit_error']);
 
 function errorFields(value: unknown): string {
   if (!object(value)) return 'code=provider_error';
   const code = typeof value.code === 'string' && errorCodes.has(value.code) ? value.code : 'provider_error';
-  const param = typeof value.param === 'string' && (fields.has(value.param)
-    || ['service_tier', 'previous_response_id', 'prompt', 'prompt_cache_options', 'max_output_tokens', 'temperature'].includes(value.param))
-    ? `; param=${value.param}` : '';
-  return `code=${code}${param}`;
+  const type = typeof value.type === 'string' && errorTypes.has(value.type) ? `; type=${value.type}` : '';
+  const param = typeof value.param === 'string' && value.param.length <= 128
+    && (fields.has(value.param) || extraDiagnosticFields.has(value.param) || pathField.test(value.param)) ? `; param=${value.param}` : '';
+  // Classify known provider messages without disclosing reflected input or credentials.
+  const message = typeof value.message === 'string' ? value.message : '';
+  const cause = /^Invalid schema for (?:function|tool)/i.test(message) ? '; cause=tool_schema'
+    : /^(?:Unknown|Unsupported) parameter\b/i.test(message) ? '; cause=unsupported_parameter'
+      : /^Missing required parameter\b/i.test(message) ? '; cause=missing_parameter' : '';
+  return `code=${code}${type}${param}${cause}`;
+}
+
+function planSchema(value: unknown): unknown {
+  if (!object(value)) return value;
+  const schema = { ...value };
+  // The Plan Responses validator rejects uniqueItems. Pi and Athena still
+  // check uniqueness against the original schema before dispatching tools.
+  if (schema.type === 'array') delete schema.uniqueItems;
+  if (object(schema.properties)) {
+    schema.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, child]) => [key, planSchema(child)]));
+  }
+  if (schema.items !== undefined) schema.items = planSchema(schema.items);
+  if (Array.isArray(schema.anyOf)) schema.anyOf = schema.anyOf.map(planSchema);
+  return schema;
 }
 
 function tools(value: unknown): readonly Record<string, unknown>[] {
@@ -49,7 +78,7 @@ function tools(value: unknown): readonly Record<string, unknown>[] {
       throw new ChatGPTResponsesError("Invalid ChatGPT tool name.");
     }
   }
-  return value;
+  return value.map(tool => tool.type === 'function' ? { ...tool, parameters: planSchema(tool.parameters) } : tool);
 }
 
 function payload(value: unknown, selectedId: string): Record<string, unknown> {
@@ -63,7 +92,7 @@ function payload(value: unknown, selectedId: string): Record<string, unknown> {
     if (item.type !== undefined && !inputTypes.has(String(item.type))) {
       throw new ChatGPTResponsesError("Unsupported ChatGPT history item.");
     }
-    if (item.type === "additional_tools") tools(item.tools);
+    if (item.type === "additional_tools") return { ...item, tools: tools(item.tools) };
     return item.role === "system" ? { ...item, role: "developer" } : item;
   });
   // The SDK already emits additional_tools for transcript declarations. Also

@@ -704,7 +704,7 @@ export class TaskManager implements AthenaTaskManager {
   }
   async #wait(a:Attempt,list:unknown,signal:AbortSignal) {
     if(list!==undefined && !Array.isArray(list))throw new ManagerError('INVALID_INPUT','taskIds must be an array.');
-    const tasks=Array.isArray(list)?list.map(id=>this.#child(a,id)):this.#children(a);
+    const tasks=list?.length?list.map(id=>this.#child(a,id)):this.#children(a);
     const current=()=>tasks.map(t=>this.#child(a,t.id));
     this.#commit(()=>this.#journal.wait(a,tasks));
     if(tasks.some(t=>pending(t.status))) {

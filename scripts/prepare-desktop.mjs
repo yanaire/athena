@@ -81,6 +81,9 @@ async function stageHost(host) {
       await copyFile(join(root, 'runtime', entry.name), join(host, 'runtime', entry.name));
     }
   }
+  if (process.env.ATHENA_BUILD_CHATGPT_LOCAL === '1') {
+    await writeFile(join(host, 'runtime', 'desktop-distribution.ts'), 'export const localChatGPTPlanUsage: boolean = true;\n');
+  }
   await mkdir(join(host, ui, 'integrations'), { recursive: true });
   for (const asset of ['athena-preview.html', 'integrations/athena-host.js', 'integrations/pi-host-adapter.mjs']) {
     await copyFile(join(root, ui, asset), join(host, ui, asset));
