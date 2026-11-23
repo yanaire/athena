@@ -12,6 +12,14 @@ npm run desktop:build
 
 The local build produces `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Athena.app`. The ad-hoc seal used for local development is not Developer ID signing or Apple notarization. See [model providers](model-providers.md) to connect a supported model. The app contains no model weights or credentials.
 
+## Personal local build with ChatGPT
+
+For personal use on this Mac, developers can run `npm run desktop:build:local-chatgpt` instead of `npm run desktop:build`. It writes to the same build output path with a separate app identifier, so copy the bundle to a different destination before switching builds. The bundle is signed ad hoc. The standard desktop build and browser host leave ChatGPT sign-in disabled.
+
+In the personal app, select **Settings → Models & connections → Continue with ChatGPT → Open in system browser**. Approve it in the official OpenAI page. Athena receives the callback automatically; no API key or copied authorization code is needed. Select a model from the connected account's catalog and save a profile. OpenAI's [official implementation guide](https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt#usage-policy-and-terms) covers personal projects that run locally and requires a separate access request for paid or remotely hosted apps. Account and workspace eligibility still apply.
+
+## Browser development
+
 For browser development with a compatible local model server:
 
 ```sh

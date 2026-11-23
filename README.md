@@ -6,7 +6,7 @@ Athena의 로컬 Node 호스트는 기존 UI, 자체 TaskManager, 공식 Pi SDK�
 
 **M4.2 오프라인 분석** — Docker 없이 Wasmtime에서 CPython과 QuickJS-ng를 실행합니다. 프로젝트마다 기본으로 꺼져 있으며 **Settings → Agents & execution**에서 켭니다. Python은 WASI 표준 라이브러리를 사용합니다. JavaScript의 기존 `language: "node"` 값은 QuickJS를 뜻하며 Node 내장 API와 npm은 지원하지 않습니다. `read`와 `calculate_csv`는 분석 실행기를 준비하지 않아도 쓸 수 있습니다. [실행기 범위](docs/sandbox-security.md)를 참고하세요.
 
-**M3.1 ChatGPT 플랜 모델** — 계정별 카탈로그와 Pi 실행을 통제된 OpenAI 응답으로 검증했습니다. 이 배포에서는 ChatGPT 로그인이 비활성화되어 있습니다. OpenAI API 키와 다른 제공자는 계속 사용할 수 있습니다. [구현 범위와 실계정 검증 조건](docs/m31/chatgpt-codex.md)을 참고하세요.
+**ChatGPT 플랜 모델** — 기본 배포에서 ChatGPT 로그인은 비활성화되어 있습니다. 개인용 로컬 macOS 빌드에서는 공식 Sign in with ChatGPT를 사용할 수 있습니다. 계정과 워크스페이스 자격은 OpenAI가 판단합니다. [로컬 빌드와 연결 방법](docs/installation.md#personal-local-build-with-chatgpt) · [검증 기록](docs/m42/siwc.md).
 
 **macOS 소스 빌드** — Apple Silicon과 macOS 13.5 이상에서 개발 도구를 설치하고 [소스 빌드 안내](docs/installation.md)를 따릅니다. 생성되는 로컬 `Athena.app`에는 Node.js, Pi SDK와 두 분석 인터프리터가 포함되지만 모델 가중치와 자격 증명은 포함되지 않습니다. 정식 서명·공증된 앱이나 공개 다운로드는 이번 Preview에 없습니다. [모델 설정](docs/model-providers.md) · [데이터 보관](PRIVACY.md) · [개발](docs/development.md) · [배포 전 확인](docs/release-checklist.md).
 

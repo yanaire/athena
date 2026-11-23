@@ -1,9 +1,10 @@
 # SIWC backend integration handoff
 
-Controlled backend evidence only, November 22, 2026. No existing account,
+Historical controlled backend evidence, November 22, 2026. No existing account,
 credential file, or authenticated OpenAI endpoint was used. No commit was made.
-The composition in `runtime/server.ts` still omits `chatGPTEnabled`; its default
-is false. Enabling an eligible release remains the lead's decision.
+At the time of this handoff, the composition in `runtime/server.ts` did not
+enable ChatGPT plan usage. See the [current build and verification record](m42/siwc.md)
+for the personal local macOS build and the current account acceptance criteria.
 
 ## Delivered behavior
 
