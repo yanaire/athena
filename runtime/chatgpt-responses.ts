@@ -2,6 +2,7 @@ import { lazyStream } from "@earendil-works/pi-ai/api/lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import type { Api, Model, ProviderStreams, StreamOptions } from "@earendil-works/pi-ai";
 import { object } from './connections.ts';
+import { readChatGPTError } from './chatgpt-errors.ts';
 import { CHATGPT_RESOURCE } from './chatgpt-catalog.ts';
 
 const endpoint = CHATGPT_RESOURCE + '/responses';
@@ -168,25 +169,7 @@ export function chatGPTResponsesApi(): ProviderStreams {
         throw new ChatGPTResponsesError("ChatGPT redirects are forbidden.");
       }
       if (!response.ok) {
-        let failure: unknown;
-        const reader = response.body?.getReader();
-        if (reader) {
-          try {
-            const chunks: Uint8Array[] = [];
-            let size = 0;
-            for (;;) {
-              const part = await reader.read();
-              if (part.done) break;
-              size += part.value.byteLength;
-              if (size > 64 * 1024) break;
-              chunks.push(part.value);
-            }
-            if (size <= 64 * 1024) failure = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          } catch {
-            // Untrusted transport/parsing failures reveal no upstream text.
-            failure = undefined;
-          } finally { await reader.cancel(); }
-        }
+        const failure = await readChatGPTError(response);
         const shape = object(failure) ? object(failure.error) ? 'structured'
           : typeof failure.detail === 'string' ? 'detail' : 'other' : 'malformed';
         const requestId = response.headers.get('x-request-id');

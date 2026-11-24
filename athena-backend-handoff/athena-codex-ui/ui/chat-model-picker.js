@@ -174,7 +174,7 @@
         else if (levelsLoading) emptyState('Checking supported levels', 'The catalog for ' + (profile.name || profile.id) + ' determines the reasoning options.');
         else {
           for (const level of array(profileLevels)) { const [name, description, glyph] = levelInfo(level); addOption(level, name, description + ' · saved to ' + (profile.name || profile.id), glyph, level === profile.thinkingLevel); }
-          if (!array(profileLevels).length) emptyState('Reasoning is not available', 'This profile’s model has no adjustable reasoning levels in the SDK catalog.');
+          if (!array(profileLevels).length) emptyState('Reasoning is not available', 'The selected connection has no reasoning levels available for this model.');
         }
       } else if (options.isSessionBound?.() === false) {
         emptyState('Connect this conversation', 'The model connection belongs to another session. Your current draft has not been sent.');
@@ -219,18 +219,21 @@
     }
     async function loadProfileLevels(version) {
       const profile = currentProfile();
-      if (!profile) { profileLevels = null; profileLevelsKey = ''; return; }
-      const key = profile.provider + '\u241f' + profile.modelId;
-      if (profileLevelsKey === key && profileLevels) return;
+      if (!profile) { levelsLoading = false; profileLevels = null; profileLevelsKey = ''; return; }
+      const accountRef = profile.authMode === 'chatgpt' ? profile.authRef : null;
+      const key = JSON.stringify([profile.provider, profile.modelId, accountRef]);
+      if (profileLevelsKey === key && profileLevels) { levelsLoading = false; return; }
       levelsLoading = true; error = ''; render();
       try {
-        const catalog = await profilesAdapter.getProviderCatalog(profile.provider, { query: profile.modelId });
+        const catalog = await profilesAdapter.getProviderCatalog(profile.provider, { query: profile.modelId,
+          ...(profile.provider === 'openai' ? { accountRef } : {}) });
         if (destroyed || version !== readVersion) return;
         const model = array(catalog?.models).find(item => item.id === profile.modelId) || null;
         profileLevels = model ? array(model.thinkingLevels).filter(level => typeof level === 'string') : [];
-        profileLevelsKey = key;
+        profileLevelsKey = model ? key : '';
       } catch (cause) {
-        if (!destroyed && version === readVersion) error = String(cause?.message || 'Could not load this profile’s reasoning levels.');
+        if (destroyed || version !== readVersion) return;
+        error = String(cause?.message || 'Could not load this profile’s reasoning levels.');
         profileLevels = null; profileLevelsKey = '';
       }
       if (!destroyed && version === readVersion) { levelsLoading = false; render(); }
@@ -418,6 +421,9 @@
         const next = context || null;
         const changed = JSON.stringify([next?.sessionId, next?.profileId, next?.projectId]) !== JSON.stringify([profileContext?.sessionId, profileContext?.profileId, profileContext?.projectId]);
         profileContext = next;
+        if (changed && open === 'reasoning' && profilesList && !profilesLoading) {
+          void loadProfileLevels(++readVersion);
+        }
         if (changed) menuSignature = '';
         render();
       },

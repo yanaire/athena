@@ -37,6 +37,14 @@ const terminalRefreshCodes = new Set([
   'refresh_token_invalidated', 'refresh_token_reused',
 ]);
 
+export class OpenAIRequestUnavailable extends Error {
+  readonly reason: 'connection' | 'rate_limited' | 'service_unavailable';
+  constructor(status?: number) {
+    super('OpenAI OAuth request is temporarily unavailable.');
+    this.reason = status === 429 ? 'rate_limited' : status === undefined ? 'connection' : 'service_unavailable';
+  }
+}
+
 export class OpenAIRefreshRejected extends Error {
   constructor() { super('The ChatGPT session must be reauthorized.'); }
 }
@@ -142,6 +150,10 @@ export function createOpenAIAuthorization(options: OpenAIAuthorizationOptions): 
       const response = await send(url, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
         ...(body ? { method: 'POST', body } : {}), headers: { Accept: 'application/json' } });
       if (!response.ok) {
+        if (response.status === 429 || response.status >= 500) {
+          await response.body?.cancel();
+          throw new OpenAIRequestUnavailable(response.status);
+        }
         if (url === tokenUrl && body?.get('grant_type') === 'refresh_token' && [400, 401].includes(response.status)) {
           const failure: unknown = await response.json();
           if (object(failure) && typeof failure.error === 'string' && terminalRefreshCodes.has(failure.error)) {
@@ -152,8 +164,9 @@ export function createOpenAIAuthorization(options: OpenAIAuthorizationOptions): 
       }
       return await response.json();
     } catch (error) {
-      if (error instanceof OpenAIRefreshRejected) throw error;
+      if (error instanceof OpenAIRefreshRejected || error instanceof OpenAIRequestUnavailable || error instanceof OpenAIAuthorizationError) throw error;
       signal.throwIfAborted();
+      if (error instanceof TypeError || error instanceof DOMException) throw new OpenAIRequestUnavailable();
       throw new OpenAIAuthorizationError('OpenAI OAuth request failed.');
     }
   }
@@ -195,8 +208,9 @@ export function createOpenAIAuthorization(options: OpenAIAuthorizationOptions): 
         && claims.email.length <= 256 ? claims.email : '';
       return { issuer, subject: claims.sub, clientId: expected.clientId, idToken,
         ...(displayName ? { displayName } : {}), ...(email ? { email } : {}) };
-    } catch {
+    } catch (error) {
       signal.throwIfAborted();
+      if (error instanceof OpenAIRequestUnavailable) throw error;
       throw invalid;
     }
   }

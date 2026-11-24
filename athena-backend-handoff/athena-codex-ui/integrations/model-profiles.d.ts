@@ -38,6 +38,7 @@ export type ProviderCatalog = {
   readonly source: 'sdk_catalog' | 'refreshed_catalog' | 'endpoint_catalog' | 'chatgpt_account';
   readonly accountRef?: string;
   readonly checkedAt: string;
+  readonly errorReason?: ModelCheck['error'];
   readonly error?: 'refresh_failed' | 'availability_failed' | 'account_catalog_failed';
 };
 export type ModelProfile = ModelReference & {
@@ -54,7 +55,7 @@ export type ModelCheck = {
   readonly checkedAt: string;
   readonly streaming: 'passed' | 'failed' | 'not_checked';
   readonly tools: 'passed' | 'failed' | 'not_checked';
-  readonly error?: 'authentication' | 'permission' | 'rate_limited' | 'model_unavailable' | 'connection' | 'unsupported' | 'timeout';
+  readonly error?: 'authentication' | 'permission' | 'rate_limited' | 'usage_limit' | 'invalid_request' | 'service_unavailable' | 'model_unavailable' | 'connection' | 'unsupported' | 'timeout';
 };
 export type ResolvedModelReference = ModelReference & {
   readonly profileId?: string;
@@ -78,7 +79,8 @@ export type ProviderOAuthFlow = {
   readonly status: 'pending' | 'succeeded' | 'failed' | 'cancelled';
   readonly authorizeUrl?: string;
   readonly browserReady?: boolean;
-  readonly error?: 'authorization_failed' | 'credential_save_failed';
+  readonly accountRef?: string;
+  readonly error?: 'authorization_failed' | 'credential_save_failed' | 'connection' | 'rate_limited' | 'service_unavailable';
 };
 export type ChatGPTAccount = {
   readonly authRef: string;

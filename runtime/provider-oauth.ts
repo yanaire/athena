@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { link, open, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { CredentialStore } from '@earendil-works/pi-ai';
+import type { Credential, CredentialStore } from '@earendil-works/pi-ai';
 import { CredentialSynchronizationError } from '@earendil-works/pi-coding-agent';
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
-import { createOpenAIAuthorization, OPENAI_AUTHORIZE_URL } from './openai-authorization.ts';
-import { CredentialPersistenceError } from './provider-credentials.ts';
+import { createOpenAIAuthorization, OPENAI_AUTHORIZE_URL, OpenAIRequestUnavailable } from './openai-authorization.ts';
+import { chatGPTAccountRef } from './chatgpt-catalog.ts';
+import { CredentialPersistenceError, CredentialVaultError } from './provider-credentials.ts';
 import type { ProviderOAuthFlow } from '../athena-backend-handoff/athena-codex-ui/integrations/model-profiles.d.ts';
 
 export interface OpenAIOAuthRegistrationOptions {
@@ -120,6 +121,7 @@ interface ActiveFlow {
   readonly id: string;
   readonly controller: AbortController;
   readonly done: Promise<void>;
+  readonly accountRef?: string;
   readonly providerId: string;
   authorizeUrl?: string;
 }
@@ -145,12 +147,16 @@ export class ProviderOAuthController {
   start(providerId: string, accountRef?: string): ProviderOAuthFlow {
     if (this.#closed) throw new ProviderOAuthError('CLOSED', 'Athena OAuth is closed.');
     if (!this.#enabled.has(providerId)) throw new ProviderOAuthError('UNSUPPORTED_AUTH', 'This provider has no Athena OAuth flow.');
-    if (this.#active?.providerId === providerId) return { id: this.#active.id, status: 'pending' };
+    if (this.#active?.providerId === providerId && this.#active.accountRef === accountRef) return { id: this.#active.id, status: 'pending' };
     if (this.#active) throw new ProviderOAuthError('UNSUPPORTED_AUTH', 'Finish or cancel the current sign-in first.');
     const id = randomUUID();
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(300_000)]);
     const target = providerId === 'openai' && this.#prepareOpenAI ? this.#prepareOpenAI(accountRef, signal) : Promise.resolve(this.#runtime);
+    const succeed = (credential?: Credential) => {
+      const ref = providerId === 'openai' && credential?.type === 'oauth' ? chatGPTAccountRef(credential) : undefined;
+      this.#finish(id, 'succeeded', undefined, ref);
+    };
     const done = target.then(runtime => runtime.login(providerId, 'oauth', {
       signal,
       notify: event => {
@@ -168,21 +174,24 @@ export class ProviderOAuthController {
         timeout.throwIfAborted();
         return new Promise<string>((_, reject) => timeout.addEventListener('abort', () => reject(timeout.reason), { once: true }));
       },
-    })).then(() => this.#finish(id, 'succeeded'), (error: unknown) => {
+    })).then(succeed, (error: unknown) => {
       // Pi can abort a queued write, but once its commit starts, it owns the write.
       // A synchronization error is raised only after Pi commits the credential.
-      if (error instanceof CredentialSynchronizationError) this.#finish(id, 'succeeded');
-      else if (error instanceof Error && error.cause instanceof CredentialPersistenceError) this.#finish(id, 'failed', 'credential_save_failed');
-      else if (controller.signal.aborted) this.#finish(id, 'cancelled');
+      const cause = error instanceof Error ? error.cause : undefined;
+      if (error instanceof CredentialSynchronizationError) succeed(error.credential);
+      else if (cause instanceof CredentialPersistenceError || (cause instanceof CredentialVaultError && cause.code === 'VAULT_WRITE_FAILED')) {
+        this.#finish(id, 'failed', 'credential_save_failed');
+      } else if (controller.signal.aborted) this.#finish(id, 'cancelled');
+      else if (error instanceof OpenAIRequestUnavailable) this.#finish(id, 'failed', error.reason);
       else this.#finish(id, 'failed', 'authorization_failed');
     });
-    this.#active = { id, controller, done, providerId };
+    this.#active = { id, controller, done, providerId, accountRef };
     return { id, status: 'pending' };
   }
 
-  #finish(id: string, status: TerminalStatus, error?: ProviderOAuthFlow['error']): void {
+  #finish(id: string, status: TerminalStatus, error?: ProviderOAuthFlow['error'], accountRef?: string): void {
     this.#active = undefined;
-    this.#terminal.set(id, { id, status, ...(error ? { error } : {}) });
+    this.#terminal.set(id, { id, status, ...(error ? { error } : {}), ...(accountRef ? { accountRef } : {}) });
     if (this.#terminal.size > 32) {
       const oldest = this.#terminal.keys().next().value;
       if (oldest !== undefined) this.#terminal.delete(oldest);

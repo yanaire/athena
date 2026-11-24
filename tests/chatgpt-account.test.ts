@@ -111,6 +111,77 @@ test('only the current account list can author or run an OAuth profile; there is
   await assert.rejects(providers.pin(profile), ProviderError);
 });
 
+test('an explicit ChatGPT catalog stays account-scoped when the credential store cannot be read', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'athena-chatgpt-store-'));
+  const store = new InMemoryCredentialStore();
+  const manager = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
+  t.after(async () => { await manager.close(); await rm(directory, { recursive: true, force: true }); });
+  t.mock.method(store, 'read', async () => { throw new Error('Fixture read failure'); });
+  const catalog = await manager.catalog('openai', { accountRef: chatGPTAccountRef(registration) });
+  assert.equal(catalog.source, 'chatgpt_account');
+  assert.ok(catalog.error);
+  assert.deepEqual(catalog.models, []);
+});
+
+test('catalog loading and profile verification preserve the failing stage and recovery reason', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'athena-chatgpt-diagnostic-'));
+  const store = new InMemoryCredentialStore();
+  const ref = chatGPTAccountRef(registration);
+  assert.ok(ref);
+  await store.modify(ref, async () => registration);
+  await store.modify('openai', async () => ({ type: 'api_key', key: 'separate-fixture-key' }));
+  const manager = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
+  t.after(async () => { await manager.close(); await rm(directory, { recursive: true, force: true }); });
+  const profile = { provider: 'openai', modelId: slug, authMode: 'chatgpt', authRef: ref } as const;
+  for (const stage of ['models', 'responses']) {
+    for (const [status, code, expected] of [
+      [401, 'invalid_api_key', 'authentication'], [403, 'subscription_sharing_user_not_eligible', 'permission'],
+      [429, 'subscription_sharing_usage_limit_exceeded', 'usage_limit'], [429, 'rate_limit_exceeded', 'rate_limited'],
+      [400, 'subscription_sharing_unsupported_capability', 'invalid_request'], [0, '', 'connection'],
+    ] as const) await t.test(stage + ' ' + expected, async ctx => {
+      const requests: string[] = [];
+      ctx.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(url, init);
+        requests.push(request.url);
+        assert.equal(request.headers.get('authorization'), 'Bearer ' + access);
+        if (request.url !== base + '/' + stage) return Response.json({ models: [entry(slug, 'Listed model')] });
+        if (!status) throw new TypeError(access);
+        return Response.json({ error: { code, message: access } }, { status });
+      });
+      const check = await manager.verify(profile);
+      assert.deepEqual([check.streaming, check.tools, check.error],
+        [stage === 'models' ? 'not_checked' : 'failed', 'not_checked', expected]);
+      assert.deepEqual(requests, stage === 'models' ? [base + '/models'] : [base + '/models', base + '/responses']);
+      if (stage === 'models') {
+        const catalog = await manager.catalog('openai', { accountRef: ref });
+        assert.equal(catalog.errorReason, expected);
+        assert.deepEqual(catalog.availableModelIds, []);
+        assert.equal(JSON.stringify(catalog).includes(access), false);
+      }
+    });
+  }
+  for (const failTool of [false, true]) await t.test(failTool ? 'failure after stream admission' : 'completed text and tool probes', async ctx => {
+    let responses = 0;
+    ctx.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(url, init);
+      assert.equal(request.headers.get('authorization'), 'Bearer ' + access);
+      if (request.url === base + '/models') return Response.json({ models: [entry(slug, 'Listed model')] });
+      assert.equal(request.url, base + '/responses');
+      assert.equal((await request.json()).model, slug);
+      if (++responses === 1) return sse(slug, { text: 'Athena' });
+      if (!failTool) return sse(slug, { function: 'athena_connection_check', args: {} });
+      const failure = { type: 'response.failed', response: { status: 'failed', model: slug,
+        error: { code: 'subscription_sharing_usage_limit_exceeded', message: access } } };
+      return new Response('data: ' + JSON.stringify(failure) + '\n\n', { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const check = await manager.verify(profile);
+    assert.deepEqual([check.streaming, check.tools, check.error],
+      ['passed', failTool ? 'failed' : 'passed', failTool ? 'usage_limit' : undefined]);
+    assert.equal(responses, 2);
+  });
+  assert.deepEqual(await store.read(ref), registration);
+});
+
 function sse(model: string, output: { readonly text: string } | { readonly function: string; readonly args: object }, terminal = 'completed') {
   const text = 'text' in output;
   const item = text ? { type: 'message', id: 'msg_fixture', role: 'assistant', content: [{ type: 'output_text', text: output.text }] }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Model, OAuthCredential } from '@earendil-works/pi-ai';
+import { chatGPTFailureReason, readChatGPTError } from './chatgpt-errors.ts';
 import { object } from './connections.ts';
 
 export const CHATGPT_RESOURCE = 'https://api.openai.com/v1';
@@ -13,11 +14,25 @@ export function chatGPTAccountRef(credential: OAuthCredential): string | undefin
 
 export type ChatGPTCatalogEntry = { readonly slug: string; readonly label: string };
 
+export class ChatGPTCatalogFailure extends Error {
+  readonly reason: ReturnType<typeof chatGPTFailureReason>;
+  constructor(status?: number, code?: unknown, type?: unknown) {
+    const reason = chatGPTFailureReason(status, code, type);
+    super(`ChatGPT account catalog request failed (${reason}${status ? ', HTTP ' + status : ''}).`);
+    this.reason = reason;
+  }
+}
+
 export async function fetchChatGPTCatalog(access: string, signal: AbortSignal): Promise<readonly ChatGPTCatalogEntry[]> {
   const response = await fetch(CHATGPT_RESOURCE + '/models', {
     headers: { Authorization: `Bearer ${access}`, Accept: 'application/json' }, redirect: 'error', cache: 'no-store', signal,
-  });
-  if (!response.ok || !response.body) throw new Error('The ChatGPT account list could not be loaded.');
+  }).catch(() => { throw new ChatGPTCatalogFailure(); });
+  if (!response.ok) {
+    const body = await readChatGPTError(response);
+    const error = object(body) && object(body.error) ? body.error : undefined;
+    throw new ChatGPTCatalogFailure(response.status, error?.code, error?.type);
+  }
+  if (!response.body) throw new Error('The ChatGPT account list could not be loaded.');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;

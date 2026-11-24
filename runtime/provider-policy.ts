@@ -35,7 +35,7 @@ export function providerMethods(provider: Provider, enabledOAuth: ReadonlySet<st
     methods.push({ kind: 'oauth', label: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name, enabled,
       flows: Object.hasOwn(deviceFlows, provider.id) ? deviceFlows[provider.id] : ['browser'],
       ...(!enabled ? { reason: (Object.hasOwn(oauthReasons, provider.id) ? oauthReasons[provider.id] : undefined)
-        ?? (provider.id === 'openai' ? 'ChatGPT plan usage is unavailable in this Athena release.'
+        ?? (provider.id === 'openai' ? 'ChatGPT sign-in requires the personal macOS build (desktop:build:local-chatgpt).'
           : 'The SDK advertises OAuth; this provider has no policy-verified Athena login integration.') } : {}) });
   }
   return methods;

@@ -8,7 +8,9 @@ import { addCompatibleModels, compatibleEndpoint, fetchCompatibleModels } from '
 import { loadDeviceId, ProviderOAuthController, registerOpenAIOAuth } from './provider-oauth.ts';
 import { streamRedactor } from './pi.ts';
 import type { PiModelSelection } from './pi.ts';
-import { accountModel, CHATGPT_RESOURCE, chatGPTAccountRef, fetchChatGPTCatalog } from './chatgpt-catalog.ts';
+import { accountModel, CHATGPT_RESOURCE, ChatGPTCatalogFailure, chatGPTAccountRef, fetchChatGPTCatalog } from './chatgpt-catalog.ts';
+import { OpenAIRequestUnavailable } from './openai-authorization.ts';
+import { chatGPTFailureReason } from './chatgpt-errors.ts';
 import { chatGPTResponsesApi } from './chatgpt-responses.ts';
 import { ChatGPTRegistrationError, ChatGPTRegistrations } from './chatgpt-registrations.ts';
 
@@ -16,10 +18,12 @@ export type CompatibleProvider = { readonly id: string; readonly name: string; r
 
 export class ProviderError extends Error {
   readonly code: 'UNKNOWN_PROVIDER' | 'UNSUPPORTED_AUTH' | 'CREDENTIAL_FAILURE' | 'INVALID_KEY' | 'MODEL_UNAVAILABLE' | 'AUTH_REQUIRED';
-  constructor(code: ProviderError['code'], message: string) {
+  readonly reason?: ModelCheck['error'];
+  constructor(code: ProviderError['code'], message: string, reason?: ModelCheck['error']) {
     super(message);
     this.name = 'ProviderError';
     this.code = code;
+    this.reason = reason;
   }
 }
 
@@ -127,6 +131,8 @@ export class ProviderManager {
   async #accountModels(authRef: string, access: string, signal: AbortSignal, store = this.#accountStore(authRef)) {
     const entries = await fetchChatGPTCatalog(access, signal).catch((error: unknown) => {
       if (!(error instanceof Error)) throw error;
+      if (signal.aborted) throw new ProviderError('MODEL_UNAVAILABLE', 'ChatGPT account catalog request timed out.', 'timeout');
+      if (error instanceof ChatGPTCatalogFailure) throw new ProviderError('MODEL_UNAVAILABLE', error.message, error.reason);
       throw new ProviderError('MODEL_UNAVAILABLE', 'OpenAI did not return the ChatGPT account catalog. Check the account and try again.');
     });
     const current = await store.read('openai', { signal }).catch((error: unknown) => {
@@ -136,10 +142,11 @@ export class ProviderManager {
     if (current?.type !== 'oauth' || current.access !== access || chatGPTAccountRef(current) !== authRef) {
       throw new ProviderError('AUTH_REQUIRED', 'The ChatGPT credential changed while loading models. Load the catalog again.');
     }
-    return entries.map(entry => {
+    const models = entries.map(entry => {
       const known = this.#knownResponseModel(entry.slug);
       return { model: accountModel(entry, known), known: known !== undefined };
     });
+    return { models, expires: current.expires };
   }
 
   async authorChatGPTProfile(modelId: string, accountRef: unknown) {
@@ -148,7 +155,7 @@ export class ProviderManager {
       throw new ProviderError('AUTH_REQUIRED', 'Use the current ChatGPT account catalog to save this profile.');
     }
     const access = await this.#chatGPTAccess(await this.#accountRuntime(this.#accountStore(accountRef)), signal);
-    const selected = (await this.#accountModels(accountRef, access, signal)).find(entry => entry.model.id === modelId);
+    const selected = (await this.#accountModels(accountRef, access, signal)).models.find(entry => entry.model.id === modelId);
     if (!selected) throw new ProviderError('MODEL_UNAVAILABLE', 'This model was not listed for the ChatGPT account.');
     return { model: selected.model, authRef: accountRef };
   }
@@ -164,6 +171,10 @@ export class ProviderManager {
   async #chatGPTAccess(runtime: ModelRuntime, signal: AbortSignal): Promise<string> {
     const auth = await runtime.getAuth('openai', { signal }).catch((error: unknown) => {
       if (!(error instanceof Error)) throw error;
+      if (signal.aborted) throw new ProviderError('AUTH_REQUIRED', 'ChatGPT authorization timed out. Try again.', 'timeout');
+      if (error.cause instanceof OpenAIRequestUnavailable) {
+        throw new ProviderError('AUTH_REQUIRED', 'ChatGPT token refresh failed. Try again later.', error.cause.reason);
+      }
       throw new ProviderError('AUTH_REQUIRED', 'ChatGPT authorization could not be renewed. Sign in again.');
     });
     if (auth?.auth.baseUrl !== CHATGPT_RESOURCE || !auth.auth.apiKey) {
@@ -195,8 +206,10 @@ export class ProviderManager {
     if (id === 'openai-codex') throw new ProviderError('UNSUPPORTED_AUTH', 'The independent Codex OAuth provider is not supported.');
     const signal = AbortSignal.timeout(12_000);
     const ref = reference.authMode === 'chatgpt' ? reference.authRef : undefined;
-    if (reference.authMode === 'chatgpt' && (id !== 'openai' || !ref || (await this.#accountInfo(ref, signal))?.planUsage !== 'enabled')) {
-      throw new ProviderError('AUTH_REQUIRED', 'Reconnect the ChatGPT registration saved with this profile.');
+    if (reference.authMode === 'chatgpt') {
+      const account = id === 'openai' && ref ? await this.#accountInfo(ref, signal) : undefined;
+      if (account?.state !== 'connected') throw new ProviderError('AUTH_REQUIRED', 'Reconnect the ChatGPT registration saved with this profile.');
+      if (account.planUsage !== 'enabled') throw new ProviderError('AUTH_REQUIRED', 'Enable ChatGPT plan usage for this registration.', 'permission');
     }
     const accountStore = ref ? this.#accountStore(ref) : undefined;
     const credential = await (accountStore ?? this.#credentials).read(id, { signal });
@@ -237,7 +250,7 @@ export class ProviderManager {
       await addCompatibleModels(runtime, id, compatible.name, endpoint, [reference.modelId], key);
     } else if (ref) {
       const access = await this.#chatGPTAccess(runtime, signal);
-      const selected = (await this.#accountModels(ref, access, signal)).find(entry => entry.model.id === reference.modelId)?.model;
+      const selected = (await this.#accountModels(ref, access, signal)).models.find(entry => entry.model.id === reference.modelId)?.model;
       const openai = runtime.getProvider(id);
       if (!selected || !openai) throw new ProviderError('MODEL_UNAVAILABLE', 'The selected model is not in this ChatGPT account’s list.');
       runtime.registerNativeProvider(createProvider({ id, name: openai.name, baseUrl: CHATGPT_RESOURCE,
@@ -278,7 +291,7 @@ export class ProviderManager {
       const message = await first.result();
       if (message.stopReason === 'error' || message.stopReason === 'aborted' || !delta) {
         streaming = 'failed';
-        return { checkedAt, streaming, tools, error: checkError(message.errorMessage, status, signal) };
+        return { checkedAt, streaming, tools, error: checkError(message.errorMessage, status, signal, reference.authMode) };
       }
       streaming = 'passed'; status = undefined;
       const second = modelRuntime.streamSimple(model, { messages: [prompt('Call the athena_connection_check tool with no arguments. Do not answer in text.')],
@@ -286,9 +299,13 @@ export class ProviderManager {
       const reply = await second.result();
       tools = reply.stopReason === 'toolUse' && reply.content.some(part => part.type === 'toolCall' &&
         part.name === 'athena_connection_check' && part.arguments && Object.keys(part.arguments).length === 0) ? 'passed' : 'failed';
-      return { checkedAt, streaming, tools, ...(tools === 'failed' ? { error: reply.stopReason === 'error' ? checkError(reply.errorMessage, status, signal) : 'unsupported' } : {}) };
+      if (tools === 'passed') return { checkedAt, streaming, tools };
+      const error = reply.stopReason === 'error' || reply.stopReason === 'aborted'
+        ? checkError(reply.errorMessage, status, signal, reference.authMode) : 'unsupported';
+      return { checkedAt, streaming, tools, error };
     } catch (error) {
-      return { checkedAt, streaming, tools, error: error instanceof ProviderError && error.code === 'AUTH_REQUIRED' ? 'authentication'
+      return { checkedAt, streaming, tools, error: error instanceof ProviderError && error.reason ? error.reason
+        : error instanceof ProviderError && error.code === 'AUTH_REQUIRED' ? 'authentication'
         : error instanceof ProviderError && error.code === 'MODEL_UNAVAILABLE' ? 'model_unavailable' : checkError(undefined, status, signal) };
     }
   }
@@ -337,25 +354,27 @@ export class ProviderManager {
     persistCompatible?: (provider: CompatibleProvider) => void): Promise<ProviderCatalog> {
     const provider = this.#provider(id);
     const signal = AbortSignal.timeout(10_000);
-    let source: ProviderCatalog['source'] = 'sdk_catalog';
+    const explicitAccount = id === 'openai' && typeof accountRef === 'string';
+    let source: ProviderCatalog['source'] = explicitAccount ? 'chatgpt_account' : 'sdk_catalog';
     let error: ProviderCatalog['error'];
     let summary = this.#summary(provider, 'not_checked');
     let availableModelIds: readonly string[] = [];
     try {
-      const credential = await this.#credentials.read(id, { signal });
+      const credential = explicitAccount ? undefined : await this.#credentials.read(id, { signal });
       const oauthAllowed = providerMethods(provider, this.#enabledOAuth).some(method => method.kind === 'oauth' && method.enabled);
       const selectedAccount = id === 'openai' ? accountRef === undefined && credential?.type === 'oauth'
         ? chatGPTAccountRef(credential) : accountRef : undefined;
-      if (id === 'openai' && (selectedAccount || (accountRef === undefined && credential?.type === 'oauth'))) {
+      if (explicitAccount || (id === 'openai' && accountRef === undefined && credential?.type === 'oauth')) {
         source = 'chatgpt_account';
         const info = oauthAllowed && selectedAccount ? await this.#accountInfo(selectedAccount, signal) : undefined;
         const store = info?.planUsage === 'enabled' && selectedAccount ? this.#accountStore(selectedAccount) : undefined;
         const saved = await store?.read(id, { signal });
-        const result = (auth: ProviderSummary['auth'], models: readonly CatalogModel[], error?: ProviderCatalog['error']): ProviderCatalog => ({
+        let expires = saved?.type === 'oauth' ? saved.expires : undefined;
+        const result = (auth: ProviderSummary['auth'], models: readonly CatalogModel[], error?: ProviderCatalog['error'], errorReason?: ModelCheck['error']): ProviderCatalog => ({
           provider: this.#summary(provider, auth, info ? { credentialType: 'oauth', credentialSource: 'stored',
-            ...(saved?.type === 'oauth' ? { oauthExpiresAt: saved.expires } : {}) } : {}),
+            ...(expires === undefined ? {} : { oauthExpiresAt: expires }) } : {}),
           models, availableModelIds: models.map(model => model.id),
-          source: 'chatgpt_account', checkedAt: new Date().toISOString(), ...(info ? { accountRef: info.authRef } : {}), ...(error ? { error } : {}),
+          source: 'chatgpt_account', checkedAt: new Date().toISOString(), ...(info ? { accountRef: info.authRef } : {}), ...(error ? { error } : {}), ...(errorReason ? { errorReason } : {}),
         });
         if (!info || info.state === 'signed_out') return result('unconfigured', []);
         if (!store || saved?.type !== 'oauth' || (!refresh && saved.expires <= Date.now())) return result('refresh_required', []);
@@ -363,17 +382,19 @@ export class ProviderManager {
         try { access = await this.#chatGPTAccess(await this.#accountRuntime(store), signal); }
         catch (cause) {
           if (!(cause instanceof ProviderError)) throw cause;
-          return result('refresh_required', [], 'refresh_failed');
+          return result('refresh_required', [], 'refresh_failed', cause.reason ?? 'authentication');
         }
         try {
           const needle = query.trim().toLowerCase();
-          const models = (await this.#accountModels(info.authRef, access, signal, store))
+          const current = await this.#accountModels(info.authRef, access, signal, store);
+          expires = current.expires;
+          const models = current.models
             .filter(({ model }) => `${model.id} ${model.name}`.toLowerCase().includes(needle))
             .map(({ model, known }) => ({ ...describe(model), cost: null, ...(!known ? { contextWindow: null, maxTokens: null } : {}) }));
           return result('configured', models);
         } catch (cause) {
           if (!(cause instanceof ProviderError)) throw cause;
-          return result('error', [], 'account_catalog_failed');
+          return result('error', [], 'account_catalog_failed', cause.reason);
         }
       }
       if (credential?.type === 'oauth' && (!oauthAllowed || id === 'openai')) {
@@ -423,7 +444,7 @@ export class ProviderManager {
     } catch (cause) {
       if (!(cause instanceof Error)) throw cause;
       summary = this.#summary(provider, 'error');
-      error = 'availability_failed';
+      error = source === 'chatgpt_account' ? 'account_catalog_failed' : 'availability_failed';
     }
     const needle = query.trim().toLowerCase();
     const models = (source === 'chatgpt_account' ? [] : this.#runtime.getModels(id))
@@ -480,8 +501,14 @@ function validKey(apiKey: string): void {
   }
 }
 
-function checkError(message: string | undefined, status: number | undefined, signal: AbortSignal): NonNullable<ModelCheck['error']> {
+function checkError(message: string | undefined, status: number | undefined, signal: AbortSignal, authMode?: ModelReference['authMode']): NonNullable<ModelCheck['error']> {
   if (signal.aborted) return 'timeout';
+  if (authMode === 'chatgpt') {
+    // The adapter sanitizes both HTTP errors and in-stream failure events.
+    const http = message?.match(/ChatGPT HTTP request failed \(status=(\d{3});/u);
+    return chatGPTFailureReason(http ? Number(http[1]) : status,
+      message?.match(/\bcode=(\w+)/u)?.[1], message?.match(/\btype=(\w+)/u)?.[1]);
+  }
   if (status === 401 || /\b401\b|invalid.api.key|unauthenticated/i.test(message ?? '')) return 'authentication';
   if (status === 403 || /\b403\b|permission.denied/i.test(message ?? '')) return 'permission';
   if (status === 429 || /\b429\b|rate.limit/i.test(message ?? '')) return 'rate_limited';

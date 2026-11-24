@@ -11,6 +11,17 @@
   const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
   const LEVEL_LABELS = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
   const AUTH_LABELS = { not_checked: 'Credential status not checked', unconfigured: 'Not configured', configured: 'Configured', refresh_required: 'Sign-in refresh required', error: 'Credential error' };
+  const CHECK_ERRORS = {
+    authentication: 'Check the selected account’s sign-in and granted permissions.',
+    permission: 'The selected account or workspace lacks permission for this request.',
+    usage_limit: 'ChatGPT plan usage reached a limit. Check Manage usage in ChatGPT before trying again.',
+    model_unavailable: 'Refresh the selected account’s model catalog and choose an available model.',
+    rate_limited: 'Too many requests. Wait before trying again.',
+    invalid_request: 'The provider rejected the model request. Check the model and supported options.',
+    connection: 'The provider connection failed. Check connectivity and try again.',
+    service_unavailable: 'The provider is temporarily unavailable. Try again later.',
+    timeout: 'The provider request timed out. Try again.'
+  };
   const AUTH_FLOWS = { browser: 'OAuth browser login', device: 'OAuth device flow' };
   /* Backend OAuth terminal values are exactly succeeded | failed | cancelled. Start
    * returns only {id, status:'pending'}; the authorizeUrl arrives on polling and
@@ -162,7 +173,7 @@
     async function call(key, action, after, replace = false) {
       if (!adapter || (at(key) && !replace)) return;
       const attach = generation;
-      const token = (owners.get(key) || 0) + 1;
+      const token = Symbol(key);
       owners.set(key, token);
       busy(key, true);
       try {
@@ -214,8 +225,15 @@
       if (!adapter?.listChatGPTAccounts) return;
       await call('accounts', () => adapter.listChatGPTAccounts(), result => {
         accounts = rows(result);
-        if (catalogAccount && !accounts.some(account => account.authRef === catalogAccount)) catalogAccount = null;
       });
+    }
+    function selectCatalogAccount(ref) {
+      catalogAccount = ref;
+      catalog = null;
+      if (editing?.provider === 'openai' && !editing.id) {
+        editing.modelId = '';
+        loadProfileModels();
+      }
     }
     async function startOAuth(providerId, accountRef) {
       if (flow?.status === 'pending') return;
@@ -245,11 +263,17 @@
         if (OAUTH_DONE.includes(status)) {
           if (current.providerId === 'openai') await refreshAccounts();
           if (destroyed || attach !== generation || flow?.flowId !== current.flowId) return;
+          if (current.providerId === 'openai' && state.accountRef) {
+            catalogProvider = 'openai';
+            selectCatalogAccount(state.accountRef);
+            catalogQuery = ''; q('[data-amp-catalog-search]').value = '';
+            syncCatalogOptions();
+          }
           flow = { ...current, status: 'authorized', message: '' };
         }
         else if (OAUTH_FAILED.includes(status)) flow = { ...current, status: 'error', message: state?.error === 'credential_save_failed'
           ? 'Sign-in was verified but the host could not save the credential.' : status === 'cancelled'
-            ? 'Sign-in was cancelled.' : 'The provider rejected the sign-in or the callback could not be verified.' };
+            ? 'Sign-in was cancelled.' : CHECK_ERRORS[state?.error] || 'The provider rejected the sign-in or the callback could not be verified.' };
         else flow = { ...current, status: 'pending', authUrl: current.authUrl || url, browserReady: state?.browserReady === true, message: text(state?.message) || (status && status !== 'pending' ? 'Provider sign-in status: ' + status : '') };
         render();
         if (flow?.status === 'pending') { flowTimer = setTimeout(pollOAuth, OAUTH_POLL_MS); return; }
@@ -496,10 +520,12 @@
     function renderCatalog() {
       const accountRow = q('[data-amp-accounts]');
       const active = accounts.find(account => account.authRef === catalogAccount);
-      accountRow.hidden = catalogProvider !== 'openai' || !accounts.length;
+      accountRow.hidden = catalogProvider !== 'openai' || (!accounts.length && !catalogAccount);
       if (!accountRow.hidden) {
         const select = q('[data-amp-account]');
-        select.replaceChildren(...[{ authRef: '', label: 'OpenAI API key' }, ...accounts].map(account => {
+        const choices = [{ authRef: '', label: 'OpenAI API key' }, ...accounts];
+        if (catalogAccount && !active) choices.push({ authRef: catalogAccount, label: 'Selected ChatGPT registration unavailable' });
+        select.replaceChildren(...choices.map(account => {
           const option = document.createElement('option');
           option.value = account.authRef;
           option.textContent = account.label + (account.state === 'signed_out' ? ' · signed out'
@@ -529,11 +555,15 @@
           : accountSource ? ' · ChatGPT plan usage · account models only' : '')
         + ' · checked ' + elapsed(catalog.checkedAt)
         + (accountFailed ? ' · the account model list could not be loaded'
-          : catalogError === 'refresh_failed' ? ' · catalog refresh failed; showing the last SDK catalog'
+          : catalogError === 'refresh_failed' ? (accountSource ? ' · account token refresh failed' : ' · catalog refresh failed; showing the last SDK catalog')
             : catalogError === 'availability_failed' ? ' · eligibility check failed' : '');
       /* An account-list failure is explicit and exclusive: no static fallback
        * list is ever drawn for the account catalog. */
-      note(listNode('catalog-error'), accountFailed ? 'The ChatGPT account model list could not be loaded. No fallback models are shown; reconnect the account and refresh.'
+      const recovery = CHECK_ERRORS[catalog.errorReason];
+      note(listNode('catalog-error'), accountSource && recovery ? recovery
+        : accountFailed ? 'The ChatGPT account model list could not be loaded. No fallback models are shown. Refresh to try again.'
+        : accountSource && active?.state === 'reauth_required' ? 'Reconnect this ChatGPT registration to renew access.'
+        : accountSource && active?.planUsage === 'enabled' && provider.auth === 'refresh_required' ? 'Refresh the catalog to renew the access token.'
         : planDisabled ? 'Enable ChatGPT plan usage, or select the OpenAI API key option to use separate API billing.' : '', accountFailed ? 'error' : '');
       const target = listNode('models');
       target.replaceChildren();
@@ -632,7 +662,7 @@
             <small>${escapeHTML(detail)}</small>
           </div>
           <div class="amp-model-badges">${profileBadges(profile)}</div>
-          ${profile.lastCheck?.error ? '<p class="amp-method-reason amp-probe-error">' + icon('info') + escapeHTML(text(profile.lastCheck.error)) + '</p>' : ''}
+          ${profile.lastCheck?.error ? '<p class="amp-method-reason amp-probe-error">' + icon('info') + escapeHTML((profile.authMode === 'chatgpt' && CHECK_ERRORS[profile.lastCheck.error]) || text(profile.lastCheck.error)) + '</p>' : ''}
           ${profileActions(profile)}`;
         target.appendChild(article);
       }
@@ -701,7 +731,7 @@
       profileCatalogAccountRef = null;
       selectProfileModel('');
       if (!provider) return;
-      const ref = draft.authMode === 'chatgpt' ? draft.authRef : provider === catalogProvider ? catalogAccount : null;
+      const ref = draft.authMode === 'chatgpt' ? draft.authRef : !draft.id && provider === catalogProvider ? catalogAccount : null;
       void call('profile-catalog', () => adapter.getProviderCatalog(provider,
         provider === 'openai' && adapter.listChatGPTAccounts ? { accountRef: ref ?? null } : {}), result => {
         if (editing !== draft || draft.provider !== provider) return;
@@ -765,7 +795,7 @@
       catalogProvider = event.target.value; catalog = null; void loadCatalog(false);
     });
     listen(q('[data-amp-account]'), 'change', event => {
-      catalogAccount = event.target.value || null; catalog = null;
+      selectCatalogAccount(event.target.value || null);
       note(q('[data-amp-account-status]'), '', ''); void loadCatalog(false);
     });
     listen(q('[data-amp-account-reconnect]'), 'click', () => { if (catalogAccount) void startOAuth('openai', catalogAccount); });

@@ -635,7 +635,7 @@ test('The reasoning menu reads the profile catalog and saves the level with its 
   await env.settle();
   picker.open('reasoning');
   await env.settle();
-  assert.deepEqual(plain(calls.find(call => call[0] === 'getProviderCatalog')), ['getProviderCatalog', 'openai', { query: 'gpt-test' }]);
+  assert.deepEqual(plain(calls.find(call => call[0] === 'getProviderCatalog')), ['getProviderCatalog', 'openai', { query: 'gpt-test', accountRef: null }]);
   const rows = [...env.document.querySelectorAll('[data-acmp-level]')];
   assert.deepEqual(rows.map(row => row.dataset.acmpKey), ['low', 'medium', 'high']);
   assert.ok(rows.find(row => row.dataset.acmpKey === 'high').textContent.includes('saved to Main research'));
@@ -801,6 +801,65 @@ test('The legacy Codex provider stays disabled with the host reason and no sign-
   panel.destroy();
 });
 
+test('ChatGPT sign-in opens the model catalog of the registration that completed OAuth', async () => {
+  const env = createEnvironment();
+  const { adapter, state, calls } = accountFixture();
+  adapter.listChatGPTAccounts = async () => ['older', 'just-connected'].map(authRef =>
+    ({ authRef, label: authRef, state: 'connected', planUsage: 'enabled' }));
+  adapter.getProviderOAuth = async () => ({ id: 'flow-1', status: 'succeeded', accountRef: 'just-connected' });
+  adapter.getProviderCatalog = async (id, options) => {
+    calls.push(['catalog', id, options]);
+    return options.accountRef === 'just-connected' ? { ...state.accountCatalog, accountRef: options.accountRef }
+      : { provider: state.providers[0], models: [], availableModelIds: [], source: 'sdk_catalog' };
+  };
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  env.click(env.document.querySelector('[data-amp-oauth="openai"]'));
+  await env.settle();
+  assert.equal(calls.filter(call => call[0] === 'catalog').at(-1)[2].accountRef, 'just-connected');
+  assert.equal(env.document.querySelector('[data-amp-account]').value, 'just-connected');
+  assert.match(env.document.querySelector('[data-amp-catalog-meta]').textContent, /ChatGPT account catalog/);
+  panel.destroy();
+});
+
+test('switching accounts during profile creation ignores late catalogs and saves the displayed registration', async () => {
+  const env = createEnvironment();
+  const { adapter, state, calls } = accountFixture();
+  const refs = ['first', 'second', 'third'];
+  adapter.listChatGPTAccounts = async () => refs.map(authRef => ({ authRef, label: authRef, state: 'connected', planUsage: 'enabled' }));
+  const first = Promise.withResolvers(), third = Promise.withResolvers();
+  adapter.getProviderCatalog = async (_id, { accountRef }) => {
+    if (accountRef === 'first') await first.promise;
+    if (accountRef === 'third') await third.promise;
+    const slug = accountRef || 'api-key-model';
+    return { ...state.accountCatalog, accountRef, source: accountRef ? 'chatgpt_account' : 'sdk_catalog',
+      availableModelIds: [slug], models: [{ ...state.accountCatalog.models[0], id: slug, name: slug }] };
+  };
+  const { panel } = mountPanel(env);
+  panel.setModelProfiles(adapter);
+  await env.settle();
+  env.click(env.document.querySelector('[data-amp-profile-new]'));
+  await env.settle();
+  for (const ref of refs) {
+    const select = env.document.querySelector('[data-amp-account]');
+    select.value = ref; env.change(select); await env.settle();
+  }
+  first.resolve();
+  await env.settle();
+  assert.equal(env.document.querySelector('[data-amp-profile-save]').disabled, true);
+  third.resolve();
+  await env.settle();
+  assert.match(env.document.querySelector('[data-amp-models]').textContent, /third/);
+  assert.equal(env.document.querySelector('[data-amp-profile-field="modelId"]').value, 'third');
+  env.type(env.document.querySelector('[data-amp-profile-field="name"]'), 'Worker');
+  env.click(env.document.querySelector('[data-amp-profile-save]'));
+  await env.settle();
+  const saved = calls.find(call => call[0] === 'saveModelProfile')[1];
+  assert.deepEqual([saved.modelId, saved.authMode, saved.accountRef], ['third', 'chatgpt', 'third']);
+  panel.destroy();
+});
+
 test('A reasoning-only edit keeps the ChatGPT account binding and echoes the stored reference', async () => {
   const env = createEnvironment();
   const { adapter, calls } = accountFixture();
@@ -812,6 +871,8 @@ test('A reasoning-only edit keeps the ChatGPT account binding and echoes the sto
   assert.ok(rows.find(row => row.textContent.includes('gpt-5-pro')).textContent.includes('ChatGPT plan usage'), 'The picker distinguishes plan usage from API-key profiles.');
   picker.open('reasoning');
   await env.settle();
+  assert.deepEqual(plain(calls.filter(call => call[0] === 'getProviderCatalog').at(-1)[2]),
+    { query: 'gpt-5-pro', accountRef: 'qa-acct' });
   env.click([...env.document.querySelectorAll('[data-acmp-level]')].find(row => row.dataset.acmpKey === 'high'));
   await env.settle();
   assert.deepEqual(plain(calls.find(call => call[0] === 'saveModelProfile')), ['saveModelProfile', { id: 'profile-plan', revision: 1, name: 'Plan writer', provider: 'openai', modelId: 'gpt-5-pro', thinkingLevel: 'high', authMode: 'chatgpt', accountRef: 'qa-acct' }], 'A reasoning-only edit echoes the stored account reference instead of a fresh catalog one.');

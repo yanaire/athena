@@ -9,6 +9,8 @@ import type { TestContext } from 'node:test';
 import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { ProviderOAuthController, ProviderOAuthError, registerOpenAIOAuth } from '../runtime/provider-oauth.ts';
+import { localWriteFailed } from '../runtime/local-credential-files.ts';
+import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
 import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
@@ -140,9 +142,10 @@ test('Pi stores only a verified OpenAI registration, preserves the catalog, and 
   assert.equal(login.url.searchParams.get('agent_name_hint'), 'Athena');
   assert.equal((await login.call({ state: 'wrong', error: 'access_denied' })).status, 400);
   assert.equal((await login.call({ client_id: clientId })).status, 202);
-  assert.deepEqual(await login.result(), { id: login.flow.id, status: 'succeeded' });
+  const completed = await login.result();
   const saved = await f.credentials.read('openai');
   assert.ok(saved?.type === 'oauth');
+  assert.deepEqual(completed, { id: login.flow.id, status: 'succeeded', accountRef: chatGPTAccountRef(saved) });
   assert.equal(saved.subject, subject);
   assert.equal(saved.clientId, clientId);
   assert.equal(saved.issuer, issuer);
@@ -252,6 +255,8 @@ test('verified identity without plan consent persists separately and reconnect e
   assert.equal(identityCatalog.provider.auth, 'refresh_required');
   await assert.rejects(manager.authorChatGPTProfile('gpt-4o', account.authRef), { code: 'AUTH_REQUIRED' });
   await assert.rejects(manager.pin({ provider: 'openai', modelId: 'gpt-4o', authMode: 'chatgpt', authRef: account.authRef }), { code: 'AUTH_REQUIRED' });
+  const probe = await manager.verify({ provider: 'openai', modelId: 'gpt-4o', authMode: 'chatgpt', authRef: account.authRef });
+  assert.deepEqual([probe.streaming, probe.tools, probe.error], ['not_checked', 'not_checked', 'permission']);
   const reconnect = controller.start('openai', account.authRef);
   const url = new URL(await observe(() => controller.status(reconnect.id)?.authorizeUrl));
   assert.equal(url.searchParams.get('client_id'), clientId);
@@ -365,6 +370,7 @@ test('a temporary refresh failure preserves the expired credential and logout su
   const failed = await manager.catalog('openai', { refresh: true });
   assert.equal(failed.error, 'refresh_failed');
   assert.equal(failed.provider.auth, 'refresh_required');
+  assert.equal(failed.errorReason, 'service_unavailable');
   assert.ok(refreshes !== 0);
   assert.deepEqual(await reopened.store.read('openai'), saved);
   const wire = JSON.stringify([expired, failed]);
@@ -437,6 +443,33 @@ test('a verified callback whose vault write fails returns a distinct failure and
   assert.equal(await store.read('openai'), undefined);
 });
 
+test('sign-in surfaces a local credential write failure after verifying the grant', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'athena-oauth-local-limit-'));
+  const store = await openLocalCredentials(join(directory, 'auth'));
+  t.mock.method(store, 'modify', async () => { throw localWriteFailed(); });
+  let nonce = '';
+  const transport = providerTransport(() => tokens({ id_token: idToken({ nonce }) }));
+  const nativeFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', (url: RequestInfo | URL, init?: RequestInit) =>
+    String(url).startsWith('http://127.0.0.1:') ? nativeFetch(url, init) : transport(url, init));
+  const manager = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
+  t.after(async () => { await manager.close(); await rm(directory, { recursive: true, force: true }); });
+  assert.ok(manager.oauth);
+  const attempt = await begin(manager.oauth);
+  nonce = attempt.nonce;
+  await attempt.call({ client_id: clientId });
+  assert.deepEqual(await attempt.result(), { id: attempt.flow.id, status: 'failed', error: 'credential_save_failed' });
+  assert.deepEqual(await manager.chatGPTAccounts(), []);
+});
+
+test('a token exchange transport failure allows retry without disclosing the transport error', async t => {
+  const f = await fixture(t, () => { throw new TypeError('fixture private response'); });
+  const attempt = await begin(f.controller);
+  await attempt.call({ client_id: clientId });
+  assert.deepEqual(await attempt.result(), { id: attempt.flow.id, status: 'failed', error: 'connection' });
+  assert.equal(await f.credentials.read('openai'), undefined);
+});
+
 test('the provider manager retains two ChatGPT registrations beside an API key and keeps returning browser hints private', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'athena-oauth-multiple-'));
   const credentials = new InMemoryCredentialStore();
@@ -494,7 +527,24 @@ test('the provider manager retains two ChatGPT registrations beside an API key a
   assert.deepEqual((await manager.catalog('openai', { accountRef: first.authRef })).availableModelIds, ['plan-one']);
   assert.deepEqual((await manager.catalog('openai', { accountRef: second.authRef })).availableModelIds, ['plan-two']);
   await assert.rejects(manager.authorChatGPTProfile('plan-one', second.authRef), { code: 'MODEL_UNAVAILABLE' });
+  const stored = await credentials.read(first.authRef);
+  assert.ok(stored?.type === 'oauth');
+  await credentials.modify(first.authRef, async () => ({ ...stored, expires: Date.now() - 1000 }));
+  t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url) === resource + '/models') {
+      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer rotated-access');
+      return Response.json({ models: [{ slug: 'plan-one', display_name: 'First plan', visibility: 'list' }] });
+    }
+    return providerTransport(() => tokens({ access_token: 'rotated-access' }))(url, init);
+  });
+  const renewed = await manager.catalog('openai', { accountRef: first.authRef, refresh: true });
+  assert.deepEqual(renewed.availableModelIds, ['plan-one']);
+  const rotated = await credentials.read(first.authRef);
+  assert.ok(rotated?.type === 'oauth' && rotated.expires > Date.now());
+  assert.equal(renewed.provider.oauthExpiresAt, rotated.expires);
+
   const reconnect = controller.start('openai', first.authRef);
+  assert.throws(() => controller.start('openai', second.authRef), { code: 'UNSUPPORTED_AUTH' });
   const state = await observe(() => controller.status(reconnect.id)?.browserReady ? controller.status(reconnect.id) : undefined);
   assert.deepEqual(state, { id: reconnect.id, status: 'pending', browserReady: true });
   const url = new URL(controller.authorizeUrl(reconnect.id));

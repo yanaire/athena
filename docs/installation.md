@@ -18,6 +18,14 @@ For personal use on this Mac, developers can run `npm run desktop:build:local-ch
 
 In the personal app, select **Settings → Models & connections → Continue with ChatGPT → Open in system browser**. Approve it in the official OpenAI page. Athena receives the callback automatically; no API key or copied authorization code is needed. Select a model from the connected account's catalog and save a profile. OpenAI's [official implementation guide](https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt#usage-policy-and-terms) covers personal projects that run locally and requires a separate access request for paid or remotely hosted apps. Account and workspace eligibility still apply.
 
+To check which app you opened, run this against its actual bundle path on the Mac:
+
+```sh
+/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "/path/to/Athena.app/Contents/Info.plist"
+```
+
+The personal build reports `com.athena.desktop.local-chatgpt`. After sign-in, check **OpenAI connection** in Settings. If the selected registration says **plan usage disabled**, use **Enable ChatGPT plan usage** and review the grant in the system browser. With plan usage enabled, choose a model from **ChatGPT account catalog**, save the profile, and click **Verify**. Streaming and tool calling have separate results. To check delegation, select the profile for a conversation and ask the parent to have one worker return a short phrase. Quit and reopen the app to check the saved profile again.
+
 ## Browser development
 
 For browser development with a compatible local model server:
