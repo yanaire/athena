@@ -36,6 +36,7 @@
     list_tasks: ['list-checks', 'Checking agent tasks', 'Check agent tasks', 'Agent tasks checked', 'Agent tasks unavailable'],
     cancel_task: ['square', 'Requesting agent stop', 'Stop agent', 'Agent stop requested', 'Agent stop failed'],
     calculate_csv: ['chart-no-axes-combined', 'Calculating CSV statistics', 'Calculate CSV statistics', 'CSV statistics calculated', 'CSV calculation failed'],
+    calculate_rc_response: ['chart-no-axes-combined', 'Calculating RC response', 'Calculate RC response', 'RC response calculated', 'RC calculation failed'],
     read_file: ['file-text', 'Reading result file', 'Read result file', 'Result file read', 'Result file read failed'],
     write_file: ['file-plus-2', 'Writing analysis file', 'Write analysis file', 'Analysis file written', 'Analysis file write failed'],
     run_command: ['square-terminal', 'Running analysis', 'Run analysis', 'Analysis finished', 'Analysis failed'],
@@ -86,6 +87,7 @@
     }
     if (kind === 'list_tasks') detail = 'Assigned tasks';
     if (kind === 'calculate_csv') detail = textValue(value.column, 240) || 'Assigned CSV';
+    if (kind === 'calculate_rc_response') detail = 'Assigned circuit JSON';
     if (['read_file', 'write_file'].includes(kind)) detail = textValue(value.name, 240) || 'Assigned file';
     if (kind === 'run_command') detail = textValue(value.script, 240) || 'Assigned analysis';
     if (labels && ['spawn_agent', 'send_to_agent', 'wait_for_agents', 'get_task', 'list_tasks', 'cancel_task'].includes(kind)) detail = labels.text(detail, 'Assigned task', [value.taskId, value.agentSessionId, value.sessionId, value.runId, value.attemptId, value.requestId]);

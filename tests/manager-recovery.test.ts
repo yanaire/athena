@@ -109,39 +109,44 @@ async function session(manager: TaskManager) {
   const { project } = await manager.createProject({ name: 'Recovery fixtures' });
   return manager.createSession({ projectId: project.id, title: 'Recovery' });
 }
-function coordinator(wire: Wire, res: ServerResponse, names: string[]) {
+function coordinator(wire: Wire, res: ServerResponse, names: string[], grants?: Record<string, string[]>) {
   const results = outputs(wire);
   if (users(wire).length > 1) {
     completion(res, results.length ? 'Reconciled the preserved and recovered results.' : { name: 'list_tasks', args: {} }); return;
   }
   const name = names[results.length];
-  if (name) completion(res, { name: 'spawn_agent', args: { title: name, prompt: name } });
+  if (name) completion(res, { name: 'spawn_agent', args: { title: name, prompt: name, fileIds: grants?.[name] } });
   else if (results.length === names.length) completion(res, { name: 'wait_for_agents', args: {} });
   else completion(res, 'Reported the original child outcomes.');
 }
 
 test('one failed child gets a new attempt; duplicate retries preserve completed work, receipts, grants and artifact versions', { timeout: 30_000 }, async t => {
   let recovering = false, foreign = '';
+  const grants: Record<string, string[]> = {};
   const fixtureState = await fixture(t, (wire, res) => {
-    if (parent(wire)) { coordinator(wire, res, ['Stable worker', 'Broken worker']); return; }
+    if (parent(wire)) { coordinator(wire, res, ['Stable worker', 'Broken worker'], grants); return; }
     const results = outputs(wire);
     if (input(wire).includes('Stable worker')) {
       completion(res, results.length ? 'Stable output remains 9.' : { name: 'calculate_csv', args: {} }); return;
     }
     if (!recovering) {
-      if (!results.length) completion(res, { name: 'calculate_csv', args: {} }); else failure(res);
+      if (!results.length) completion(res, { name: 'calculate_rc_response', args: {} }); else failure(res);
       return;
     }
-    if (!results.length) completion(res, { name: 'read', args: { fileId: foreign } });
-    else if (results.length === 1) { assert.match(results[0]!, /grant/i); completion(res, { name: 'calculate_csv', args: {} }); }
-    else completion(res, 'Recovered output is 9.');
+    if (!results.length) completion(res, { name: 'calculate_rc_response', args: { fileId: foreign } });
+    else if (results.length === 1) { assert.match(results[0]!, /grant/i); completion(res, { name: 'calculate_rc_response', args: {} }); }
+    else completion(res, 'Recovered RC time constant is ' + JSON.parse(results[1]!).response.timeConstantSeconds + ' s.');
   });
   let manager = await fixtureState.manager(); const activation = await session(manager);
   const extra = await manager.stageFiles(activation.sessionId, [{ name: 'private.csv', mimeType: 'text/csv',
     data: Buffer.from('private\nsecret-value-92654\n').toString('base64') }]);
   foreign = extra.fileReferences[0]!.id;
   const { fileReferences } = await manager.stageFiles(activation.sessionId, [{ name: 'scores.csv', mimeType: 'text/csv',
-    data: Buffer.from('score\n7\n11\n').toString('base64') }]);
+    data: Buffer.from('score\n7\n11\n').toString('base64') }, { name: 'circuit.json', mimeType: 'application/json',
+    data: Buffer.from(JSON.stringify({ schemaVersion: 1, resistanceOhm: 10000, capacitanceFarad: 1e-7,
+      inputVolt: 1, sampleTimesSeconds: [0, 0.001, 0.005] })).toString('base64') }]);
+  grants['Stable worker'] = [fileReferences[0]!.id];
+  grants['Broken worker'] = [fileReferences[1]!.id];
   const prompt = { type: 'prompt', id: 'original-results', message: 'Delegate once and keep all outputs.', fileReferences };
   await manager.pi(activation.sessionId, prompt); const before = await terminal(manager);
   const stable = task(before, 'Stable worker'), broken = task(before, 'Broken worker');
@@ -178,6 +183,15 @@ test('one failed child gets a new attempt; duplicate retries preserve completed 
   assert.equal(fixtureState.hits.filter(h => !parent(h.wire) && input(h.wire).includes('Stable worker')).length, stableHits);
   assert.equal(fixtureState.hits.filter(h => parent(h.wire) && users(h.wire).length === 1).length, 4);
   assert.equal(after.artifacts.length, 3);
+  assert.equal(task(after, 'Broken worker').result, 'Recovered RC time constant is 0.001 s.');
+  const published = after.artifacts.find(row => row.attemptId === accepted.attemptId);
+  assert.ok(published);
+  assert.equal(published.title, 'rc-response.json');
+  assert.equal(published.evidence[0]?.id, fileReferences[1]!.id);
+  const process = after.processes.find(row => row.id === published.processId);
+  assert.equal(process?.job.mcp?.alias, 'calculate_rc_response');
+  assert.equal(process?.toolId, published.toolId);
+  assert.equal(process?.status, 'succeeded');
   for (const old of existingDownloads) {
     const saved = await manager.artifactDownload(activation.sessionId, old.id);
     assert.deepEqual(saved.bytes, old.bytes);
@@ -187,6 +201,9 @@ test('one failed child gets a new attempt; duplicate retries preserve completed 
   assert.deepEqual(await manager.pi(activation.sessionId, prompt), originalReceipt);
   assert.deepEqual(await manager.retryTask(broken.id, retry), accepted);
   await manager.close(); manager = await fixtureState.manager();
+  assert.deepEqual(manager.getSnapshot().processes, after.processes);
+  const restoredRC = await manager.artifactDownload(activation.sessionId, published.id);
+  assert.equal(createHash('sha256').update(restoredRC.bytes).digest('hex'), published.file.sha256);
   const calls = fixtureState.hits.length;
   assert.deepEqual(await manager.retryTask(broken.id, retry), accepted);
   assert.deepEqual(await manager.pi(activation.sessionId, prompt), originalReceipt);
