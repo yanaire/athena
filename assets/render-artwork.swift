@@ -8,10 +8,11 @@ let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingL
 let output = CommandLine.arguments.count > 1
     ? URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true) : root
 let ui = "athena-backend-handoff/athena-codex-ui/assets/"
-let source = root.appendingPathComponent("assets/icon.svg")
-guard let image = NSImage(contentsOf: source) else { fatalError("Cannot decode original SVG") }
+guard let desktop = NSImage(contentsOf: root.appendingPathComponent("assets/icon-dark.png")),
+      let light = NSImage(contentsOf: root.appendingPathComponent("assets/icon-light.png"))
+else { fatalError("Cannot decode Athena icon sources") }
 
-func png(_ size: Int, _ relativePath: String) throws {
+func png(_ image: NSImage, _ size: Int, _ relativePath: String) throws {
     let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -27,9 +28,9 @@ func png(_ size: Int, _ relativePath: String) throws {
     try bitmap.representation(using: .png, properties: [:])!.write(to: url)
 }
 
-try png(32, ui + "athena-icon-32.png")
-try png(128, ui + "athena-icon-128.png")
-try png(1024, "src-tauri/icons/icon.png")
+try png(light, 32, ui + "athena-icon-32.png")
+try png(light, 128, ui + "athena-icon-128.png")
+try png(desktop, 1024, "src-tauri/icons/icon.png")
 let iconset = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".iconset")
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: iconset) }
@@ -37,12 +38,12 @@ for size in [16, 32, 128, 256, 512] {
     for scale in [1, 2] {
         let name = "icon_\(size)x\(size)\(scale == 2 ? "@2x" : "").png"
         let relative = "src-tauri/icons/icon.png"
-        try png(size * scale, relative)
+        try png(desktop, size * scale, relative)
         try FileManager.default.copyItem(at: output.appendingPathComponent(relative),
             to: iconset.appendingPathComponent(name))
     }
 }
-try png(1024, "src-tauri/icons/icon.png")
+try png(desktop, 1024, "src-tauri/icons/icon.png")
 let process = Process()
 process.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 process.arguments = ["-c", "icns", iconset.path, "-o",
@@ -50,7 +51,7 @@ process.arguments = ["-c", "icns", iconset.path, "-o",
 try process.run()
 process.waitUntilExit()
 precondition(process.terminationStatus == 0, "iconutil export failed")
-print("Exported 32/128/1024 PNGs and ten-frame desktop ICNS from assets/icon.svg")
+print("Exported 32/128/1024 PNGs and ten-frame desktop ICNS from the supplied Athena PNGs")
 
 // Three pages preserve the sample viewer's existing page contract.
 // All wording and rules below are newly written for this replacement fixture.

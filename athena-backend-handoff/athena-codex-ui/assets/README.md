@@ -1,10 +1,10 @@
 # Athena artwork
 
-The current icons come from the original geometric owl in the repository's
-`assets/icon.svg`, drawn on 2026-11-22 for this replacement. The geometry uses
-circles and polygons; there are no inherited brand paths, fonts, external images,
-or image-generation service outputs. The source and its exports use Apache-2.0,
-as stated in the repository's `LICENSE`.
+The owner supplied two 1254 × 1254 PNG originals on 2026-11-24.
+The desktop bundle uses `assets/icon-dark.png`. The light workspace and
+favicon use `assets/icon-light.png`. The root README selects the original
+that matches the reader’s color scheme. The repository records the sources
+and their digests in `provenance.json`.
 
 From the repository root on macOS, run:
 
@@ -36,5 +36,5 @@ JSONs remain editable design data and contain no embedded raster brand images.
 Consumers retain their existing paths: `app.html` (sidebar and response label),
 `ui/settings.js` (About), `build.py` (favicon and embedded assets),
 `ui/workspace-views.js` (three-page sample PDF), `src-tauri/tauri.conf.json`
-(desktop PNG/ICNS), and the root README (SVG). Regenerate the standalone preview
+(desktop PNG/ICNS), and the root README (theme-specific PNGs). Regenerate the standalone preview
 with `build.py` after asset changes; the integration lead owns that generated file.

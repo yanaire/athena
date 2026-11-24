@@ -1,36 +1,38 @@
 {
   "schema_version": 2,
-  "created": "2026-11-22",
-  "license": "Apache-2.0",
+  "created": "2026-11-24",
+  "license": {
+    "icons": "Owner supplied for use in Athena. No separate redistribution license provided.",
+    "sample_pdf": "Apache-2.0"
+  },
   "scope": "Current replacement artwork and excluded historical derivatives only; unrelated handoff rights are not adjudicated.",
   "origin": {
-    "kind": "original-geometric-artwork",
-    "source": "assets/icon.svg",
-    "method": "Circles and polygon coordinates written in this workspace; no imported image, traced outline, private rendering tool or external service.",
-    "generator": "assets/render-artwork.swift",
-    "command": "swift assets/render-artwork.swift [optional-output-directory]",
-    "tools": [
-      "macOS AppKit SVG rasterizer",
-      "macOS /usr/bin/iconutil",
-      "Swift Foundation PDF serializer"
-    ],
+    "kind": "owner-supplied PNG artwork",
+    "desktop": "assets/icon-dark.png",
+    "workspace": "assets/icon-light.png",
+    "exports": "Lanczos resampling of original PNGs, with ten PNG frames in the desktop ICNS. macOS regeneration uses assets/render-artwork.swift.",
     "pdf": "Independent synthetic three-page RC fixture; standard PDF Helvetica only; no embedded font programs."
   },
   "files": [
     {
-      "path": "assets/icon.svg",
-      "bytes": 881,
-      "sha256": "5a286d6a08ec9306fce7466221f05a5e7ff9ce53f2f09c99e17a507dfae31b56"
+      "path": "assets/icon-dark.png",
+      "bytes": 1307472,
+      "sha256": "2c8a6918a7b20de91f476187a3459cf4866bef2dcc1629bc08bd51abfb9a820b"
+    },
+    {
+      "path": "assets/icon-light.png",
+      "bytes": 1312022,
+      "sha256": "f8d0b0d5994e771c8ab33f73993d5046fe82d2df5fa37bbed2642cbbe13feaa4"
     },
     {
       "path": "athena-backend-handoff/athena-codex-ui/assets/athena-icon-128.png",
-      "bytes": 4962,
-      "sha256": "ac5a6e8ea31442264a1ffa84ca977d12a3d5464d11d36cb3a230b94937c21fc4"
+      "bytes": 21774,
+      "sha256": "ff738499b212464d8b72ec7d8ab49eb1a2f9b8dc530f866027d8455976c22189"
     },
     {
       "path": "athena-backend-handoff/athena-codex-ui/assets/athena-icon-32.png",
-      "bytes": 1310,
-      "sha256": "254919c5c26663ba39355ed4f372d6ee80bef6c0a57ac30f54c22105deb560ba"
+      "bytes": 2122,
+      "sha256": "caa60296b82ee4ce5238b44a9764ef3620eeeb5e1d5087d95b2d161dbfc213b6"
     },
     {
       "path": "athena-backend-handoff/athena-codex-ui/assets/sample-research-note.pdf",
@@ -39,18 +41,18 @@
     },
     {
       "path": "src-tauri/icons/icon.png",
-      "bytes": 63274,
-      "sha256": "bbec38db6c4250d09f0ee4726a9538e041dd03e211d6ab961f706eec1d5442da"
+      "bytes": 899367,
+      "sha256": "9deb2276b7a9227be22e09a7ecc00e4cac4a9bded57ecf56d86437082c17ec27"
     },
     {
       "path": "src-tauri/icons/icon.icns",
-      "bytes": 146818,
-      "sha256": "d06fdae67a97d33807eb3d750dc6a12f57faf741df6597217dffce080841cd91"
+      "bytes": 1635996,
+      "sha256": "981a782bee782529bbe78088eaf5d8e971a7c8db2bc128521492aff1c342d0a8"
     },
     {
       "path": "assets/render-artwork.swift",
-      "bytes": 6435,
-      "sha256": "09e1fcc87437d19bd638715cf5bb4a5fe1f463d2b746ad175a8b56836cddba9e"
+      "bytes": 6590,
+      "sha256": "0b1b56a2208939650830bf96a3f8208087795fc9188333cbfb7125a015761a27"
     }
   ],
   "superseded": {
