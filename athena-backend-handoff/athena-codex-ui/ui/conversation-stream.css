@@ -1,0 +1,15 @@
+#athena-codex .ac-pi-transcript { display: flex; flex-direction: column; gap: 18px; }
+#athena-codex .ac-pi-transcript[hidden] { display: none; }
+#athena-codex .ac-stream-message { margin: 0; }
+#athena-codex .ac-stream-message[data-role="assistant"] + .ac-stream-message[data-role="assistant"] > strong { display: none; }
+#athena-codex .ac-stream-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+#athena-codex .ac-stream-tool { margin: -5px 0; }
+#athena-codex .ac-stream-tool .ap-tool-event { margin: 0; }
+#athena-codex .aw-attempt { border-left: 2px solid var(--ac-line); padding-left: 15px; margin: 2px 0 8px; }
+#athena-codex .aw-attempt-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 5px; color: var(--ac-text); font-size: 14px; }
+#athena-codex .aw-attempt-heading strong { font-weight: 550; }
+#athena-codex .aw-attempt-meta { margin: 0 0 8px; color: var(--ac-muted); font-size: 12px; }
+#athena-codex .aw-attempt .aw-agent-events { margin: 0; }
+#athena-codex .aw-attempt .aw-approval-inline { margin-top: 10px; }
+#athena-codex .aw-attempt-results { margin-top: 8px; }
+#athena-codex .aw-attempt-results:empty { display: none; }

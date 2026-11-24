@@ -8,14 +8,14 @@
     const error = document.createElement('p');
     error.className = 'ap-session-error'; error.hidden = true;
     error.setAttribute('role', 'alert');
-    host.appendChild(error);
+    if (!options.managedLayout) host.appendChild(error);
     function createRow(id) {
       const element = document.createElement('details');
       element.className = 'ap-tool-event'; element.dataset.apTool = id;
       element.innerHTML = '<summary class="cursor-interaction"><span class="ap-tool-icon"></span><span class="ap-tool-copy"><span class="ap-tool-label"></span><span class="ap-tool-target"></span></span><i data-lucide="chevron-down" aria-hidden="true"></i></summary><div class="ap-tool-body"><dl><div><dt>Status</dt><dd data-ap-state></dd></div></dl><details class="aw-diagnostics" data-aw-diagnostics><summary class="cursor-interaction">Technical details</summary><dl><div><dt>Tool</dt><dd data-ap-name></dd></div><div><dt>Tool call ID</dt><dd data-ap-call-id></dd></div></dl><pre data-ap-input aria-label="Tool input"></pre><pre data-ap-output aria-label="Tool output"></pre><div class="ap-tool-actions"><button type="button" class="cursor-interaction" data-ap-copy="input">Copy input</button><button type="button" class="cursor-interaction" data-ap-copy="output">Copy output</button></div><label class="ap-copy-label" hidden>Select and copy manually<textarea readonly aria-label="Copy tool text manually"></textarea></label></details></div>';
       element.querySelector('summary').dataset.apToolSummary = id;
       element.querySelector('[data-aw-diagnostics]').dataset.awDiagnostics = 'pi-tool-' + id;
-      host.insertBefore(element, error);
+      if (options.managedLayout) host.appendChild(element); else host.insertBefore(element, error);
       const row = { element, tool: null, iconKey: '' };
       rows.set(id, row); return row;
     }
@@ -63,7 +63,8 @@
       }
       error.textContent = snapshot.error || '';
       error.hidden = !snapshot.error;
-      host.hidden = !rows.size && !snapshot.error;
+      if (options.managedLayout) { if (snapshot.error) host.appendChild(error); else error.remove(); }
+      if (!options.managedLayout) host.hidden = !rows.size && !snapshot.error;
       if (iconsChanged) options.icons?.();
     }
     async function onClick(event) {
@@ -85,10 +86,10 @@
     host.addEventListener('click', onClick, { signal: controller.signal });
     function reset() {
       for (const row of rows.values()) row.element.remove();
-      rows.clear(); lastSnapshot = null; error.textContent = ''; error.hidden = true; host.hidden = true;
+      rows.clear(); lastSnapshot = null; error.textContent = ''; error.hidden = true; if (!options.managedLayout) host.hidden = true;
     }
     reset();
-    return Object.freeze({ render, refresh() { if (lastSnapshot) render(lastSnapshot); }, reset, revealTool(id) { const row = [...rows.values()].find(item => item.tool?.toolCallId === id || item.tool?.id === id); if (!row) return false; row.element.open = true; row.element.querySelector('summary').focus({preventScroll:true}); row.element.scrollIntoView?.({block:'nearest'}); return true; }, destroy() { if (destroyed) return; destroyed = true; controller.abort(); reset(); error.remove(); } });
+    return Object.freeze({ render, refresh() { if (lastSnapshot) render(lastSnapshot); }, reset, getToolElement: id => rows.get(id)?.element || null, revealTool(id) { const row = [...rows.values()].find(item => item.tool?.toolCallId === id || item.tool?.id === id); if (!row) return false; row.element.open = true; row.element.querySelector('summary').focus({preventScroll:true}); row.element.scrollIntoView?.({block:'nearest'}); return true; }, destroy() { if (destroyed) return; destroyed = true; controller.abort(); reset(); error.remove(); } });
   }
   window.AthenaPiSessionView = Object.freeze({ mount });
 })();

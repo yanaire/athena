@@ -1052,6 +1052,7 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .awv-metrics dt{font-size:10px;color:#988b75;margin-bottom:3px}
 #athena-codex .awv-metrics dd{font-size:22px;line-height:1.4;letter-spacing:-.5px;color:#615641;margin:0;white-space:normal;font-variant-numeric:tabular-nums}
 #athena-codex .awv-metrics dd.awv-metric-small{font-size:17px;padding-top:4px}
+#athena-codex [data-awv-rc-response] .awv-metrics dd{font-size:17px;overflow-wrap:anywhere}
 #athena-codex .awv-metrics small{font-size:10px;color:#9e8e73;letter-spacing:0;white-space:nowrap}
 #athena-codex .awv-table-scroll{overflow:auto;max-width:100%;margin-top:12px}
 #athena-codex .awv-table{border-collapse:collapse;width:100%;font-size:10px;line-height:1.65;table-layout:fixed;font-variant-numeric:tabular-nums}
@@ -2728,6 +2729,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     list_tasks: ['list-checks', 'Checking agent tasks', 'Check agent tasks', 'Agent tasks checked', 'Agent tasks unavailable'],
     cancel_task: ['square', 'Requesting agent stop', 'Stop agent', 'Agent stop requested', 'Agent stop failed'],
     calculate_csv: ['chart-no-axes-combined', 'Calculating CSV statistics', 'Calculate CSV statistics', 'CSV statistics calculated', 'CSV calculation failed'],
+    calculate_rc_response: ['chart-no-axes-combined', 'Calculating RC response', 'Calculate RC response', 'RC response calculated', 'RC calculation failed'],
     read_file: ['file-text', 'Reading result file', 'Read result file', 'Result file read', 'Result file read failed'],
     write_file: ['file-plus-2', 'Writing analysis file', 'Write analysis file', 'Analysis file written', 'Analysis file write failed'],
     run_command: ['square-terminal', 'Running analysis', 'Run analysis', 'Analysis finished', 'Analysis failed'],
@@ -2778,6 +2780,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     }
     if (kind === 'list_tasks') detail = 'Assigned tasks';
     if (kind === 'calculate_csv') detail = textValue(value.column, 240) || 'Assigned CSV';
+    if (kind === 'calculate_rc_response') detail = 'Assigned circuit JSON';
     if (['read_file', 'write_file'].includes(kind)) detail = textValue(value.name, 240) || 'Assigned file';
     if (kind === 'run_command') detail = textValue(value.script, 240) || 'Assigned analysis';
     if (labels && ['spawn_agent', 'send_to_agent', 'wait_for_agents', 'get_task', 'list_tasks', 'cancel_task'].includes(kind)) detail = labels.text(detail, 'Assigned task', [value.taskId, value.agentSessionId, value.sessionId, value.runId, value.attemptId, value.requestId]);
@@ -6317,9 +6320,42 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
 (() => {
   'use strict';
   const validId = value => typeof value === 'string' && /^[\w-]+$/.test(value);
+  // Renderer identities mirror the published built-in contract; discovery alone
+  // never selects a result schema or turns a failed process into a result.
+  const builtins = Object.freeze([
+    Object.freeze({ server: 'athena-measurements', tool: 'calculate_csv', alias: 'calculate_csv', resultKind: 'csv-statistics', name: 'Measurement statistics', filename: 'statistics.json', action: 'View measurement results' }),
+    Object.freeze({ server: 'athena-circuits', tool: 'calculate_rc_response', alias: 'calculate_rc_response', resultKind: 'rc-step-response', name: 'RC step response', filename: 'rc-response.json', action: 'View RC response' })
+  ]);
+  const phases = Object.freeze({ initialize: 'Connecting', 'tools/list': 'Discovering tools', 'tools/call': 'Calculating' });
+  function mcp(metadata) {
+    if (!metadata || typeof metadata !== 'object') return null;
+    const entry = builtins.find(item => item.server === metadata.server && item.tool === metadata.tool);
+    if (!entry || metadata.version !== '1.0.0' || metadata.protocol !== '2025-06-18') return null;
+    const legacy = metadata.registryVersion === undefined && entry.alias === 'calculate_csv';
+    if (!legacy && metadata.registryVersion !== 1) return null;
+    if ((!legacy || metadata.alias !== undefined) && metadata.alias !== entry.alias
+      || (!legacy || metadata.resultKind !== undefined) && metadata.resultKind !== entry.resultKind) return null;
+    const name = window.AthenaActivityLabels?.text(metadata.displayName, entry.name, [entry.server, entry.tool]) || entry.name;
+    return { ...entry, name };
+  }
+  const mcpPhase = metadata => Object.hasOwn(phases, metadata?.phase) ? phases[metadata.phase] : null;
+  function publishedMcp(process, artifact) {
+    return Boolean(process && artifact && process.status === 'succeeded' && process.id === artifact.processId && process.job?.artifact?.id === artifact.id);
+  }
+  function mcpOutput(process, artifact) {
+    const entry = mcp(process?.job?.mcp), receipt = process?.job?.artifact;
+    if (!entry || !publishedMcp(process, artifact) || artifact.status === 'unavailable' || receipt.name !== entry.filename
+      || receipt.mimeType !== 'application/json') return null;
+    for (const file of [receipt, artifact.file].filter(Boolean)) {
+      if (file.name !== entry.filename || file.mimeType !== 'application/json'
+        || file.mcpAlias !== undefined && file.mcpAlias !== entry.alias) return null;
+    }
+    return entry;
+  }
 
-  function href(conversationId, artifact) {
+  function href(conversationId, artifact, process) {
     if (!validId(conversationId) || !validId(artifact?.id) || artifact.status === 'unavailable' || (artifact.sessionId && artifact.sessionId !== conversationId)) return null;
+    if ((process?.job?.mcp || artifact.file?.mcpAlias !== undefined) && !publishedMcp(process, artifact)) return null;
     if (artifact.file && (artifact.file.id !== artifact.id || (artifact.file.sessionId && artifact.file.sessionId !== conversationId)
       || (artifact.projectId && artifact.file.projectId && artifact.projectId !== artifact.file.projectId))) return null;
     const path = '/api/artifacts/' + encodeURIComponent(conversationId) + '/' + encodeURIComponent(artifact.id);
@@ -6328,7 +6364,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     return location === path || artifact.file?.id === artifact.id || hasFileMetadata ? path : null;
   }
 
-  window.AthenaResultFiles = Object.freeze({ href });
+  window.AthenaResultFiles = Object.freeze({ href, mcp, mcpPhase, mcpOutput });
 })();
 
 </script>
@@ -6467,6 +6503,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const artifactVersion = item => item?.version == null ? '' : String(item.version);
     const artifactKey = item => item.id + '\u241f' + artifactVersion(item);
     const artifact = () => artifactList().find(item => item.id === state.artifactId && (state.artifactVersion == null || artifactVersion(item) === String(state.artifactVersion))) || null;
+    const artifactProcess = item => (snapshot.processes || []).find(process => process.id === item?.processId);
+    const artifactDownload = item => window.AthenaResultFiles?.href(snapshot.sessionId, item, artifactProcess(item));
     const isAvailable = id => (snapshot.artifacts || []).some(item => item.id === id && (!live() || state.artifactVersion == null || artifactVersion(item) === String(state.artifactVersion)) && (live() ? item.status !== 'unavailable' : item.status === 'available'));
     const can = capability => !live() || snapshot.capabilities?.[capability] === true;
     const scopeKey = value => [value.mode, value.projectId, value.sessionId].join('\u241f');
@@ -6613,7 +6651,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function processButton(process) {
       const job = process.job || process;
       const ids = [process.id, process.processId, process.taskId, process.attemptId, process.agentSessionId];
-      const description = job.mcp ? 'MCP · ' + labels.text(job.mcp.tool, 'Calculation', ids) + ' · ' + labels.text(job.mcp.phase, 'Working', ids)
+      const registered = window.AthenaResultFiles?.mcp(job.mcp);
+      const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
+      const description = job.mcp ? [registered?.name || 'Engineering calculation', ['queued', 'running'].includes(process.status) && phase].filter(Boolean).join(' · ')
         : labels.text(job.program, 'Background process', ids);
       return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(description) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }
@@ -6638,13 +6678,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       press('[data-awv-action="workflow-mode"]', state.workflowMode);
       setText('[data-awv-task-count]', tasks().filter(t => t.status === 'succeeded').length + ' / ' + tasks().length + ' complete');
       setHTML('[data-awv-workflow-map]', workflowMap());
-      const measurements = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
-      setHTML('[data-awv-measurements]', measurements.map(p => {
+      const calculations = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
+      setHTML('[data-awv-measurements]', calculations.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
+        const registered = window.AthenaResultFiles?.mcp(p.job.mcp);
         return '<section class="awv-task-detail"><h3>' + esc(taskTitle(p.taskId)) + '</h3>'
           + processButton(p) + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
-          + (file ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
-            + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + 'View measurement results</button>' : '') + '</section>';
+          + (file && artifactDownload(file) ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
+            + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + esc(registered?.action || 'View saved result') + '</button>' : '') + '</section>';
       }).join(''));
       const item = task(state.taskId);
       if (!item) { setHTML('[data-awv-task-detail]', '<div class="awv-empty"><h3>' + (live() && !snapshot.taskManagerConnected ? 'TaskManager not connected' : 'No tasks in this run') + '</h3><p>' + (live() && !snapshot.taskManagerConnected ? 'The Pi session can report messages and tool activity. Task scheduling, agent assignments, and output links need the Athena TaskManager connection.' : live() ? 'Tasks will appear when the connected TaskManager reports them.' : 'Choose a development scenario to inspect sample tasks.') + '</p></div>'); return; }
@@ -6777,8 +6818,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function liveArtifactHTML(item) {
-      const body = typeof item.text === 'string' ? item.text : null, location = safeLocation(item);
-      const download = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+      const body = typeof item.text === 'string' ? item.text : null;
+      const location = artifactProcess(item)?.job?.mcp || item.file?.mcpAlias !== undefined ? null : safeLocation(item);
+      const download = artifactDownload(item);
       const file = item.file || item;
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(value) + '</dd></div>';
       const provenance = field('Filename', file.name) + field('Media type', file.mimeType) + field('Bytes', file.bytes);
@@ -6805,21 +6847,46 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
     }
 
-    async function renderMeasurementTable(section, url) {
+    function mcpResultHTML(kind, data) {
+      const record = value => value && typeof value === 'object' && !Array.isArray(value);
+      const finite = value => typeof value === 'number' && Number.isFinite(value);
+      const count = value => Number.isSafeInteger(value) && value >= 0;
+      if (!record(data) || data.schemaVersion !== 1) return null;
+      if (kind === 'rc-step-response') {
+        if (!finite(data.timeConstantSeconds) || data.timeConstantSeconds <= 0 || !finite(data.cutoffHz) || data.cutoffHz <= 0
+          || !Array.isArray(data.samples) || !data.samples.length || data.samples.length > 512
+          || !data.samples.every(sample => record(sample) && finite(sample.timeSeconds) && sample.timeSeconds >= 0 && finite(sample.outputVolt))) return null;
+        return '<section data-awv-rc-response><h4>RC step response</h4><dl class="awv-metrics">'
+          + '<div><dt>Time constant</dt><dd>' + esc(data.timeConstantSeconds) + '<small> s</small></dd></div>'
+          + '<div><dt>Cutoff frequency</dt><dd>' + esc(data.cutoffHz) + '<small> Hz</small></dd></div></dl>'
+          + '<p class="awv-caption">Ideal first-order RC low-pass · initial capacitor voltage 0 V · input step at 0 s.</p>'
+          + '<p class="awv-caption">Input units: resistance Ω · capacitance F · step voltage V · sample time s.</p>'
+          + '<table class="awv-table"><caption>Saved response · ' + data.samples.length + ' samples</caption><thead><tr><th scope="col">Time (s)</th><th scope="col">Output (V)</th></tr></thead><tbody>'
+          + data.samples.map(sample => '<tr><td>' + esc(sample.timeSeconds) + '</td><td>' + esc(sample.outputVolt) + '</td></tr>').join('') + '</tbody></table></section>';
+      }
+      if (kind !== 'csv-statistics' || !count(data.rowCount) || !Array.isArray(data.columns) || !data.columns.every(column => typeof column === 'string')
+        || !Array.isArray(data.statistics) || !data.statistics.length || !data.statistics.every(stat => record(stat) && typeof stat.column === 'string' && data.columns.includes(stat.column)
+          && count(stat.count) && count(stat.missing) && count(stat.nonNumeric) && stat.count + stat.missing + stat.nonNumeric === data.rowCount
+          && [stat.min, stat.mean, stat.max].every(value => stat.count === 0 ? value === null : finite(value)))) return null;
+      const fields = ['column', 'count', 'missing', 'nonNumeric', 'min', 'mean', 'max'];
+      const headings = ['Column', 'Numeric', 'Missing', 'Nonnumeric', 'Min', 'Mean', 'Max'];
+      return '<table class="awv-table"><caption>Measurement statistics · ' + esc(data.rowCount)
+        + ' rows</caption><thead><tr>' + headings.map(h => '<th scope="col">' + h + '</th>').join('')
+        + '</tr></thead><tbody>' + data.statistics.map(stat => '<tr>' + fields.map((key, index) =>
+          index === 0 ? '<th scope="row">' + esc(stat[key]) + '</th>' : '<td>' + esc(stat[key] ?? '—') + '</td>'
+        ).join('') + '</tr>').join('') + '</tbody></table>';
+    }
+
+    async function renderMcpResult(section, url, resultKind) {
       try {
         const response = await window.fetch(url, { credentials: 'same-origin' });
         if (!response.ok) throw new Error();
         const data = await response.json();
-        if (data.schemaVersion !== 1 || !Array.isArray(data.statistics)) throw new Error();
-        const fields = ['column', 'count', 'missing', 'nonNumeric', 'min', 'mean', 'max'];
-        const headings = ['Column', 'Numeric', 'Missing', 'Nonnumeric', 'Min', 'Mean', 'Max'];
-        section.innerHTML = '<table class="awv-table"><caption>Measurement statistics · ' + esc(data.rowCount)
-          + ' rows</caption><thead><tr>' + headings.map(h => '<th scope="col">' + h + '</th>').join('')
-          + '</tr></thead><tbody>' + data.statistics.map(stat => '<tr>' + fields.map((key, index) =>
-            index === 0 ? '<th scope="row">' + esc(stat[key]) + '</th>' : '<td>' + esc(stat[key] ?? '—') + '</td>'
-          ).join('') + '</tr>').join('') + '</tbody></table>';
+        const html = mcpResultHTML(resultKind, data);
+        if (html === null) { section.textContent = 'The saved result format is not supported.'; return; }
+        section.innerHTML = html;
       } catch {
-        section.textContent = 'Could not load the saved measurement file.';
+        section.textContent = 'Could not load the saved result file.';
       }
     }
 
@@ -6838,23 +6905,24 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const available = isAvailable(item.id);
       const canonical = canonicalDocument(item);
       setHTML('[data-awv-provenance]', live() ? '<span class="awv-provenance-label">' + icon('file-text') + 'Runtime artifact</span><p>' + esc(artifactTitle(item)) + ' · v' + esc(artifactVersion(item) || 'not reported') + '</p>' : canonical ? '<span class="awv-provenance-label">' + icon('file-text') + 'Document revision</span><p>' + esc(canonical.doc.documentId) + ' · v' + esc(canonical.version.version) + ' · ' + (canonical.version.persistence === 'host' ? 'Project storage confirmed' : 'Session revision') + '</p>' : '<span class="awv-provenance-label">' + icon(available ? 'circle-check' : 'book-open') + (available ? 'Local demo output' : 'Example library') + '</span><p>' + (available ? 'The matching demo task completed. This remains an authored, synthetic example.' : 'Preview available before the run. This is authored sample material, not a completed run output.') + '</p>');
-      const signature = JSON.stringify([live(), item, state.citation, state.documentVersion, state.referenceOpen, canonical?.doc, options.records?.getState().capabilities]);
+      const process = live() && artifactProcess(item);
+      const registered = process && window.AthenaResultFiles?.mcpOutput(process, item);
+      const signature = JSON.stringify([live(), item, process?.status, process?.job?.mcp, process?.job?.artifact, state.citation, state.documentVersion, state.referenceOpen, canonical?.doc, options.records?.getState().capabilities]);
       if (force || holder.dataset.awvArtifact !== signature) {
         const focusKey = holder.contains(document.activeElement) ? document.activeElement?.dataset?.awvFocus : null;
         rememberDiagnostics(holder);
         delete holder._awvHTML;
         holder.innerHTML = canonical ? noteHTML() : live() ? liveArtifactHTML(item) : ({ plot: plotHTML, evidence: evidenceHTML, code: codeHTML, reference: referenceHTML, document: noteHTML }[item.kind] || (() => '<p class="awv-empty">No preview renderer is connected for this artifact.</p>'))();
-        const process = live() && (snapshot.processes || []).find(p => p.id === item.processId && p.status === 'succeeded'
-          && p.job?.mcp?.tool === 'calculate_csv' && p.job.artifact?.id === item.id);
-        const download = process && window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        const download = process?.job?.mcp && artifactDownload(item);
         if (download) {
           const section = document.createElement('div');
           section.className = 'awv-table-scroll';
           section.setAttribute('aria-live', 'polite');
-          section.textContent = 'Loading saved measurements…';
+          section.setAttribute('data-awv-mcp-result', registered?.resultKind || 'unsupported');
+          section.textContent = registered ? 'Loading saved ' + (registered.resultKind === 'csv-statistics' ? 'measurements' : 'RC response') + '…' : 'A structured preview is not available for this tool version. Download the saved result to inspect it.';
           holder.querySelector('h3').parentElement.after(section);
           // The request owns this element. A late reply can only update its detached old view.
-          void renderMeasurementTable(section, download);
+          if (registered) void renderMcpResult(section, download, registered.resultKind);
         }
         restoreDiagnostics(holder);
         holder.dataset.awvArtifact = signature;
@@ -9382,13 +9450,17 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function resultFilesHTML(results) {
       return results.map(item => {
-        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        const process = snapshot.processes?.find(process => process.id === item.processId);
+        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item, process);
         return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(displayText(item.file?.name || item.name || item.filename || item.title, 'Result file')) + '</a>' : '';
       }).join('');
     }
 
     function processHTML(process) {
       const job = process.job || process;
+      const registered = window.AthenaResultFiles?.mcp(job.mcp);
+      const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
+      const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
       const status = LABELS[process.status] || displayText(String(process.status || '').replaceAll('_', ' '), 'Working');
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
       const recorded = field('Working directory', job.cwd)
@@ -9398,9 +9470,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const command = job.program ? esc(job.program) + (Array.isArray(job.args) ? '\nArguments: ' + esc(JSON.stringify(job.args)) : '') : '';
       const files = snapshot.artifacts.filter(item => process.processId && item.processId === process.processId || !item.processId && (item.id === job.artifact?.id || job.artifacts?.some(file => file.id === item.id)));
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
-      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId]], 'process:' + process.id);
+      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
+        ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase]], 'process:' + process.id);
       const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
-      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(displayText(job.program, 'Process')) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }

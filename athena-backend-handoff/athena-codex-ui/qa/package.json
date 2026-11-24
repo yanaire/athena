@@ -4,6 +4,6 @@
   },
   "private": true,
   "scripts": {
-    "test": "node integration-test.cjs && node --test activity-labels-test.cjs"
+    "test": "node integration-test.cjs && node --test activity-labels-test.cjs conversation-stream-test.cjs"
   }
 }

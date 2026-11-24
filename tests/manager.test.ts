@@ -218,6 +218,8 @@ test('attachment transport stays in the Pi dispatch while live and restored user
     return value.content[0].text;
   };
   const users = (messages: readonly unknown[]) => messages.filter(object).filter(item => item.role === 'user').map(bodyText);
+  const ownerFields = ['projectId', 'sessionId', 'runId', 'taskId', 'parentTaskId', 'agentSessionId', 'attemptId'];
+  const owners = (messages: readonly unknown[]) => messages.filter(object).filter(item => ['user', 'assistant', 'toolResult'].includes(String(item.role))).map(item => item.athena);
   const forwarded: Record<string, unknown>[] = [];
   manager.subscribePi(sessionId, event => forwarded.push(event));
   const command = {type:'prompt',id:'with-files',message,fileReferences};
@@ -261,19 +263,28 @@ test('attachment transport stays in the Pi dispatch while live and restored user
   wire.mode('answer');
   // An independently submitted copy of the full former wire message is ordinary input.
   await send({type:'prompt',id:'literal-user-copy',message:wireMessage});
+  const liveOwners = forwarded.filter(event => event.type === 'message_end' && object(event.message) &&
+    ['user', 'assistant', 'toolResult'].includes(String(event.message.role))).map(event => Object.fromEntries(ownerFields.map(key => [key, event[key]])));
+  for (const event of forwarded.filter(event => event.type === 'agent_end')) {
+    assert.ok(Array.isArray(event.messages));
+    assert.deepEqual(owners(event.messages), owners(event.messages).map(() => Object.fromEntries(ownerFields.map(key => [key, event[key]]))));
+  }
   const checkHistory = async () => {
     const response = await manager.pi(sessionId, {type:'get_messages'});
     assert.ok(object(response) && object(response.data) && Array.isArray(response.data.messages));
     assert.deepEqual(users(response.data.messages), [message, publicWireMessage]);
+    assert.deepEqual(owners(response.data.messages), liveOwners);
     assert.deepEqual(users((await manager.getAgentHistory(sessionId, sessionId)).messages), [message, publicWireMessage]);
     const entries = await manager.pi(sessionId, {type:'get_entries'});
     assert.ok(object(entries) && object(entries.data) && Array.isArray(entries.data.entries));
     assert.deepEqual(users(entries.data.entries.filter(object).map(entry => entry.message)), [message, publicWireMessage]);
+    assert.deepEqual(owners(entries.data.entries.filter(object).map(entry => entry.message)), liveOwners);
     const first = entries.data.entries.find(entry => object(entry) && object(entry.message) && entry.message.role === 'user');
     assert.ok(object(first) && typeof first.id === 'string');
     const subsequent = await manager.pi(sessionId, {type:'get_entries', since:first.id});
     assert.ok(object(subsequent) && object(subsequent.data) && Array.isArray(subsequent.data.entries));
     assert.deepEqual(users(subsequent.data.entries.filter(object).map(entry => entry.message)), [publicWireMessage]);
+    assert.deepEqual(owners(subsequent.data.entries.filter(object).map(entry => entry.message)), liveOwners.slice(1));
     const missing = await manager.pi(sessionId, {type:'get_entries', since:'unknown-entry'});
     assert.ok(object(missing));
     assert.equal(missing.success, false);
@@ -287,7 +298,11 @@ test('attachment transport stays in the Pi dispatch while live and restored user
   assert.ok(object(current) && object(current.data) && typeof current.data.sessionFile === 'string');
   const path = current.data.sessionFile;
   const persisted = await readFile(path, 'utf8');
-  assert.deepEqual(users(persisted.trimEnd().split('\n').map(line => JSON.parse(line).message)), [wireMessage, wireMessage]);
+  const savedMessages = persisted.trimEnd().split('\n').map(line => JSON.parse(line).message);
+  assert.deepEqual(users(savedMessages), [wireMessage, wireMessage]);
+  assert.ok(savedMessages.filter(object).every(message => !Object.hasOwn(message, 'athena')));
+  assert.ok(wire.requests.filter(object).flatMap(request => Array.isArray(request.messages) ? request.messages.filter(object) : [])
+    .every(message => !Object.hasOwn(message, 'athena')));
   await manager.close();
   manager = await wire.manager();
   await checkHistory();

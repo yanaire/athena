@@ -105,7 +105,7 @@ test("child SDK tools delegate grants and reject path arguments and parent tools
   } });
   try {
     await session.prompt("Read and calculate using the assigned file.");
-    assert.deepEqual(requests[0]?.tools.map(tool => tool.function.name).sort(), ["calculate_csv", "read"]);
+    assert.deepEqual(requests[0]?.tools.map(tool => tool.function.name).sort(), ["calculate_csv", "calculate_rc_response", "read"]);
     assert.deepEqual(received, calls.slice(2));
     const results = requests.at(-1)?.messages.filter(message => message.role === "tool").map(message => message.content);
     assert.ok(results?.includes('{"count":3,"mean":7.5}'));

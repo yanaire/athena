@@ -184,9 +184,34 @@ test('workspace activity hides runtime identities in summaries and preserves age
   } finally { view.destroy(); }
 });
 
+test('registered RC tools and process phases use readable labels without exposing file or execution IDs', async () => {
+  const { circuits } = await import(path.resolve(sourceRoot, '../../runtime/mcp-contract.mjs'));
+  const e = environment(['activity-labels', 'pi-activity', 'result-files', 'workspace-chrome']);
+  const presentation = e.window.AthenaPiActivity.toolPresentation(circuits.alias, { fileId: ids.tool }, 'running');
+  assert.equal(presentation.label, 'Calculating RC response');
+  assert.equal(presentation.detail, 'Assigned circuit JSON');
+  assert.equal(e.window.AthenaPiActivity.toolPresentation(circuits.alias, {}, 'succeeded').label, 'RC response calculated');
+  const process = { id: ids.process, processId: ids.process, taskId: ids.task, attemptId: ids.attempt, toolId: ids.tool, status: 'running', job: { mcp: { ...circuits, phase: 'tools/list' }, program: '/bundled/node' } };
+  let snapshot = { mode: 'runtime', revision: 1, sessionId: ids.session, run: { id: ids.run, status: 'running' }, tasks: [{ id: ids.task, title: 'Inspect circuit response', status: 'running' }], agents: [], attempts: [], tools: [], processes: [process], artifacts: [], approvals: [] };
+  let update;
+  const store = { getState: () => snapshot, subscribe(fn) { update = fn; fn(snapshot); return () => {}; } };
+  const host = e.document.querySelector('#root');
+  const view = e.window.AthenaWorkspaceChrome.mount(host, { store });
+  try {
+    const summary = host.querySelector('[data-aw-process] > summary');
+    assert.match(summary.textContent, /RC step response/); assert.match(summary.textContent, /Discovering tools/); hidesIds(host);
+    assert.equal(summary.textContent.includes('/bundled/node'), false);
+    assert.equal(summary.textContent.includes(circuits.tool), false);
+    assert.ok(host.querySelector('[data-aw-process] [data-aw-diagnostics]').textContent.includes(circuits.server));
+    snapshot = { ...snapshot, revision: 2, processes: [{ ...process, job: { ...process.job, mcp: { ...process.job.mcp, server: 'unregistered-server' } } }] };
+    update(snapshot);
+    assert.match(host.querySelector('[data-aw-process] > summary').textContent, /Engineering calculation/); hidesIds(host);
+  } finally { view.destroy(); }
+});
+
 test('measurement activity keeps failed tool outcomes after child or process completion', async () => {
-  const { csvServer: metadata } = await import(path.resolve(sourceRoot, '../../runtime/csv-mcp.ts'));
-  const e = environment(['activity-labels', 'pi-activity', 'workspace-chrome']);
+  const { measurements: metadata } = await import(path.resolve(sourceRoot, '../../runtime/mcp-contract.mjs'));
+  const e = environment(['activity-labels', 'pi-activity', 'result-files', 'workspace-chrome']);
   e.window.AthenaAvatars = { html: () => '<span aria-hidden="true">●</span>' };
   const task = { id: ids.task, title: 'Summarize measurements', status: 'succeeded', attemptId: ids.attempt, agentSessionId: ids.agentSession };
   const program = '/Applications/Athena.app/Contents/MacOS/athena-node';
@@ -208,7 +233,7 @@ test('measurement activity keeps failed tool outcomes after child or process com
     assert.match(activity.querySelector('.aw-agent-presence').textContent, /complete/, 'The child that explained the failure remains complete.');
 
     const processRow = activity.querySelector('[data-aw-process]');
-    assert.match(processRow.querySelector('.aw-agent-name').textContent, /Measurement calculation/);
+    assert.match(processRow.querySelector('.aw-agent-name').textContent, /Measurement statistics/);
     assert.equal(processRow.querySelector('.aw-status').textContent, 'Needs attention');
     assert.equal(processRow.querySelector('summary').textContent.includes(program), false);
     processRow.open = true;

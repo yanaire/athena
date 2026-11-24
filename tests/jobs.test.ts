@@ -257,3 +257,92 @@ test('a recovered running receipt reports interruption and does not redispatch o
   handle.cancel();
   assert.equal((await handle.result).cancellation, 'confirmed');
 });
+
+const rcAlias = 'calculate_rc_response';
+const circuit = { schemaVersion: 1, resistanceOhm: 10000, capacitanceFarad: 1e-7, inputVolt: 1, sampleTimesSeconds: [0, 0.001, 0.005] };
+
+test('RC worker reads the granted version, follows the step equation and publishes its verified JSON', async t => {
+  const { runner } = await fixture(t);
+  for (const voltage of [1, -2]) {
+    const bytes = Buffer.from(JSON.stringify({ ...circuit, inputVolt: voltage }));
+    const grant = await runner.grant({ ...file, name: 'circuit.json', bytes }, rcAlias);
+    const job = await runner.startMcp(rcAlias, { ...match, attemptId: 'rc-' + voltage, grantId: grant.id }).result;
+    assert.equal(job.status, 'succeeded', job.error);
+    assert.equal(job.mcp?.server, 'athena-circuits');
+    assert.equal(job.mcp?.phase, 'tools/call');
+    assert.equal(job.grant?.sha256, createHash('sha256').update(bytes).digest('hex'));
+    assert.ok(job.artifact);
+    assert.equal(job.artifact.name, 'rc-response.json');
+    const rc = JSON.parse((await runner.download(job.artifact)).toString());
+    assert.equal(rc.timeConstantSeconds, 0.001);
+    assert.ok(Math.abs(rc.cutoffHz - 159.154943091895) < 1e-12);
+    assert.deepEqual(rc.samples.map((s: {timeSeconds:number}) => s.timeSeconds), circuit.sampleTimesSeconds);
+    for (const [i, expected] of [0, 0.6321205588285577, 0.9932620530009145].entries()) {
+      assert.ok(Math.abs(rc.samples[i].outputVolt - voltage * expected) < 1e-14);
+    }
+  }
+});
+
+test('RC input bounds, malformed data and unrepresentable results never produce an artifact', async t => {
+  const { runner } = await fixture(t);
+  const input = { ...file, name: 'circuit.json' };
+  await assert.rejects(runner.grant({ ...input, bytes: Buffer.alloc(65537) }, rcAlias), { code: 'INVALID_INPUT' });
+  await assert.rejects(runner.grant({ ...file, bytes: Buffer.from('{}') }, rcAlias), { code: 'GRANT_DENIED' });
+  const bad = ['invalid JSON', 'null', JSON.stringify(circuit).replace('"inputVolt":1', '"inputVolt":1e999'),
+    ...[{ resistanceOhm: 0 }, { capacitanceFarad: -1 }, { sampleTimesSeconds: [-1] }, { sampleTimesSeconds: [] },
+      { sampleTimesSeconds: Array(513).fill(0) }, { resistanceOhm: 1e308, capacitanceFarad: 1e308 },
+      { resistanceOhm: 1e-300, capacitanceFarad: 1e-300 }, { inputVolt: 5e-324, sampleTimesSeconds: [1e-7] }
+    ].map(change => JSON.stringify({ ...circuit, ...change }))];
+  for (const [i, text] of bad.entries()) {
+    const grant = await runner.grant({ ...input, bytes: Buffer.from(text) }, rcAlias);
+    const result = await runner.startMcp(rcAlias, { ...match, attemptId: 'bad-' + i, grantId: grant.id }).result;
+    assert.equal(result.status, 'failed', result.error);
+    assert.equal(result.exitCode, 0); // MCP error response on a healthy transport.
+    assert.equal(result.artifact, undefined);
+  }
+});
+
+test('RC and CSV share one queue; a cancelled RC releases its slot and cannot reuse CSV grants', async t => {
+  const started = Promise.withResolvers<void>();
+  const { runner } = await fixture(t, { concurrency: 1, onEvent(event) {
+    if (event.type === 'process_started' && event.attempt.mcp?.alias === rcAlias) {
+      process.kill(event.attempt.pid!, 'SIGSTOP');
+      started.resolve();
+    }
+  } });
+  const grant = await runner.grant({ ...file, name: 'circuit.json', bytes: Buffer.from(JSON.stringify(circuit)) }, rcAlias);
+  const csv = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
+  const first = runner.startMcp(rcAlias, { ...match, grantId: grant.id });
+  await started.promise;
+  const next = runner.start({ ...match, attemptId: 'second', grantId: csv.id });
+  first.cancel();
+  const canceled = await first.result;
+  assert.equal(canceled.status, 'cancelled');
+  assert.equal(canceled.cancellation, 'confirmed');
+  assert.equal(canceled.artifact, undefined);
+  assert.equal((await next.result).status, 'succeeded');
+  const denied = await runner.startMcp(rcAlias, { ...match, attemptId: 'wrong-tool', grantId: csv.id }).result;
+  assert.equal(denied.status, 'failed');
+  assert.equal(denied.pid, null);
+  assert.equal(denied.artifact, undefined);
+  assert.throws(() => runner.startMcp('unknown', { ...match, grantId: csv.id }), /Unknown/);
+});
+
+test('legacy CSV grant and artifact receipts without MCP metadata survive reopening', async t => {
+  const { runner, dataDir } = await fixture(t);
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n7\n') });
+  const { mcpAlias: _grantAlias, ...legacyGrant } = grant;
+  const oldGrant = join(dataDir, 'csv-jobs', 'grants', grant.id, 'grant.json');
+  await chmod(oldGrant, 0o600);
+  await writeFile(oldGrant, JSON.stringify(legacyGrant));
+  const job = await runner.start({ ...match, grantId: grant.id }).result;
+  assert.ok(job.artifact && job.cwd, job.error);
+  const { mcpAlias: _artifactAlias, ...legacyArtifact } = job.artifact;
+  const receipt = join(job.cwd, 'artifact.json');
+  await chmod(receipt, 0o600);
+  await writeFile(receipt, JSON.stringify(legacyArtifact));
+  await runner.close();
+  const reopened = new CsvJobRunner({ dataDir });
+  t.after(() => reopened.close());
+  assert.equal(JSON.parse((await reopened.download(legacyArtifact)).toString()).statistics[0].mean, 7);
+});

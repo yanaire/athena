@@ -11,6 +11,7 @@
     const controller = new AbortController();
     const { signal } = controller;
     const listen = (element, type, callback, settings = {}) => element.addEventListener(type, callback, { ...settings, signal });
+    const attemptSections = new Map();
     const expanded = new Set();
     const expandedTools = new Set();
     const expandedProcesses = new Set();
@@ -29,19 +30,21 @@
     let destroyed = false;
     let renderSignature = '';
     let lastRunStatus = '';
-    const q = selector => host.querySelector(selector);
+    const all = selector => [...new Set([...host.querySelectorAll(selector), ...[...attemptSections.values()].flatMap(node => [...node.querySelectorAll(selector)])])];
+    const contains = node => host.contains(node) || [...attemptSections.values()].some(section => section.contains(node));
+    const q = selector => all(selector)[0] || null;
     const refreshIcons = () => options.icons?.();
     const labels = window.AthenaActivityLabels;
     const identifiers = state => [state.sessionId, state.run?.id, ...['tasks', 'agents', 'tools', 'attempts', 'processes'].flatMap(key => (state[key] || []).flatMap(item => [item.id, item.taskId, item.parentTaskId, item.agentSessionId, item.attemptId, item.processId, item.toolId, item.toolCallId])), ...Object.values(state.retryOperations || {}).map(item => item.requestId)].filter(Boolean);
     const displayText = (value, fallback = '', state = snapshot) => labels.text(value, fallback, identifiers(state));
     function rememberDiagnostics() {
-      for (const element of host.querySelectorAll('[data-aw-diagnostics]')) {
+      for (const element of all('[data-aw-diagnostics]')) {
         if (element.open) expandedDiagnostics.add(element.dataset.awDiagnostics);
         else expandedDiagnostics.delete(element.dataset.awDiagnostics);
       }
     }
     function restoreDiagnostics() {
-      for (const element of host.querySelectorAll('[data-aw-diagnostics]')) element.open = expandedDiagnostics.has(element.dataset.awDiagnostics);
+      for (const element of all('[data-aw-diagnostics]')) element.open = expandedDiagnostics.has(element.dataset.awDiagnostics);
     }
     const backdrop = document.createElement('div');
     backdrop.id = 'aw-approval-backdrop';
@@ -178,7 +181,7 @@
       const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
       if (process) {
         expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
-        const row = [...host.querySelectorAll('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
+        const row = [...all('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
         if (!row) return false;
         row.open = true;
         row.querySelector('summary').focus({ preventScroll: true });
@@ -192,7 +195,7 @@
       const agent = snapshot.agents.find(item => item.taskId === tool.taskId);
       if (agent) expanded.add(agent.id);
       renderSignature = ''; render(snapshot);
-      const row = Array.from(host.querySelectorAll('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
+      const row = Array.from(all('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
       const summary = row?.querySelector('summary');
       if (focusable(summary)) { summary.focus({ preventScroll: true }); summary.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); }
       return true;
@@ -206,7 +209,7 @@
       } catch (_) {
         if (destroyed) return;
         copyFallbacks.set(tool.id, text); revealTool({ toolId: tool.id });
-        const field = Array.from(host.querySelectorAll('[data-aw-copy-fallback]')).find(item => item.dataset.awCopyFallback === tool.id);
+        const field = Array.from(all('[data-aw-copy-fallback]')).find(item => item.dataset.awCopyFallback === tool.id);
         if (focusable(field)) { field.focus({ preventScroll: true }); field.select?.(); }
         options.toast?.('Select and copy the text in the conversation.');
       }
@@ -222,14 +225,17 @@
 
     function resultFilesHTML(results) {
       return results.map(item => {
-        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        const process = snapshot.processes?.find(process => process.id === item.processId);
+        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item, process);
         return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(displayText(item.file?.name || item.name || item.filename || item.title, 'Result file')) + '</a>' : '';
       }).join('');
     }
 
     function processHTML(process) {
       const job = process.job || process;
-      const title = job.mcp?.tool === 'calculate_csv' ? 'Measurement calculation' : displayText(job.program, 'Process');
+      const registered = window.AthenaResultFiles?.mcp(job.mcp);
+      const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
+      const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
       const status = LABELS[process.status] || displayText(String(process.status || '').replaceAll('_', ' '), 'Working');
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
       const recorded = field('Working directory', job.cwd)
@@ -239,31 +245,77 @@
       const command = job.program ? esc(job.program) + (Array.isArray(job.args) ? '\nArguments: ' + esc(JSON.stringify(job.args)) : '') : '';
       const files = snapshot.artifacts.filter(item => process.processId && item.processId === process.processId || !item.processId && (item.id === job.artifact?.id || job.artifacts?.some(file => file.id === item.id)));
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
-      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId]], 'process:' + process.id);
+      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
+        ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase]], 'process:' + process.id);
       const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
-      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(title) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
+    }
+
+    function renderAttempts(state, availableTools) {
+      const placedTools = new Set(), placedProcesses = new Set(), placedTasks = new Set(), kept = new Set();
+      if (!options.placeActivity) return { placedTools, placedProcesses, placedTasks };
+      const attempts = (state.attempts || []).filter(attempt => state.tasks.some(task => task.id === attempt.taskId && task.parentTaskId));
+      for (const attempt of attempts) {
+        const task = state.tasks.find(item => item.id === attempt.taskId);
+        const tools = availableTools.filter(item => item.attemptId === attempt.id);
+        const processes = (state.processes || []).filter(item => item.attemptId === attempt.id);
+        const results = state.artifacts.filter(item => item.attemptId === attempt.id);
+        const agent = state.agents.find(item => item.taskId === task.id);
+        let node = attemptSections.get(attempt.id);
+        if (!node) { node = document.createElement('section'); node.className = 'aw-attempt'; node.dataset.awAttempt = attempt.id; attemptSections.set(attempt.id, node); }
+        kept.add(attempt.id);
+        const ownStatus = LABELS[attempt.status] || displayText(attempt.status, 'Waiting', state);
+        const attemptLabel = labels.attempt(attempt.id, { ...task, attempts: attempts.filter(item => item.taskId === task.id) });
+        const current = task.attemptId === attempt.id;
+        const recovery = current && (['failed','paused','cancelled'].includes(attempt.status) || state.retryOperations?.[task.id]?.pending || state.retryOperations?.[task.id]?.accepted) ? taskRecoveryHTML({ ...task, status: attempt.status }, state) : '';
+        const observed = [...tools.map((tool, index) => ({ at: state.events.find(event => event.toolId === tool.id)?.at ?? tool.logs?.[0]?.at ?? Infinity, index, html: toolEventHTML(tool, state, agent) })), ...processes.map((process, index) => ({ at: process.job?.startedAt ?? state.events.find(event => event.processId === process.id)?.at ?? Infinity, index: tools.length + index, html: processHTML(process) }))].sort((a, b) => a.at - b.at || a.index - b.index);
+        const summary = attempt.result ? displayText(attempt.result, '', state) : '';
+        const resultButtons = results.map(item => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(item.id) + '" data-aw-artifact-version="' + esc(item.version || '') + '">' + icon('file-check') + esc(displayText(item.title || item.file?.name, 'View result', state)) + '</button>').join('');
+        node.innerHTML = '<header class="aw-attempt-heading"><strong>' + esc(labels.task(task, state.tasks)) + '</strong><span class="aw-status" data-status="' + esc(attempt.status) + '">' + esc(ownStatus) + '</span></header>'
+          + '<p class="aw-attempt-meta">' + esc([agent ? labels.agent(agent, state.tasks) : 'Subagent', attemptLabel].join(' · ')) + '</p>'
+          + '<div class="aw-agent-events">' + observed.map(item => item.html).join('') + '</div>'
+          + (summary && summary.length <= 300 ? '<p class="aw-attempt-result">' + esc(summary) + '</p>' : '')
+          + (!current && attempt.error ? '<p class="aw-tool-task">' + esc(displayText(attempt.error, 'This attempt did not finish.', state)) + '</p>' : '')
+          + recovery + '<div class="aw-agent-links aw-attempt-results">' + resultButtons + resultFilesHTML(results) + '</div>'
+          + labels.diagnostics([['Run ID', attempt.runId || task.runId], ['Task ID', task.id], ['Attempt ID', attempt.id], ['Agent session ID', attempt.agentSessionId]], 'attempt:' + attempt.id);
+        // The timeline owns placement only; all existing controls and artifact
+        // downloads are still handled here against the host snapshot.
+        if (!options.placeActivity(node, { runId: attempt.runId || task.runId, taskId: task.id, attemptId: attempt.id, at: attempt.acceptedAt ?? attempt.startedAt })) host.appendChild(node);
+        for (const tool of tools) placedTools.add(tool.id);
+        for (const process of processes) placedProcesses.add(process.id);
+        placedTasks.add(task.id);
+      }
+      for (const [id, node] of attemptSections) if (!kept.has(id)) { options.removeActivity?.(id); node.remove(); attemptSections.delete(id); }
+      return { placedTools, placedProcesses, placedTasks };
     }
 
     function render(state) {
       if (destroyed) return;
       snapshot = state;
-      const runKey = JSON.stringify([state.sessionId, state.run.id]);
+      const runKey = JSON.stringify([state.mode, state.sessionId]);
       if (currentRunKey && currentRunKey !== runKey) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); expandedDiagnostics.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
       else rememberDiagnostics();
       currentRunKey = runKey;
+      if (state.mode !== 'runtime') { for (const [id, node] of attemptSections) { options.removeActivity?.(id); node.remove(); } attemptSections.clear(); }
       if(state.mode==='runtime'){
         const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.tasks,state.agents,state.attempts,state.tools,state.processes,state.artifacts,state.approvals,state.retryOperations,[...requestedTools],[...expandedTools]]);
         if(signature!==renderSignature){
           renderSignature=signature;
-          const previous=host.contains(document.activeElement)?captureKey(document.activeElement):null;
-          const tools=state.tools.filter(tool=>tool.source!=='pi'||requestedTools.has(tool.id));
+          const previous=contains(document.activeElement)?captureKey(document.activeElement):null;
+          const tools=state.tools.filter(tool=>(tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id));
           const pending=state.approvals.filter(request=>request.status==='pending');
           const recovery=state.tasks.filter(task=>task.parentTaskId&&(['failed','paused','cancelled'].includes(task.status)||state.retryOperations?.[task.id]?.pending||state.retryOperations?.[task.id]?.accepted));
           const runContext = (LABELS[state.run.status] || displayText(state.run.status, 'Ready', state)) + ' · ' + state.tasks.length + (state.tasks.length === 1 ? ' task' : ' tasks');
           const diagnostics = labels.diagnostics([['Session ID', state.sessionId], ['Run ID', state.run.id]], 'run');
-          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!recovery.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+agentGroupHTML(state)+recovery.map(task=>taskRecoveryHTML(task,state)).join('')+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>');
+          host.replaceChildren();
+          const placed=renderAttempts(state,tools);
+          const remainingTools=tools.filter(item=>!placed.placedTools.has(item.id)), remainingProcesses=(state.processes || []).filter(item=>!placed.placedProcesses.has(item.id)), remainingRecovery=recovery.filter(item=>!placed.placedTasks.has(item.id));
+          const fallback=document.createElement('div');
+          const empty=!remainingTools.length&&!pending.length&&!remainingRecovery.length&&!remainingProcesses.length&&(!state.agents.length||placed.placedTasks.size);
+          fallback.innerHTML=empty?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+(placed.placedTasks.size?'':agentGroupHTML(state))+remainingRecovery.map(task=>taskRecoveryHTML(task,state)).join('')+'<div class="aw-agent-events">'+remainingTools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+remainingProcesses.map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>';
+          host.append(...fallback.childNodes);
           for(const line of host.querySelectorAll('.aw-tool-task'))line.textContent=line.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*demo steps/,'');
           if(!state.capabilities?.retryTask)host.querySelectorAll('[data-aw-retry]').forEach(button=>button.disabled=true);
           restoreDiagnostics();
@@ -275,7 +327,7 @@
       const signature = JSON.stringify([state.run.id, state.run.status, state.run.scenario, state.tasks.map(task => [task.id, task.status, task.progress]), state.approvals.map(item => [item.id, item.status]), state.events.length, state.artifacts.length, state.agents.length]);
       if (signature !== renderSignature) {
         renderSignature = signature;
-        const previous = host.contains(document.activeElement) ? captureKey(document.activeElement) : null;
+        const previous = contains(document.activeElement) ? captureKey(document.activeElement) : null;
         const isLocalDemo = state.run.status === 'ready';
         const completed = state.tasks.filter(task => task.status === 'succeeded').length;
         const pending = state.approvals.find(item => item.status === 'pending');
@@ -302,7 +354,8 @@
       if (openedApproval && !state.approvals.some(item => item.id === openedApproval && item.status === 'pending')) closeApproval();
     }
 
-    listen(host, 'toggle', event => {
+    listen(root, 'toggle', event => {
+      if (!contains(event.target)) return;
       if (event.target.matches?.('[data-aw-diagnostics]')) {
         if (event.target.open) expandedDiagnostics.add(event.target.dataset.awDiagnostics);
         else expandedDiagnostics.delete(event.target.dataset.awDiagnostics);
@@ -320,16 +373,17 @@
       if (event.target.open) { if (id) expanded.add(id); expandedTools.add(toolId); }
       else { if (id) expanded.delete(id); expandedTools.delete(toolId); }
     }, { capture: true });
-    listen(host, 'change', event => {
+    listen(root, 'change', event => {
+      if (!contains(event.target)) return;
       if (event.target.id === 'aw-demo-scenario') {
         const scenario = event.target.value;
         if (!['ready', 'running', 'blocked', 'paused'].includes(snapshot.run.status)) { expanded.clear(); store.reset(); }
         store.setScenario(scenario);
       }
     });
-    listen(host, 'click', event => {
+    listen(root, 'click', event => {
       const button = event.target.closest('button');
-      if (!button || button.disabled || !host.contains(button)) return;
+      if (!button || button.disabled || !contains(button)) return;
       if (button.dataset.awApprovalOpen) { openApproval(button.dataset.awApprovalOpen); return; }
       if (button.dataset.awAgentReveal) {
         const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal);
@@ -390,7 +444,7 @@
     });
     const unsubscribe = store.subscribe(render);
     return {
-      openApproval, closeApproval, revealTool, isApprovalOpen: () => Boolean(openedApproval),
+      openApproval, closeApproval, revealTool, refresh() { renderSignature = ''; render(snapshot); }, isApprovalOpen: () => Boolean(openedApproval),
       getState: () => ({ approvalId: openedApproval, expanded: [...expanded], expandedTools: [...expandedTools], thinkingOpen }),
       destroy() {
         if (destroyed) return;
@@ -398,7 +452,7 @@
         destroyed = true;
         for (const [timer, url] of downloadTimers) { clearTimeout(timer); URL.revokeObjectURL(url); }
         downloadTimers.clear();
-        unsubscribe(); controller.abort(); backdrop.remove(); host.replaceChildren();
+        unsubscribe(); controller.abort(); backdrop.remove(); host.replaceChildren(); for (const node of attemptSections.values()) node.remove(); attemptSections.clear();
       }
     };
   }

@@ -178,10 +178,10 @@ async function withHost(step) {
 try {
   execFileSync(binary, ['--input-type=module', '--eval', `
     import assert from 'node:assert/strict';
-    import { CsvJobRunner } from './runtime/jobs.ts';
+    import { JobRunner } from './runtime/jobs.ts';
     import { AnalysisFiles } from './runtime/analysis-files.ts';
     const dataDir = process.argv[1];
-    const runner = new CsvJobRunner({ dataDir });
+    const runner = new JobRunner({ dataDir });
     const files = new AnalysisFiles(dataDir);
     for (const [language, name, source] of [
       ['python', 'job.py', "with open('/outputs/proof.txt','w') as f: f.write(open('input.txt').read().upper())"],
@@ -204,6 +204,15 @@ try {
     assert.deepEqual(JSON.parse((await runner.download(study.artifact)).toString()).statistics, [
       {column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,max:35,mean:19}
     ]);
+    const input = {schemaVersion:1,resistanceOhm:10000,capacitanceFarad:1e-7,inputVolt:1,sampleTimesSeconds:[0,0.001,0.005]};
+    const circuit = await runner.grant({...scope, fileId:'circuit',versionId:'one',name:'circuit.json',
+      bytes:Buffer.from(JSON.stringify(input))}, 'calculate_rc_response');
+    const rc = await runner.startMcp('calculate_rc_response',{...scope,taskId:'circuit',attemptId:'circuit',
+      requestId:'circuit',toolId:'circuit-tool',grantId:circuit.id}).result;
+    assert.equal(rc.status,'succeeded',rc.error);
+    assert.equal(rc.mcp.server,'athena-circuits');
+    const response = JSON.parse((await runner.download(rc.artifact)).toString());
+    assert.ok(Math.abs(response.samples[1].outputVolt - 0.632120558829) < 1e-12);
     await runner.close();
   `, workspace, '--desktop'], { cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' }, timeout: 45_000 });
   let profileId;
@@ -250,7 +259,7 @@ try {
   });
   assert.equal(successfulRequests, 3);
   assert.ok(vault.equals(await readFile(vaultPath)), 'Authenticated restart changed the existing vault.');
-  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, measurement MCP statistics, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
+  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, measurement and RC MCP artifacts, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
 } finally {
   fixture.closeAllConnections();
   await new Promise(resolve => fixture.close(resolve));

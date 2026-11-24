@@ -1,40 +1,9 @@
-import { createHash } from 'node:crypto';
-import { createInterface } from 'node:readline';
-import { constants, closeSync, fstatSync, openSync, readSync, writeFileSync } from 'node:fs';
+import { csvBinding } from './mcp-contract.mjs';
+import { McpDataError as CsvDataError, serve } from './mcp-worker.mjs';
 
-// This worker accepts data only. It never imports from a request, opens a
-// socket, starts another process, or interprets any CSV cell as code.
-const MAX_INPUT = 1024 * 1024;
-const MAX_OUTPUT = 64 * 1024;
 const MAX_ROWS = 100_000;
 const MAX_COLUMNS = 128;
 const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
-
-class CsvDataError extends Error {}
-
-function input() {
-  const fd = openSync('input.csv', constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const st = fstatSync(fd);
-    if (!st.isFile() || st.size < 1 || st.size > MAX_INPUT) throw new CsvDataError('CSV input size is invalid.');
-    const data = Buffer.allocUnsafe(MAX_INPUT + 1);
-    let size = 0;
-    while (size < data.length) {
-      const n = readSync(fd, data, size, data.length - size, size);
-      if (!n) break;
-      size += n;
-    }
-    if (size !== st.size) throw new CsvDataError('CSV input changed during reading.');
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(data.subarray(0, size));
-    } catch (error) {
-      if (!(error instanceof TypeError)) throw error;
-      throw new CsvDataError('CSV must be valid UTF-8.');
-    }
-  } finally {
-    closeSync(fd);
-  }
-}
 
 /** Yield one record at a time; retain no previously parsed rows. */
 function* records(csv) {
@@ -121,54 +90,6 @@ function summary(csv, column) {
   return { schemaVersion: 1, rowCount, columns, statistics: statistics.map(({ index: _, ...stat }) => stat) };
 }
 
-// Athena measurement MCP server 1.0.0, stdio transport (2025-06-18).
-// Each server has one host-granted input and one write-once output.
-const version = '2025-06-18';
-const tool = { name: 'calculate_csv', description: 'Summarize numeric measurements in the granted CSV.',
-  inputSchema: { type: 'object', properties: { column: { type: 'string', minLength: 1, maxLength: 256 } }, additionalProperties: false } };
-const send = value => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\n');
-let phase = 'new';
-function dispatch(msg) {
-  if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
-    send({ id: null, error: { code: -32600, message: 'Invalid Request' } });
-    return;
-  }
-  const { method, params = {}, id } = msg;
-  if (id === undefined) {
-    if (method === 'notifications/initialized' && phase === 'initializing') phase = 'ready';
-    return;
-  }
-  const fail = (code, message) => send({ id, error: { code, message } });
-  const reply = result => send({ id, result });
-  if (method === 'ping') return reply({});
-  if (method === 'initialize' && phase === 'new') {
-    phase = 'initializing';
-    return reply({ protocolVersion: version, capabilities: { tools: {} }, serverInfo: { name: 'athena-measurements', version: '1.0.0' } });
-  }
-  if (phase !== 'ready') return fail(-32600, 'Measurement server is not initialized.');
-  if (method === 'tools/list') return reply({ tools: [tool] });
-  if (method !== 'tools/call') return fail(-32601, 'Method not found');
-  const args = params?.arguments ?? {};
-  if (params?.name !== tool.name || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => k !== 'column')
-    || (args.column !== undefined && (typeof args.column !== 'string' || !args.column.length || Buffer.byteLength(args.column) > 256))) {
-    return fail(-32602, 'Invalid measurement tool or arguments.');
-  }
-  try {
-    const result = summary(input(), args.column);
-    const json = JSON.stringify(result) + '\n';
-    if (Buffer.byteLength(json) > MAX_OUTPUT) throw new CsvDataError('CSV statistics exceed the artifact size limit.');
-    writeFileSync('statistics.json', json, { flag: 'wx', mode: 0o400 });
-    const receipt = { filename: 'statistics.json', rowCount: result.rowCount, sha256: createHash('sha256').update(json).digest('hex') };
-    return reply({ content: [{ type: 'text', text: JSON.stringify(receipt) }], structuredContent: receipt });
-  } catch (error) {
-    const message = error instanceof CsvDataError ? error.message : 'Could not read the granted input or write the result.';
-    return reply({ isError: true, content: [{ type: 'text', text: message }] });
-  }
-}
-process.umask(0o077);
-for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
-  let msg;
-  try { msg = JSON.parse(line); }
-  catch { send({ id: null, error: { code: -32700, message: 'Parse error' } }); continue; }
-  dispatch(msg);
-}
+await serve(csvBinding, 'Summarize numeric measurements in the granted CSV.',
+  (csv, args) => summary(csv, args.column),
+  result => ({rowCount: result.rowCount}));
