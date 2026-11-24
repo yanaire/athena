@@ -381,13 +381,23 @@ function createEnvironment({ width = 1440, height = 1000, reduced = false, stora
 function test(name, callback) { tests.push({ name, callback }); }
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function hostedFixture({ stage = true, restart = false } = {}) {
-  const fixture = { stream: null, fail: null, sent: [], files: [], bootstraps: 0 };
+function hostedFixture({ stage = true, restart = false, recovery = false } = {}) {
+  const fixture = { stream: null, fail: null, sent: [], files: [], bootstraps: 0, retryRequests: [], snapshotReads: 0 };
   const configuration = { version: 1, provider: 'custom', endpoint: 'https://models.example/v1', defaultModel: 'pinned-model', roleModels: {}, parallelLimit: 1, contextBudget: 32768, outputBudget: 4096 };
   let snapshot = { revision: 1, projectId: 'p1', sessionId: 's1', projects: [{ id: 'p1', name: 'Real project' }], sessions: [{ id: 's1', projectId: 'p1', title: 'Saved conversation' }], run: { id: null, status: 'ready', elapsedMs: 0, startedAt: null, model: null }, tasks: [], agents: [], tools: [], artifacts: [], events: [], approvals: [] };
   // Captured from the real acceptance host on 2026-11-20; local cwd and
   // repetitive historical event rows are omitted from this UI projection.
   if (restart) snapshot = JSON.parse(sources['qa/host-restart-snapshot.json']);
+  if (recovery) {
+    const scope = { projectId: 'p1', sessionId: 's1', runId: 'recovery-run' };
+    snapshot = { ...snapshot, run: { ...snapshot.run, id: scope.runId, status: 'paused' },
+      tasks: [{ ...scope, id: 'recovery-root', title: 'Summarize the study', status: 'failed', attemptId: 'root-attempt', parentTaskId: null, retryable: false, dependencies: [] },
+        { ...scope, id: 'completed-sibling', title: 'Read the source', status: 'succeeded', attemptId: 'sibling-attempt', parentTaskId: 'recovery-root', retryable: false, dependencies: [] },
+        { ...scope, id: 'interrupted-child', title: 'Check measurements', status: 'paused', attemptId: 'interrupted-attempt', parentTaskId: 'recovery-root', retryable: true, dependencies: [] }],
+      attempts: [{ ...scope, id: 'root-attempt', taskId: 'recovery-root', status: 'failed' }, { ...scope, id: 'sibling-attempt', taskId: 'completed-sibling', status: 'succeeded', result: 'Source checked.' }, { ...scope, id: 'interrupted-attempt', taskId: 'interrupted-child', status: 'paused', error: 'Host restarted before this task finished.' }],
+      tools: [{ ...scope, id: 'retained-tool', taskId: 'interrupted-child', attemptId: 'interrupted-attempt', name: 'read', sdkToolName: 'read', status: 'failed', command: 'read measurements.csv', logs: [{ at: 1, text: 'Prior tool output' }] }],
+      artifacts: [{ ...scope, id: 'retained-artifact', taskId: 'completed-sibling', title: 'Checked source', kind: 'text', version: 'v1', text: 'Preserved result' }] };
+  }
   fixture.history = new Map([['s1', [{ role: 'user', content: 'Saved question' }, { role: 'assistant', content: [{ type: 'text', text: 'Saved answer' }] }]]]);
   if (restart) fixture.history.set(snapshot.sessionId, [{ role: 'user', content: snapshot.tasks[0].title }, { role: 'assistant', content: 'ATH-18d86b35b3' }]);
   fixture.EventSource = class {
@@ -402,14 +412,28 @@ function hostedFixture({ stage = true, restart = false } = {}) {
       assert.equal(fixture.stream.readyState, 1, 'SSE must be established before history hydration.');
       fixture.bootstraps++;
       if (fixture.fail === 'bootstrap') return { ok: false, json: async () => ({ error: 'Bootstrap unavailable' }) };
-      return { ok: true, json: async () => ({ snapshot, connection: { status: 'configured', configuration }, capabilities: ['create_project', 'create_session', 'open_session', 'set_project_model', 'cancel_run'], piCapabilities: ['get_state', 'get_messages', 'prompt', 'abort', ...(stage ? ['stage_files'] : [])] }) };
+      return { ok: true, json: async () => ({ snapshot, connection: { status: 'configured', configuration }, capabilities: ['create_project', 'create_session', 'open_session', 'set_project_model', 'cancel_run', ...(recovery ? ['retry_task'] : [])], piCapabilities: ['get_state', 'get_messages', 'prompt', 'abort', ...(stage ? ['stage_files'] : [])] }) };
     }
     assert.equal(url, '/api/rpc');
     assert.equal(options.headers['Content-Type'], 'application/json');
     const { method, args } = JSON.parse(options.body);
     if (fixture.fail === method) return { ok: true, json: async () => ({ error: method + ' rejected' }) };
     let result;
-    if (method === 'pi') {
+    if (method === 'getSnapshot') {
+      fixture.snapshotReads++; result = snapshot;
+    } else if (method === 'retryTask') {
+      fixture.retryRequests.push(plain(args));
+      await fixture.holdRetry?.();
+      if (fixture.retryError) return { ok: false, json: async () => ({ error: fixture.retryError, code: 'RUN_BUSY' }) };
+      assert.equal(args[0], 'interrupted-child');
+      assert.equal(args[1].expectedAttemptId, 'interrupted-attempt'); assert.ok(args[1].requestId);
+      snapshot = { ...snapshot, revision: snapshot.revision + 1, run: { ...snapshot.run, status: 'running' },
+        tasks: snapshot.tasks.map(task => task.id === args[0] ? { ...task, status: 'queued', retryable: false, attemptId: 'retried-attempt' } : task),
+        attempts: [...snapshot.attempts, { id: 'retried-attempt', taskId: args[0], status: 'queued', retryOfAttemptId: args[1].expectedAttemptId }, { id: 'reconciliation-attempt', taskId: 'recovery-root', status: 'queued', kind: 'reconciliation' }] };
+      result = { taskId: args[0], parentTaskId: 'recovery-root', agentSessionId: 'retry-agent-session', attemptId: 'retried-attempt', runId: snapshot.run.id, status: 'queued', reconciliationAttemptId: 'reconciliation-attempt' };
+      // Intentionally no SSE snapshot: the real adapter must refresh state after
+      // an immutable receipt even when stream delivery is delayed.
+    } else if (method === 'pi') {
       const [sessionId, command] = args;
       if (fixture.fail === command.type) return { ok: true, json: async () => ({ result: { type: 'response', id: command.id, command: command.type, success: false, error: 'Prompt rejected' } }) };
       let data = {};
@@ -585,6 +609,70 @@ test('Hosted cancellation targets the confirmed run without inventing a terminal
   await env.window.AthenaApp.cancelDemo();
   assert.equal(host.cancelledRun, 'real-run');
   assert.equal(env.state().workspace.run.status, 'running');
+  env.destroy();
+});
+
+test('Hosted child retry coordinates workflow and inline controls, refreshes the real adapter, and preserves previous work', async () => {
+  const host = hostedFixture({ recovery: true }), gate = deferred();
+  host.holdRetry = () => gate.promise;
+  const env = createEnvironment({ host }); host.stream.open();
+  await env.waitFor(() => env.state().workspace.capabilities?.retryTask);
+  const before = plain(env.state().workspace);
+  env.window.AthenaApp.openWorkspace('workflow', { taskId: 'interrupted-child' });
+  assert.match(env.q('[data-aw-task-recovery]').textContent, /Host restarted/);
+  env.click('[data-awv-retry="interrupted-child"]');
+  assert.equal(env.q('[data-awv-retry="interrupted-child"]').disabled, true);
+  assert.equal(env.q('[data-aw-retry="interrupted-child"]').disabled, true);
+  fire(env.q('[data-aw-retry="interrupted-child"]'), 'click');
+  await env.waitFor(() => host.retryRequests.length === 1);
+  assert.equal(host.retryRequests[0][1].expectedAttemptId, 'interrupted-attempt');
+  assert.match(env.q('[data-awv-retry="interrupted-child"]').textContent, /Retrying/);
+  gate.resolve();
+  await env.waitFor(() => env.state().workspace.tasks.find(task => task.id === 'interrupted-child')?.attemptId === 'retried-attempt' && !env.state().workspace.retryOperations['interrupted-child']);
+  const after = plain(env.state().workspace);
+  assert.equal(host.snapshotReads, 1); assert.equal(host.retryRequests.length, 1);
+  assert.equal(after.run.id, before.run.id); assert.equal(env.state().workspaceView.taskId, 'interrupted-child');
+  assert.deepEqual(after.tasks.find(task => task.id === 'completed-sibling'), before.tasks.find(task => task.id === 'completed-sibling'));
+  assert.deepEqual(after.artifacts, before.artifacts); assert.deepEqual(after.tools, before.tools);
+  assert.deepEqual(after.attempts.slice(0, before.attempts.length), before.attempts);
+  assert.equal(env.qa('[data-awv-retry]').length, 0); assert.equal(env.qa('[data-aw-task-recovery]').length, 0);
+  assert.match(env.q('[data-awv-task-detail]').textContent, /Retry of Attempt 1/);
+  env.destroy();
+});
+
+test('Hosted retry rejection stays beside the task and reuses the same request from either view', async () => {
+  const host = hostedFixture({ recovery: true }); host.retryError = 'Wait for the active run to finish.';
+  const env = createEnvironment({ host }); host.stream.open();
+  await env.waitFor(() => env.state().workspace.capabilities?.retryTask);
+  env.click('[data-aw-task-details="interrupted-child"]');
+  assert.equal(env.state().workspaceView.taskId, 'interrupted-child');
+  env.click('[data-awv-retry="interrupted-child"]');
+  await env.waitFor(() => env.qa('[data-awv-retry-error]').length === 1 && !env.q('[data-awv-retry]').disabled);
+  assert.match(env.q('[data-awv-retry-error]').textContent, /Wait for the active run/);
+  assert.match(env.q('[data-aw-retry-error]').textContent, /Wait for the active run/);
+  assert.equal(env.state().workspace.error, null); assert.equal(env.state().workspace.taskManagerStatus, 'connected');
+  host.retryError = null;
+  env.click('[data-aw-retry="interrupted-child"]');
+  await env.waitFor(() => env.state().workspace.tasks.find(task => task.id === 'interrupted-child')?.attemptId === 'retried-attempt');
+  assert.deepEqual(host.retryRequests[1], host.retryRequests[0]); assert.equal(host.snapshotReads, 2);
+  env.destroy();
+});
+
+test('Hidden reconciliation context stays out of hydrated and streaming transcripts while original user text is preserved', async () => {
+  const host = hostedFixture();
+  const content = JSON.stringify({ taskId: 'internal-recovery-task', attemptId: 'internal-recovery-attempt', artifactIds: ['internal-recovery-artifact'] });
+  const internal = { role: 'custom', customType: 'athena-reconciliation', display: false, content };
+  host.history.set('s1', [{ role: 'user', content }, internal, { role: 'assistant', content: 'The previous result.' }]);
+  const env = createEnvironment({ host }); host.stream.open();
+  await env.waitFor(() => env.qa('#ac-pi-transcript article').length === 2);
+  assert.equal(env.q('#ac-pi-transcript article[data-role="user"] p').textContent, content);
+  assert.equal(env.q('#ac-pi-transcript article[data-role="assistant"] p').textContent, 'The previous result.');
+  for (const type of ['message_start', 'message_end']) host.stream.emit({ type: 'pi', sessionId: 's1', event: { type, message: internal } });
+  assert.equal(env.qa('#ac-pi-transcript article').length, 2);
+  assert.equal(env.q('#ac-live-user').hidden, true, 'Internal context does not create a synthetic user bubble.');
+  host.stream.emit({ type: 'pi', sessionId: 's1', event: { type: 'message_start', message: { role: 'user', content } } });
+  assert.equal(env.q('#ac-live-user').hidden, false);
+  assert.equal(env.q('#ac-live-user').textContent, content, 'A real user message is not altered by content heuristics.');
   env.destroy();
 });
 

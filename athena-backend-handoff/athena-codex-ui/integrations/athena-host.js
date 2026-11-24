@@ -11,7 +11,11 @@
   async function json(url, options) {
     const response = await fetch(url, { ...options, signal: AbortSignal.timeout(120000) });
     const body = await response.json();
-    if (!response.ok || typeof body?.error === 'string') throw new Error(body?.error || 'The workspace service could not complete this request.');
+    if (!response.ok || typeof body?.error === 'string') {
+      const error = new Error(body?.error || 'The workspace service could not complete this request.');
+      if (typeof body?.code === 'string') error.code = body.code;
+      throw error;
+    }
     return body;
   }
   async function rpc(method, args) {
@@ -112,6 +116,18 @@
     createSession: input => activate('createSession', [input]),
     openSession: id => activate('openSession', [id]),
     getAgentHistory: (conversationId, agentSessionId) => rpc('getAgentHistory', [conversationId, agentSessionId]),
+    async retryTask(taskId, request) {
+      let result, failure;
+      try { result = await rpc('retryTask', [taskId, request]); }
+      catch (error) { failure = error; }
+      // A receipt describes the accepted attempt, not the current snapshot. Read
+      // current state separately so replaying a receipt cannot restore old data.
+      if (!failure || failure.code) {
+        try { acceptSnapshot(await rpc('getSnapshot', [])); } catch (_) { /* SSE/reconnect will hydrate the current state. */ }
+      }
+      if (failure) throw failure;
+      return { ...result, snapshot };
+    },
     cancelTask: taskId => rpc('cancelTask', [taskId]),
     cancelRun: runId => rpc('cancelRun', [runId]),
     async setProjectExecution(id, enabled) {

@@ -278,7 +278,7 @@ export async function createPiSession(options: PiSessionOptions) {
       return {
         sessionId: session.sessionId, sessionFile, isStreaming: session.isStreaming,
         isIdle: session.isIdle, messageCount: session.messages.length,
-        model: session.model ? { provider: session.model.provider, id: session.model.id, name: session.model.name } : null,
+        model: session.model ? { provider: session.model.provider, id: session.model.id, name: session.model.name, baseUrl: session.model.baseUrl } : null,
         thinkingLevel: session.thinkingLevel,
       };
     },
@@ -294,10 +294,12 @@ export async function createPiSession(options: PiSessionOptions) {
       });
     },
     /** Completion promise, unlike command(prompt)'s early acceptance response. */
-    async prompt(message: string): Promise<void> {
+    async prompt(message: string, options?: { readonly kind?: 'reconciliation' }): Promise<void> {
       await assertPromptReady();
       try {
-        await session.prompt(message, { expandPromptTemplates: false, source: "rpc" });
+        if (options?.kind === 'reconciliation') {
+          await session.sendCustomMessage({ customType: 'athena-reconciliation', content: message, display: false, details: undefined }, { triggerTurn: true });
+        } else await session.prompt(message, { expandPromptTemplates: false, source: "rpc" });
       } catch (error) {
         if (error instanceof Error) throw new PiRuntimeError(String(publicValue(error.message, redact)));
         throw error;

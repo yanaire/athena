@@ -81,7 +81,9 @@ export class Journal {
   finishRun(run:Run,status:Status,error?:string) {
     this.db.putRecord('run',{...run,status,endedAt:Date.now(),error});
     const receipt=this.db.receipt(run.sessionId,run.requestId);
-    if(receipt)this.db.putReceipt({...receipt,state:status==='paused'?'interrupted':status==='succeeded'?'completed':'failed',
+    // A manual recovery may reopen the run projection, but never rewrites a previously
+    // settled prompt receipt. Its own retry receipt names the newly accepted attempts.
+    if(receipt?.state==='accepted')this.db.putReceipt({...receipt,state:status==='paused'?'interrupted':status==='succeeded'?'completed':'failed',
       response:status==='succeeded'?receipt.response:{type:'response',command:'prompt',id:run.requestId,success:false,
         error:error??('Run '+status+'.'),data:{runId:run.id,taskId:run.taskId,status}}});
     const root=this.db.record<TaskRow>('task',run.taskId);

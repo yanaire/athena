@@ -71,11 +71,43 @@ test('runtime artifact identity and version never fall back to static example co
  e.put({mode:'preview',sessionId:null});e.api.open('artifacts',{artifactId:'response-plot'});assert.ok(e.q('[data-awv-chart]'));e.put({mode:'runtime',sessionId:'session-b',artifacts:[]});assert.equal(e.q('[data-awv-chart]'),null);assert.equal(e.q('.awv-record-text'),null);e.destroy();
 });
 test('runtime workflow uses exact tool/artifact IDs and only shows authorized mutation controls; unknown progress stays unknown',()=>{
- const e=env({taskManagerConnected:true,run:{status:'running'},tasks:[{id:'task-real',title:'Analyze actual input',status:'failed',dependencies:[]}],tools:[{id:'tool-real-7',name:'read',taskId:'task-real'}],artifacts:[{id:'result-a',title:'Output',kind:'text',version:'server-5',taskId:'task-real',text:'Output'}]});
+ const e=env({taskManagerConnected:true,run:{status:'running'},tasks:[{id:'task-real',parentTaskId:'root',attemptId:'attempt-real',retryable:true,title:'Analyze actual input',status:'failed',dependencies:[]}],tools:[{id:'tool-real-7',name:'read',taskId:'task-real'}],artifacts:[{id:'result-a',title:'Output',kind:'text',version:'server-5',taskId:'task-real',text:'Output'}]});
  assert.match(e.host.textContent,/Progress not reported/);assert.equal(e.q('[role="progressbar"]'),null);assert.equal(e.q('[data-awv-retry]'),null);assert.equal(e.q('[data-awv-action="cancel-run"]'),null);
  e.click('[data-awv-open-tool]');assert.deepEqual(e.nav.pop(),{view:'execution',toolId:'tool-real-7',taskId:'task-real'});
  e.click('[data-awv-open-artifact]');assert.deepEqual(e.nav.pop(),{view:'artifacts',artifactId:'result-a',version:'server-5'});
  e.put({capabilities:{retryTask:true,cancelRun:true}});e.click('[data-awv-retry]');e.click('[data-awv-action="cancel-run"]');assert.deepEqual(e.retry,['task-real']);assert.equal(e.cancelled,1);e.destroy();
+});
+test('stopped child tasks expose their cause and host-authorized retry without changing the selected task or history',()=>{
+ const ids={root:'task-root-recovery',child:'task-child-recovery',first:'attempt-first-recovery',next:'attempt-next-recovery',request:'retry-request-recovery',tool:'tool-recovery'};
+ const originalError='The calculation service disconnected.';
+ const root={id:ids.root,title:'Summarize the study',status:'failed',retryable:false,dependencies:[]};
+ const child={id:ids.child,parentTaskId:ids.root,attemptId:ids.first,title:'Check measurements',status:'paused',retryable:true,dependencies:[]};
+ const firstAttempt={id:ids.first,taskId:ids.child,status:'paused',error:originalError};
+ const e=env({taskManagerConnected:true,run:{id:'recovery-run',status:'paused'},tasks:[root,child],attempts:[firstAttempt],tools:[{id:ids.tool,taskId:ids.child,name:'read',status:'failed'}],artifacts:[{id:'retained-output',taskId:ids.child,title:'Prior result',version:'1',kind:'text',text:'Retained result'}],capabilities:{retryTask:true,cancelTask:true,cancelRun:true}});
+ try{
+  assert.equal(e.q('[data-awv-retry]'),null,'Root tasks do not offer child retry.');
+  e.api.open('workflow',{taskId:ids.child});
+  for(const status of ['failed','paused','cancelled']){
+   e.put({tasks:[root,{...child,status}]});
+   assert.ok(e.q('[data-awv-retry]'));assert.match(e.q('[data-awv-failure-reason]').textContent,/calculation service disconnected/);hidesIds(e.host,Object.values(ids));
+   assert.equal(e.q('[data-awv-cancel-task]'),null);assert.equal(e.q('[data-awv-action="cancel-run"]'),null);
+  }
+  e.click('[data-awv-retry]');assert.deepEqual(e.retry,[ids.child]);
+  const retry={expectedAttemptId:ids.first,requestId:ids.request,pending:true,accepted:false,error:null};
+  e.put({retryOperations:{[ids.child]:retry}});
+  assert.equal(e.q('[data-awv-retry]').disabled,true);assert.match(e.q('[data-awv-retry]').textContent,/Retrying/);
+  e.click('[data-awv-retry]');assert.equal(e.retry.length,1);
+  e.put({retryOperations:{[ids.child]:{...retry,pending:false,error:'Connection lost for '+ids.request+' and '+ids.child+'.'}}});
+  assert.equal(e.q('[data-awv-retry]').disabled,false);assert.match(e.q('[data-awv-retry-error]').textContent,/Retry was not confirmed/);hidesIds(e.host,Object.values(ids));
+  assert.ok([...e.host.querySelectorAll('[data-aw-diagnostics]')].some(node=>node.textContent.includes(originalError)),'The complete failure remains available in closed technical details.');
+  e.put({tasks:[root,{...child,status:'running',retryable:false,attemptId:ids.next}],attempts:[firstAttempt,{id:ids.next,taskId:ids.child,status:'running',retryOfAttemptId:ids.first}],retryOperations:{}});
+  assert.equal(e.q('[data-awv-task][aria-pressed="true"]').dataset.awvTask,ids.child);
+  assert.equal(e.q('[data-awv-detail-heading]').textContent,'Check measurements');
+  assert.equal(e.q('[data-awv-retry]'),null);assert.match(displayedText(e.host),/Retry of Attempt 1/);
+  assert.ok(e.q('[data-awv-open-tool]'));assert.ok(e.q('[data-awv-open-artifact]'));hidesIds(e.host,Object.values(ids));
+  e.put({tasks:[root,{...child,retryable:false,retryUnavailableReason:'Wait for the current run to finish.'}]});
+  assert.equal(e.q('[data-awv-retry]'),null);assert.match(displayedText(e.host),/Wait for the current run/);
+ }finally{e.destroy();}
 });
 test('canonical document is revision-bound; original sample PDF remains a separate explicit reference',()=>{
  const e=env({mode:'preview'});e.api.open('artifacts',{artifactId:'research-note'});assert.equal(e.q('.awv-record-text').textContent,'Current document v1');assert.equal(e.q('[data-awv-action="export-record-pdf"]').disabled,true);assert.equal(e.q('.awv-paper'),null);
@@ -135,7 +167,7 @@ test('workflow and agent history show readable labels while exact identities rem
   for(const id of [ids.child,ids.first,ids.second,ids.agentSession])assert.ok(diagnostics.some(node=>node.textContent.includes(id)),'Diagnostics preserve '+id);
   e.click('[data-awv-cancel-task]');assert.deepEqual(e.cancelTasks,[ids.child]);
   e.click('[data-awv-open-agent]');assert.deepEqual(e.nav.pop(),{view:'timeline',agentSessionId:ids.agentSession,taskId:ids.child});
-  e.put({revision:2,tasks:tasks.map(task=>task.id===ids.child?{...task,title:ids.child,status:'failed'}:task)});
+  e.put({revision:2,tasks:tasks.map(task=>task.id===ids.child?{...task,title:ids.child,status:'failed',retryable:true}:task)});
   hidesIds(e.host,Object.values(ids));
   assert.ok(e.q('[data-awv-detail-heading]').textContent.trim(),'An untitled task still has a visible label.');
   e.click('[data-awv-retry]');assert.deepEqual(e.retry,[ids.child]);

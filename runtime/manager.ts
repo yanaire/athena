@@ -15,6 +15,7 @@ import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifa
 import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
 import { projectHistory } from './history.ts';
+import { ToolFailureBudget } from './tool-failure-budget.ts';
 import type { HistoryEvent } from './history.ts';
 export { ManagerError } from './orchestration.ts';
 export type PiCommand = Readonly<Record<string, unknown>> & { readonly type: string; readonly id?: string };
@@ -28,7 +29,7 @@ export interface ManagedPiSession {
   close(): void;
   getState(): unknown;
   getMessages(): unknown;
-  prompt(message: string): Promise<void>;
+  prompt(message: string, options?: { readonly kind?: 'reconciliation' }): Promise<void>;
 }
 export type PiSessionFactory = (options: PiSessionOptions) => Promise<ManagedPiSession>;
 type ModelResolver = {
@@ -43,6 +44,7 @@ export type Run = {
   readonly status: Status; readonly startedAt: number | null; readonly endedAt: number | null;
   readonly model: ModelReference | null; readonly error?: string;
   readonly cancellationRequested?: boolean;
+  readonly recovery?: { readonly requestId: string; readonly reconciliationAttemptId: string };
 };
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
@@ -70,10 +72,15 @@ const SNAPSHOT_EVENTS = new Set([
 
 type Accepted = { readonly taskId: string; readonly parentTaskId: string | null; readonly agentSessionId: string; readonly attemptId: string; readonly status: Status };
 type Dispatch = { readonly id: string; readonly projectId: string; readonly sessionId: string; readonly runId: string; readonly taskId: string; readonly fingerprint: string; readonly response?: Accepted };
+export type RetryTaskOptions = { readonly requestId: string; readonly expectedAttemptId: string };
+export type RetryTaskResult = Omit<Accepted, 'status' | 'parentTaskId'> & { readonly parentTaskId: string; readonly runId: string; readonly status: 'queued'; readonly reconciliationAttemptId: string };
+type RetryReceipt = { readonly id: string; readonly projectId: string; readonly sessionId: string; readonly runId: string;
+  readonly taskId: string; readonly requestId: string; readonly expectedAttemptId: string; readonly fingerprint: string;
+  readonly response: RetryTaskResult };
 type Live = { runtime: ManagedPiSession; controller: AbortController; attempt: Attempt; finished: Promise<void> };
 
 export class TaskManager implements AthenaTaskManager {
-  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'get_agent_history'];
+  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'retry_task', 'get_agent_history'];
   readonly inputContract = {
     maxMessageCharacters: 262144, lengthUnit: 'utf16-code-units',
     supportsFileReferences: true, canStageFiles: true,
@@ -96,6 +103,8 @@ export class TaskManager implements AthenaTaskManager {
   readonly #timeoutMs = 5000;
   readonly #registry = new Map<string, ManagedPiSession>();
   readonly #loading = new Map<string, Promise<ManagedPiSession>>();
+  readonly #retrying = new Map<string, { fingerprint: string; promise: Promise<RetryTaskResult> }>();
+  readonly #retryTasks = new Set<string>();
   readonly #turns = new Map<string, Live>();
   readonly #executing = new Map<string, Attempt>();
   readonly #waiters = new Set<() => void>();
@@ -231,12 +240,15 @@ export class TaskManager implements AthenaTaskManager {
       runtime.close(); throw new ManagerError('SESSION_UNAVAILABLE','Manager closed or duplicate Pi identity.');
     }
     this.#runtimeExecution.set(runtime, executionEnabled);
+    if (selection) this.#runtimeModels.set(runtime, { provider: selection.model.provider, modelId: selection.model.id,
+      thinkingLevel: selection.thinkingLevel, ...(selection.endpoint ? { endpoint: selection.endpoint } : {}),
+      ...(selection.authRef ? { authRef: selection.authRef } : {}) });
     this.#registry.set(runtime.sessionId,runtime); return runtime;
   }
-  #load(s: AgentSession): Promise<ManagedPiSession> {
+  #load(s: AgentSession, selection?: PiModelSelection): Promise<ManagedPiSession> {
     const runtime = this.#registry.get(s.id); if (runtime) return Promise.resolve(runtime);
     const loading = this.#loading.get(s.id); if (loading) return loading;
-    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile).then(value => {
+    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection).then(value => {
       if (value.sessionId !== s.id) { this.#registry.delete(value.sessionId); value.close(); throw new ManagerError('SESSION_ID_MISMATCH','Unexpected Pi identity.'); }
       return value;
     }).finally(()=>this.#loading.delete(s.id));
@@ -293,7 +305,12 @@ export class TaskManager implements AthenaTaskManager {
       sessions: this.#storage.sessions().map(({ sessionFile: _file, sessionDir: _dir, ...metadata }) => metadata),
       run: { id: run?.id ?? null, status: run?.status ?? 'ready', startedAt: run?.startedAt ?? null,
         elapsedMs: run?.startedAt ? (run.endedAt ?? Date.now()) - run.startedAt : 0, model: run?.model ?? session?.model ?? null },
-      tasks: session ? this.#storage.records<TaskRow>('task', session.id) : [],
+      tasks: session ? this.#storage.records<TaskRow>('task', session.id).map(task => {
+        let retryUnavailableReason: string | undefined;
+        try { this.#retryTarget(task.id); if (this.#busy) retryUnavailableReason = 'Another session operation is being prepared.'; }
+        catch (error) { retryUnavailableReason = error instanceof Error ? error.message : 'This task cannot be retried.'; }
+        return { ...task, retryable: retryUnavailableReason === undefined, ...(retryUnavailableReason ? { retryUnavailableReason } : {}) };
+      }) : [],
       attempts: session ? this.#storage.records<Attempt>('attempt', session.id) : [],
       processes: session ? this.#storage.records<ProcessRow>('process', session.id) : [],
       agents: session ? this.#storage.records<Agent>('agent', session.id) : [], tools: session ? this.#storage.records<Tool>('tool', session.id) : [],
@@ -390,7 +407,9 @@ export class TaskManager implements AthenaTaskManager {
     if (!object(state) || !object(state.model)) return null;
     const provider = state.model.provider;
     const id = state.model.id ?? state.model.modelId;
-    return typeof provider === 'string' && typeof id === 'string' ? { provider, modelId: id } : null;
+    return typeof provider === 'string' && typeof id === 'string' ? { provider, modelId: id,
+      ...(typeof state.model.baseUrl === 'string' ? { endpoint: state.model.baseUrl } : {}),
+      ...(typeof state.thinkingLevel === 'string' ? { thinkingLevel: state.thinkingLevel } : {}) } : null;
   }
   #validateModel(runtime: ManagedPiSession, requested: ModelReference | null): void {
     const actual = this.#model(runtime);
@@ -566,28 +585,72 @@ export class TaskManager implements AthenaTaskManager {
     return {...owner,id,attemptId:id,requestId,prompt,fileIds,status:'queued',acceptedAt:Date.now(),startedAt:null,endedAt:null,...(model?{model}:{})};
   }
   #schedule(a:Attempt,runtime:ManagedPiSession) {
+    if (this.#closed) return;
+    if (!pending(this.#storage.record<Attempt>('attempt', a.id)?.status ?? 'ready')) {
+      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      return;
+    }
+    // Snapshot listeners can request cancellation synchronously during acceptance.
+    // Honor that newer decision before starting either of the durable retry turns.
+    if (this.#storage.record<Run>('run', a.runId)?.cancellationRequested) {
+      this.#commit(() => this.#journal.transition(a, 'cancelled', 'Run cancelled before this queued attempt started.'));
+      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      return;
+    }
     const controller=new AbortController();
     const finished=this.#execute(a,runtime,controller.signal);
     this.#turns.set(a.id,{controller,runtime,attempt:a,finished});
   }
   async #execute(a:Attempt,runtime:ManagedPiSession,signal:AbortSignal) {
     let unsubscribe:(()=>void)|undefined;
+    const failureBudget = new ToolFailureBudget();
     try {
       await this.#scheduler.acquire(a,signal);
       signal.throwIfAborted();
+      let prompt = a.prompt;
+      if (a.kind === 'reconciliation') {
+        // Waiting releases only the model slot. The root session lease prevents an
+        // earlier coordinator turn and this continuation from entering Pi together.
+        let joined: unknown;
+        let recoveryRequest: string | undefined;
+        do {
+          recoveryRequest = this.#storage.record<Run>('run', a.runId)?.recovery?.requestId;
+          joined = await this.#wait(a, undefined, signal);
+        } while (this.#children(a).some(child => pending(child.status)) ||
+          recoveryRequest !== this.#storage.record<Run>('run', a.runId)?.recovery?.requestId);
+        signal.throwIfAborted();
+        prompt = 'A user-requested retry has settled. Update the final answer to the original request using the current child results below. '
+          + 'Reuse completed sibling results and preserve their provenance. Report remaining failures honestly. '
+          + 'This is a read-only reconciliation: do not spawn, send work to, or cancel agents. Read relevant result artifacts before answering.\n'
+          + 'Current verified child results: ' + JSON.stringify(joined);
+        this.#commit(() => {
+          const current = this.#storage.record<Attempt>('attempt', a.id);
+          if (current && pending(current.status)) this.#storage.putRecord('attempt', { ...current, prompt });
+        });
+      }
       this.#executing.set(a.agentSessionId,a);
       unsubscribe=runtime.subscribe(event=>{
         if(this.#closed || this.#executing.get(a.agentSessionId)!==a)return;
         const semantic=SNAPSHOT_EVENTS.has(event.type);
+        const failure = failureBudget.observe(event);
         this.#storage.transaction(()=>{
           this.#journal.receive(a,event,signal.aborted);
+          if (failure) {
+            this.#journal.transition(a, 'failed', failure.message);
+            this.#journal.event(a, 'tool_failure_limit', failure.message,
+              typeof event.toolCallId === 'string' ? {toolId:toolId(a,event.toolCallId)} : {});
+          }
           if(semantic){this.#journal.event(a,event.type,event.type,typeof event.toolCallId==='string'?{toolId:toolId(a,event.toolCallId)}:{});this.#storage.advanceRevision();}
         });
+        if (failure && this.#executing.get(a.agentSessionId) === a) {
+          this.#turns.get(a.id)?.controller.abort(new ManagerError(failure.code, failure.message));
+          void runtime.command({type:'abort',id:randomUUID()}).catch(() => {});
+        }
         const normalized=normalizeEvent(a,event);
         for(const listener of this.#piListeners)listener(a.agentSessionId,structuredClone(normalized));
         if(semantic)this.#publish();
       });
-      await runtime.prompt(a.prompt);
+      await runtime.prompt(prompt, a.kind === 'reconciliation' ? {kind:'reconciliation'} : undefined);
       if(!this.#closed && pending(this.#storage.record<Attempt>('attempt',a.id)?.status??'ready'))
         this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'paused','Pi returned without settling the attempt.'));
     }catch(error){
@@ -624,6 +687,7 @@ export class TaskManager implements AthenaTaskManager {
     const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
     signal.throwIfAborted();
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
+    if (['spawn_agent', 'send_to_agent', 'cancel_task'].includes(name)) this.#requireCoordinatorWrites(a);
     switch(name){
       case 'read':{
         this.#requireEnabled(a);
@@ -650,6 +714,11 @@ export class TaskManager implements AthenaTaskManager {
       default:throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
     }
   }
+  #requireCoordinatorWrites(a: Attempt) {
+    if (a.kind === 'reconciliation' || this.#storage.record<Run>('run', a.runId)?.recovery) {
+      throw new ManagerError('RECOVERY_READ_ONLY', 'Manual recovery preserves completed work. The coordinator may only inspect child results and produce the final answer.');
+    }
+  }
   async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<Accepted>{
     const requestId=text(args.requestId??raw,'Request ID');
     const id=hash(canonical([a.sessionId,a.runId,a.taskId,name,requestId]));
@@ -662,6 +731,7 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('DISPATCH_INTERRUPTED','This reservation will not be dispatched again.');
     }
     const child=kind==='send'?this.#child(a,args.taskId):undefined;
+    if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
     const previous=child?this.#storage.records<Attempt>('attempt',a.sessionId).filter(t=>t.taskId===child.id).at(-1):undefined;
     const select=(arg:unknown,fallback:readonly string[])=>{
       if(arg===undefined)return fallback;
@@ -688,6 +758,8 @@ export class TaskManager implements AthenaTaskManager {
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
     if(a.model)this.#validateModel(runtime,a.model);
     signal.throwIfAborted();
+    this.#requireCoordinatorWrites(a);
+    if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
     const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
     const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
     const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds,a.model),artifactGrants};
@@ -869,8 +941,135 @@ export class TaskManager implements AthenaTaskManager {
     if(!file || file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
     return {bytes:await this.#readArtifact(file),name:file.file.name,mimeType:file.file.mimeType};
   }
+  #retryTarget(taskId: string, expectedAttemptId?: string) {
+    const task = this.#storage.record<TaskRow>('task', taskId);
+    if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
+    const runs = this.#runs(task.sessionId);
+    if (runs.some(run => run.id !== task.runId && pending(run.status))) throw new ManagerError('RUN_BUSY', 'Another run is still active in this conversation.');
+    const run = runs.at(-1);
+    if (!run || run.id !== task.runId) throw new ManagerError('STALE_RUN', 'Only a task from the latest run can be retried.');
+    if (pending(run.status) && run.cancellationRequested) throw new ManagerError('RUN_CANCELLED', 'Wait for the current cancellation to settle before retrying.');
+    if (expectedAttemptId !== undefined && expectedAttemptId !== task.attemptId) throw new ManagerError('STALE_ATTEMPT', 'This task has a newer attempt. Refresh before retrying.');
+    if (!task.parentTaskId || !['failed', 'paused', 'cancelled'].includes(task.status)) throw new ManagerError('TASK_NOT_RETRYABLE', 'Only failed, interrupted, or cancelled child tasks can be retried.');
+    const previous = this.#storage.record<Attempt>('attempt', task.attemptId);
+    const root = this.#storage.record<TaskRow>('task', run.taskId);
+    const rootAttempt = root && this.#storage.record<Attempt>('attempt', root.attemptId);
+    const agent = this.#storage.record<AgentSession>('agent_session', task.agentSessionId);
+    if (!previous || previous.taskId !== task.id || previous.runId !== run.id || previous.sessionId !== task.sessionId ||
+        previous.projectId !== task.projectId || previous.agentSessionId !== task.agentSessionId || pending(previous.status) ||
+        !root || root.id !== task.parentTaskId || root.parentTaskId !== null || root.agentSessionId !== task.sessionId ||
+        !rootAttempt || rootAttempt.runId !== run.id || !agent || agent.sessionId !== task.sessionId || agent.projectId !== task.projectId ||
+        this.#storage.records<Attempt>('attempt', task.sessionId).some(a => a.taskId === task.id && pending(a.status))) {
+      throw new ManagerError('TASK_NOT_RETRYABLE', 'The saved task does not have a complete, settled retry context.');
+    }
+    return { task, run, previous, root, rootAttempt, agent, session: this.#session(task.sessionId) };
+  }
+  async #retryRuntime(agent: AgentSession, model: ModelReference | null, pin: PiModelSelection | undefined, refresh: boolean) {
+    await this.#loading.get(agent.id);
+    let runtime = this.#registry.get(agent.id);
+    const live = [...this.#turns.values()].filter(turn => turn.attempt.agentSessionId === agent.id);
+    if (live.length && agent.role === 'child') await Promise.all(live.map(turn => turn.finished));
+    // The active coordinator keeps its existing lease and runtime. Its read-only
+    // reconciliation is queued on that same lease, never a parallel Pi conversation.
+    if (runtime && refresh && !(agent.role === 'parent' && live.length)) {
+      runtime.close(); this.#registry.delete(agent.id); runtime = undefined;
+    }
+    runtime ??= await this.#load(agent, pin);
+    this.#validateModel(runtime, model);
+    const actual = this.#runtimeModels.get(runtime) ?? this.#model(runtime);
+    if (model?.endpoint && model.endpoint !== actual?.endpoint) throw new ManagerError('MODEL_UNAVAILABLE', 'The original model endpoint is no longer selected.');
+    if (model?.authRef && model.authRef !== actual?.authRef) throw new ManagerError('MODEL_UNAVAILABLE', 'The original model account is no longer selected.');
+    if (model) this.#runtimeModels.set(runtime, model);
+    return runtime;
+  }
+  async retryTask(taskId: string, options: RetryTaskOptions): Promise<RetryTaskResult> {
+    this.#assertReady();
+    text(taskId, 'Task ID');
+    if (!object(options) || Object.keys(options).some(key => key !== 'requestId' && key !== 'expectedAttemptId')) throw new ManagerError('INVALID_INPUT', 'Supply a request ID and the displayed attempt ID.');
+    const requestId = text(options.requestId, 'Request ID');
+    const expectedAttemptId = text(options.expectedAttemptId, 'Expected attempt ID');
+    const task = this.#storage.record<TaskRow>('task', taskId);
+    if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
+    const id = hash(canonical([task.sessionId, 'retry', requestId]));
+    const fingerprint = hash(canonical({ taskId, expectedAttemptId }));
+    const previous = this.#storage.record<RetryReceipt>('retry', id);
+    if (previous) {
+      if (previous.fingerprint !== fingerprint) throw new ManagerError('REQUEST_ID_CONFLICT', 'Retry request ID was already used for different input.');
+      return structuredClone(previous.response);
+    }
+    const inFlight = this.#retrying.get(id);
+    if (inFlight) {
+      if (inFlight.fingerprint !== fingerprint) throw new ManagerError('REQUEST_ID_CONFLICT', 'Retry request ID was already used for different input.');
+      return inFlight.promise;
+    }
+    this.#retryTarget(taskId, expectedAttemptId);
+    if (this.#busy || this.#retryTasks.has(taskId)) throw new ManagerError('RUN_BUSY', 'Another session operation is being prepared.');
+    const promise = this.#prepareRetry(taskId, { requestId, expectedAttemptId }, id, fingerprint);
+    this.#retrying.set(id, { fingerprint, promise });
+    try { return await promise; } finally { this.#retrying.delete(id); }
+  }
+  async #prepareRetry(taskId: string, options: RetryTaskOptions, id: string, fingerprint: string): Promise<RetryTaskResult> {
+    this.#busy = true; this.#retryTasks.add(taskId);
+    try {
+      const source = this.#retryTarget(taskId, options.expectedAttemptId);
+      const currentSource = () => {
+        this.#assertReady();
+        const current = this.#retryTarget(taskId, options.expectedAttemptId);
+        if (!source.run.cancellationRequested && current.run.cancellationRequested) throw new ManagerError('RUN_CANCELLED', 'The run was cancelled while this retry was being prepared.');
+        return current;
+      };
+      const model = source.previous.model ?? source.run.model;
+      // Revalidate immutable grants before accepting a new execution. No current
+      // project default, new upload, or additional sibling artifact is inherited.
+      for (const fileId of source.previous.fileIds) this.#upload(source.previous, fileId);
+      for (const artifactId of source.previous.artifactGrants ?? []) await this.#readArtifact(this.#artifact(source.previous, artifactId));
+      let pin = this.#pins.get(source.run.id);
+      const managedModel = Boolean(model?.profileId);
+      const refresh = !pending(source.run.status) || (!pin && Boolean(this.#models && managedModel));
+      if (!pin && this.#models && model && managedModel) {
+        pin = await this.#models.pin(model);
+        if ((model.endpoint && pin.endpoint !== model.endpoint) || (model.authRef && pin.authRef !== model.authRef)) throw new ManagerError('MODEL_UNAVAILABLE', 'The original model endpoint or account is no longer available.');
+      }
+      currentSource();
+      const childRuntime = await this.#retryRuntime(source.agent, model, pin, refresh);
+      currentSource();
+      const rootRuntime = await this.#retryRuntime({ ...source.session, sessionId: source.session.id, role: 'parent' }, model, pin, refresh);
+      const current = currentSource();
+      for (const fileId of current.previous.fileIds) this.#upload(current.previous, fileId);
+      const next: Attempt = { ...this.#attempt({ ...context(current.previous) }, options.requestId, current.previous.prompt, current.previous.fileIds, model ?? undefined),
+        artifactGrants: current.previous.artifactGrants, retryOfAttemptId: current.previous.id };
+      const pendingReconciliation = this.#storage.records<Attempt>('attempt', current.session.id).find(a => a.runId === current.run.id && a.taskId === current.root.id && a.kind === 'reconciliation' && pending(a.status) && this.#executing.get(a.agentSessionId)?.id !== a.id);
+      const reconciliation: Attempt = pendingReconciliation ?? { ...this.#attempt({ ...context(current.rootAttempt) }, 'reconcile:' + options.requestId,
+        'Reconcile the manually retried child with the preserved results of this request.', current.rootAttempt.fileIds, model ?? undefined), kind: 'reconciliation' };
+      const response: RetryTaskResult = { taskId, parentTaskId: current.root.id, agentSessionId: childRuntime.sessionId, attemptId: next.id,
+        runId: current.run.id, status: 'queued', reconciliationAttemptId: reconciliation.id };
+      this.#commit(() => {
+        this.#storage.putRecord('run', { ...current.run, status: 'queued', endedAt: null, error: undefined, cancellationRequested: false,
+          recovery: { requestId: options.requestId, reconciliationAttemptId: reconciliation.id } });
+        this.#journal.accept(next, current.task.title);
+        if (!pendingReconciliation) this.#journal.accept(reconciliation, current.root.title);
+        this.#storage.putRecord('retry', { id, projectId: current.task.projectId, sessionId: current.task.sessionId, runId: current.run.id,
+          taskId, requestId: options.requestId, expectedAttemptId: options.expectedAttemptId, fingerprint, response } satisfies RetryReceipt);
+        this.#journal.event(next, 'task_retry_accepted', 'Manual retry accepted; previous attempts and successful sibling results are preserved.');
+        this.#journal.event(reconciliation, 'run_reopened', 'Manual recovery queued a read-only coordinator reconciliation.');
+      });
+      if (pin) this.#pins.set(current.run.id, pin);
+      this.#schedule(next, childRuntime);
+      if (!pendingReconciliation) this.#schedule(reconciliation, rootRuntime);
+      return response;
+    } finally {
+      this.#retryTasks.delete(taskId); this.#busy = false; this.#publish();
+    }
+  }
   async #cancel(task:TaskRow){
     const turns=[...this.#turns.values()].filter(t=>t.attempt.taskId===task.id || (!task.parentTaskId && t.attempt.runId===task.runId));
+    // Acceptance is durable before its snapshot is published. A listener can cancel
+    // a queued attempt before #schedule registers its live controller.
+    const queued=this.#storage.records<Attempt>('attempt',task.sessionId).filter(a=>a.status==='queued' && !this.#turns.has(a.id) &&
+      (a.taskId===task.id || (!task.parentTaskId && a.runId===task.runId)));
+    if(queued.length)this.#commit(()=>{
+      for(const a of queued)this.#journal.transition(a,'cancelled','Task cancelled before this queued attempt started.');
+    });
     for(const t of turns)t.controller.abort(new ManagerError('CANCELLED','Task cancellation requested.'));
     await Promise.all(turns.filter(t=>this.#executing.get(t.attempt.agentSessionId)===t.attempt).map(t=>t.runtime.command({type:'abort',id:randomUUID()})));
     await Promise.all(turns.map(t=>t.finished));

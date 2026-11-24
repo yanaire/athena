@@ -111,6 +111,7 @@ async function changeCredentials<T>(action: () => Promise<T>): Promise<T> {
 async function rpc(method: string, args: unknown[]) {
   const [input, second] = args;
   switch (method) {
+    case 'getSnapshot': return manager.getSnapshot();
     case 'createProject':
       if (!object(input)) throw new TypeError('Expected project.');
       return manager.createProject({ name: string(input.name), defaultModel: model(input.defaultModel) });
@@ -122,6 +123,10 @@ async function rpc(method: string, args: unknown[]) {
     case 'openSession': return manager.openSession(string(input));
     case 'getAgentHistory': return manager.getAgentHistory(string(input), string(second));
     case 'cancelTask': return manager.cancelTask(string(input));
+    case 'retryTask':
+      if (credentialWrite || oauthPending()) throw new ManagerError('CREDENTIAL_BUSY', 'Finish or cancel the credential operation before retrying research.');
+      if (!object(second)) throw new TypeError('Expected retry request and attempt IDs.');
+      return manager.retryTask(string(input), {requestId:string(second.requestId),expectedAttemptId:string(second.expectedAttemptId)});
     case 'cancelRun': return manager.cancelRun(string(input));
     case 'setProjectDefaultModel': return manager.setProjectDefaultModel(string(input), model(second));
     case 'setProjectExecution':

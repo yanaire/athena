@@ -5937,7 +5937,29 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     if (!demo || !runtime) throw new TypeError('Workspace session needs the demo store and runtime bridge.');
     let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false, hydration = 0;
     let live = empty(), pi = runtime.getState(), activity = null, observedTools = [], observedEvents = [], appDefault = null, lockedModel = null, selectedSession = null;
-    const listeners = new Set(), manualTools = new Map(), runModels = new Map();
+    const listeners = new Set(), manualTools = new Map(), runModels = new Map(), retryOperations = new Map();
+    const retryStorageKey = 'athena.task-retries.v1';
+    const retryIdentity = value => JSON.stringify([value.projectId, value.sessionId, value.runId, value.taskId, value.expectedAttemptId]);
+    function retryRequestId(value) {
+      // Keep only request identities. An uncertain response can be replayed after a
+      // reload without submitting a second attempt or retaining prompts/logs here.
+      let journal = [], storage;
+      try {
+        storage = window.localStorage;
+        if (!storage?.getItem || !storage?.setItem) throw new Error('Storage unavailable');
+        const raw = storage.getItem(retryStorageKey);
+        let saved;
+        try { saved = JSON.parse(raw || '[]'); } catch (_) { saved = []; }
+        if (Array.isArray(saved)) journal = saved.filter(item => typeof item?.key === 'string' && id(item.requestId));
+      } catch (_) { throw new Error('The retry request could not be saved. Reopen the app before trying again.'); }
+      const key = retryIdentity(value), recorded = journal.find(item => item.key === key);
+      if (recorded) return recorded.requestId;
+      const requestId = window.crypto?.randomUUID?.();
+      if (!requestId) throw new Error('This workspace cannot create a retry request. Reopen the app and try again.');
+      try { storage.setItem(retryStorageKey, JSON.stringify([...journal.slice(-63), { key, requestId }])); }
+      catch (_) { throw new Error('The retry request could not be saved. Reopen the app before trying again.'); }
+      return requestId;
+    }
     const isLive = () => Boolean(hosted || host || pi.connected || selectedSession);
     const available = (capability, method) => Boolean(host && live.revision >= 0 && rows(host.capabilities).includes(capability) && typeof host[method] === 'function');
     function getState() {
@@ -5961,6 +5983,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         execution: workspaceBound && live.execution && live.execution.projectId === projectId ? { ...live.execution, canEdit: Boolean(projectId) && available('set_project_execution', 'setProjectExecution') } : null,
         tasks: workspaceBound ? live.tasks.filter(inScope) : [], agents: workspaceBound ? live.agents.filter(inScope) : [], attempts: workspaceBound ? live.attempts.filter(inScope) : [], processes: workspaceBound ? live.processes.filter(inScope) : [], artifacts: workspaceBound ? live.artifacts.filter(inScope) : [], approvals: workspaceBound ? live.approvals.filter(inScope) : [], tools: [...tools.values()],
         events: [...live.events.filter(inScope), ...observedEvents.filter(inScope)].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index),
+        retryOperations: workspaceBound ? Object.fromEntries([...retryOperations.values()].filter(item => inScope(item) && item.runId === live.run.id && (item.pending || live.tasks.some(task => task.id === item.taskId && task.attemptId === item.expectedAttemptId))).map(({ taskId, expectedAttemptId, requestId, pending, accepted, error }) => [taskId, { expectedAttemptId, requestId, pending, accepted, error }])) : {},
         modelScopes: { appDefault, projectDefault: model(project?.defaultModel), conversation: sessionBound && model(pi.model) ? { ...model(pi.model), thinkingLevel: pi.thinkingLevel } : null, runLocked: host && workspaceBound ? live.run?.model : sessionBound ? lockedModel : null },
         capabilities: { createProject: available('create_project', 'createProject'), createSession: available('create_session', 'createSession'), openSession: available('open_session', 'openSession'), setProjectModel: Boolean(projectId) && available('set_project_model', 'setProjectDefaultModel'), retryTask: workspaceBound && available('retry_task', 'retryTask'), cancelRun: workspaceBound && available('cancel_run', 'cancelRun'), cancelTask: workspaceBound && available('cancel_task', 'cancelTask'), agentHistory: workspaceBound && available('get_agent_history', 'getAgentHistory'), decideApproval: workspaceBound && available('decide_approval', 'decideApproval') }
       });
@@ -6002,7 +6025,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       catch (error) { if (bound === epoch) report(error); throw error; }
       return getState();
     }
-    function detach() { epoch++; hostUnsubscribe?.(); hostUnsubscribe = null; host = null; runModels.clear(); live = empty(); selectedSession = null; activity = null; observedTools = []; manualTools.clear(); observedEvents = []; lockedModel = null; publish(); }
+    function detach() { epoch++; hostUnsubscribe?.(); hostUnsubscribe = null; host = null; runModels.clear(); retryOperations.clear(); live = empty(); selectedSession = null; activity = null; observedTools = []; manualTools.clear(); observedEvents = []; lockedModel = null; publish(); }
     async function command(capability, method, args) {
       if (!available(capability, method)) throw new Error('The connected TaskManager does not provide ' + capability.replaceAll('_', ' ') + '.');
       const bound = epoch, current = host; const result = await current[method](...args);
@@ -6014,6 +6037,34 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         if (destroyed || bound !== epoch || current !== host) throw new Error('The workspace connection changed.');
       }
       return result;
+    }
+    function retryTask(taskId) {
+      if (!isLive()) return demo.retryTask(taskId);
+      const current = getState(), task = current.tasks.find(item => item.id === taskId);
+      if (!current.capabilities?.retryTask || !task) return Promise.resolve(null);
+      const key = JSON.stringify([current.projectId, current.sessionId, current.run.id, taskId]);
+      const previous = retryOperations.get(key);
+      if (previous?.pending) return previous.promise;
+      if (previous?.accepted && previous.expectedAttemptId === task.attemptId) return Promise.resolve(previous.result);
+      if (task.retryable !== true || !task.parentTaskId || !id(task.attemptId)) return Promise.resolve(null);
+      const operation = { projectId: current.projectId, sessionId: current.sessionId, runId: current.run.id, taskId, expectedAttemptId: task.attemptId, requestId: previous?.expectedAttemptId === task.attemptId ? previous.requestId : null, pending: true, accepted: false, error: null };
+      retryOperations.set(key, operation);
+      try { operation.requestId ||= retryRequestId(operation); }
+      catch (error) { operation.pending = false; operation.error = String(error?.message || error); publish(); return Promise.resolve(null); }
+      const bound = epoch, adapter = host;
+      // Deferring the call by one microtask lets every view observe the pending
+      // operation before a second click can reach the adapter.
+      operation.promise = Promise.resolve().then(() => {
+        if (destroyed || bound !== epoch || adapter !== host) throw new Error('The workspace connection changed.');
+        return command('retry_task', 'retryTask', [taskId, { requestId: operation.requestId, expectedAttemptId: operation.expectedAttemptId }]);
+      }).then(result => {
+        if (result?.taskId !== taskId || result?.runId !== operation.runId || !id(result?.attemptId) || result.attemptId === operation.expectedAttemptId) throw new Error('The host did not confirm a new attempt for this task.');
+        operation.accepted = true; operation.result = result; return result;
+      }).catch(error => { operation.error = String(error?.message || error); return null; }).finally(() => {
+        operation.pending = false;
+        if (!destroyed && bound === epoch && adapter === host) publish();
+      });
+      publish(); return operation.promise;
     }
     function observationScope() {
       const sessionId = pi.session?.sessionId || pi.session?.id || null;
@@ -6068,7 +6119,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         if (!Array.isArray(result?.messages) || result.agentSessionId !== agentSessionId || (result.conversationId ?? result.sessionId) !== conversationId) throw new Error('The host returned history for a different agent or conversation.');
         return result.messages;
       },
-      retryTask: taskId => isLive() ? command('retry_task', 'retryTask', [taskId]).catch(report) : demo.retryTask(taskId),
+      retryTask,
       cancelTask: taskId => command('cancel_task', 'cancelTask', [taskId]).catch(report),
       cancel: (runId = live.run.id) => isLive() ? command('cancel_run', 'cancelRun', [runId]).catch(report) : demo.cancel(),
       decideApproval: (approvalId, decision) => isLive() ? command('decide_approval', 'decideApproval', [approvalId, decision]).catch(report) : demo.decideApproval(approvalId, decision),
@@ -6409,6 +6460,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const taskTitle = (item, fallback) => labels.task(item, tasks(), fallback);
     const agentTitle = agent => labels.agent(agent, tasks());
     const attemptTitle = (id, item) => labels.attempt(id, { ...item, attempts: (snapshot.attempts || []).filter(attempt => attempt.taskId === item?.id) });
+    const taskMessage = (value, fallback) => labels.text(value, fallback, [snapshot.sessionId, snapshot.run?.id, ...['tasks', 'agents', 'attempts', 'tools', 'processes'].flatMap(key => (snapshot[key] || []).flatMap(item => [item.id, item.taskId, item.parentTaskId, item.attemptId, item.agentSessionId, item.processId, item.toolId])), ...Object.values(snapshot.retryOperations || {}).map(item => item.requestId)]);
     const artifactTitle = item => labels.text(item.title || item.filename || item.file?.name, 'Result file', [item.id, item.taskId, item.runId, item.agentSessionId, item.attemptId]);
     const live = () => snapshot.mode === 'runtime';
     const artifactList = () => live() ? (snapshot.artifacts || []) : ARTIFACTS;
@@ -6514,11 +6566,24 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function taskActions(item) {
       if (!item) return '';
       const pending = (snapshot.approvals || []).find(a => a.taskId === item.id && a.status === 'pending');
+      const retry = snapshot.retryOperations?.[item.id];
       let result = pending && can('decideApproval') ? '<button type="button" class="awv-button awv-button-accent" data-awv-approval="' + esc(pending.id) + '" data-awv-focus="approval-' + esc(pending.id) + '">' + icon('shield-check') + 'Review approval</button>' : '';
-      if (can('retryTask') && (['failed', 'cancelled'].includes(item.status) || item.status === 'blocked' && !pending)) result += '<button type="button" class="awv-button" data-awv-retry="' + esc(item.id) + '" data-awv-focus="retry-' + esc(item.id) + '">' + icon('rotate-ccw') + 'Retry task</button>';
-      if (live() && can('cancelTask') && ['queued', 'running', 'blocked', 'paused'].includes(item.status)) result += '<button type="button" class="awv-button" data-awv-cancel-task="' + esc(item.id) + '" data-awv-focus="cancel-' + esc(item.id) + '">' + icon('square') + 'Cancel task</button>';
-      if (can('cancelRun') && ['queued', 'running', 'paused', 'blocked'].includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
+      if (can('retryTask') && (live() ? item.parentTaskId && item.retryable === true || retry?.pending || retry?.accepted : ['failed', 'cancelled'].includes(item.status) || item.status === 'blocked' && !pending)) result += '<button type="button" class="awv-button" data-awv-retry="' + esc(item.id) + '" data-awv-focus="retry-' + esc(item.id) + '"' + (retry?.pending || retry?.accepted ? ' disabled aria-busy="' + Boolean(retry.pending) + '"' : '') + '>' + icon('rotate-ccw') + (retry?.pending ? 'Retrying…' : retry?.accepted ? 'Retry queued' : 'Retry task') + '</button>';
+      if (live() && can('cancelTask') && ['queued', 'running', 'blocked'].includes(item.status)) result += '<button type="button" class="awv-button" data-awv-cancel-task="' + esc(item.id) + '" data-awv-focus="cancel-' + esc(item.id) + '"' + (retry?.pending ? ' disabled' : '') + '>' + icon('square') + 'Cancel task</button>';
+      if (can('cancelRun') && (live() ? ['queued', 'running', 'blocked'] : ['queued', 'running', 'paused', 'blocked']).includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
       return result;
+    }
+
+    function taskRecovery(item) {
+      if (!live()) return '';
+      const retry = snapshot.retryOperations?.[item.id];
+      const attempt = (snapshot.attempts || []).find(attempt => attempt.id === item.attemptId);
+      const stopped = ['failed', 'paused', 'cancelled'].includes(item.status);
+      const fallback = item.status === 'paused' ? 'This task was interrupted before it finished.' : item.status === 'cancelled' ? 'This task was cancelled before it finished.' : 'The agent could not complete this task.';
+      return (stopped ? '<p class="awv-caption" data-awv-failure-reason><strong>Why it stopped:</strong> ' + esc(taskMessage(attempt?.error, fallback)) + '</p>' : '')
+        + (retry?.error ? '<p class="awv-caption" role="alert" data-awv-retry-error>Retry was not confirmed. ' + esc(taskMessage(retry.error, 'Check the connection and try again.')) + '</p>' : '')
+        + (retry?.accepted ? '<p class="awv-caption" role="status">Retry accepted. Waiting for the task update.</p>' : '')
+        + (stopped && item.parentTaskId && item.retryable === false && item.retryUnavailableReason && !retry?.pending ? '<p class="awv-caption">' + esc(taskMessage(item.retryUnavailableReason, 'This task cannot be retried yet.')) + '</p>' : '');
     }
 
     function taskProgress(item) {
@@ -6563,9 +6628,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return (item.parentTaskId ? row('Parent task', task(item.parentTaskId) ? '<button type="button" class="awv-link-chip" data-awv-task="' + esc(item.parentTaskId) + '" data-awv-focus="parent-' + esc(item.parentTaskId) + '">' + esc(taskTitle(item.parentTaskId)) + '</button>' : 'Related task') : '')
         + (item.attemptId ? row('Current attempt', esc(attemptTitle(item.attemptId, item))) : '')
         + (agentSessionId ? row('Agent conversation', can('agentHistory') ? '<button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(agentSessionId) + '">' + esc(assigned ? agentTitle(assigned) : 'View agent conversation') + '</button>' : esc(assigned ? agentTitle(assigned) : 'Agent conversation')) : '')
-        + (attempts.length ? row('Attempts', attempts.map(attempt => '<p>' + esc(attemptTitle(attempt.id, item)) + ' · ' + esc(label(attempt.status)) + (attempt.agentSessionId && attempt.agentSessionId !== agentSessionId && can('agentHistory') ? ' <button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(attempt.agentSessionId) + '">Agent history</button>' : '') + '</p>').join('')) : '')
+        + (attempts.length ? row('Attempts', attempts.map(attempt => '<p>' + esc(attemptTitle(attempt.id, item)) + ' · ' + esc(label(attempt.status)) + (attempt.kind === 'reconciliation' ? ' · Result update' : '') + (attempt.retryOfAttemptId ? ' · Retry of ' + esc(attemptTitle(attempt.retryOfAttemptId, item)) : '') + (attempt.error ? ' — ' + esc(taskMessage(attempt.error, 'This attempt stopped before completion.')) : '') + (attempt.agentSessionId && attempt.agentSessionId !== agentSessionId && can('agentHistory') ? ' <button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(attempt.agentSessionId) + '">Agent history</button>' : '') + '</p>').join('')) : '')
         + (processes.length ? row('Processes', processes.map(processButton).join('')) : '')
-        + row('Identifiers', labels.diagnostics([['Task ID', item.id], ['Parent task ID', item.parentTaskId], ['Dependency IDs', (item.dependencies || []).join(', ')], ['Current attempt ID', item.attemptId], ['Agent session ID', agentSessionId], ...attempts.map(attempt => [attemptTitle(attempt.id, item) + ' ID', attempt.id])], 'task-' + item.id));
+        + row('Identifiers', labels.diagnostics([['Task ID', item.id], ['Parent task ID', item.parentTaskId], ['Dependency IDs', (item.dependencies || []).join(', ')], ['Current attempt ID', item.attemptId], ['Agent session ID', agentSessionId], ...attempts.flatMap(attempt => [[attemptTitle(attempt.id, item) + ' ID', attempt.id], [attemptTitle(attempt.id, item) + ' error', attempt.error]]), ['Retry request ID', snapshot.retryOperations?.[item.id]?.requestId], ['Retry error', snapshot.retryOperations?.[item.id]?.error]], 'task-' + item.id));
     }
 
     function updateWorkflow() {
@@ -6588,7 +6653,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const outputs = artifactList().filter(a => a.taskId === item.id);
       const counts = taskProgress(item);
       const progressLabel = counts ? counts.progress + ' of ' + counts.total + ' steps' : 'Progress not reported';
-      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(taskTitle(item)) + '</h3><p class="awv-caption">' + esc(taskOwner(item)) + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(labels.text(tool.name, 'Tool', [tool.id, tool.taskId])) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(labels.text(tool.name, 'Tool', [tool.id, tool.taskId])) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(artifactTitle(a)) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
+      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(taskTitle(item)) + '</h3><p class="awv-caption">' + esc(taskOwner(item)) + ' · ' + progressLabel + '</p>' + taskRecovery(item) + '<dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(labels.text(tool.name, 'Tool', [tool.id, tool.taskId])) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(labels.text(tool.name, 'Tool', [tool.id, tool.taskId])) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(artifactTitle(a)) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
     }
 
     function plotWidth() {
@@ -9125,7 +9190,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const q = selector => host.querySelector(selector);
     const refreshIcons = () => options.icons?.();
     const labels = window.AthenaActivityLabels;
-    const identifiers = state => [state.sessionId, state.run?.id, ...['tasks', 'agents', 'tools', 'attempts', 'processes'].flatMap(key => (state[key] || []).flatMap(item => [item.id, item.taskId, item.parentTaskId, item.agentSessionId, item.attemptId, item.processId, item.toolId, item.toolCallId]))].filter(Boolean);
+    const identifiers = state => [state.sessionId, state.run?.id, ...['tasks', 'agents', 'tools', 'attempts', 'processes'].flatMap(key => (state[key] || []).flatMap(item => [item.id, item.taskId, item.parentTaskId, item.agentSessionId, item.attemptId, item.processId, item.toolId, item.toolCallId])), ...Object.values(state.retryOperations || {}).map(item => item.requestId)].filter(Boolean);
     const displayText = (value, fallback = '', state = snapshot) => labels.text(value, fallback, identifiers(state));
     function rememberDiagnostics() {
       for (const element of host.querySelectorAll('[data-aw-diagnostics]')) {
@@ -9156,7 +9221,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (element.matches?.('[data-aw-diagnostics] > summary')) return { attribute: 'data-aw-diagnostics', value: element.parentElement.dataset.awDiagnostics, summary: true };
       if (element.dataset?.awToolAction) return { attribute: 'data-aw-tool-action', value: element.dataset.awToolAction, tool: element.dataset.awTool };
       if (element.dataset?.awOutputMode) return { attribute: 'data-aw-output-mode', value: element.dataset.awOutputMode, tool: element.dataset.awTool };
-      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-awv-focus', 'data-awv-action']) {
+      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-aw-retry', 'data-aw-task-details', 'data-awv-focus', 'data-awv-action']) {
         const value = element.getAttribute?.(attribute);
         if (value != null) return { attribute, value };
       }
@@ -9221,7 +9286,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const progress = state.mode === 'runtime' ? Number.isFinite(task.progress) && Number.isFinite(task.total) && task.total > 0 ? task.progress + ' / ' + task.total + ' reported steps' : 'Progress not reported' : task.progress + ' / ' + task.total + ' demo steps';
       const action = (name, label, glyph) => '<button type="button" class="aw-text-button cursor-interaction" data-aw-tool-action="' + name + '" data-aw-tool="' + esc(tool.id) + '">' + icon(glyph) + label + '</button>';
       const diagnostics = state.mode === 'runtime' ? labels.diagnostics([['Task ID', tool.taskId], ['Tool ID', tool.id], ['Agent session ID', tool.agentSessionId], ['Attempt ID', tool.attemptId]], 'tool:' + tool.id) : '';
-      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(labels.task(task, state.tasks, 'Session tool')) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(displayText(tool.name, 'Tool', state)) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + results.map(result => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(displayText(result.title, 'Result file', state)) + '</button>').join('') + resultFilesHTML(results) + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + diagnostics + '</div>';
+      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(labels.task(task, state.tasks, 'Session tool')) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(displayText(tool.name, 'Tool', state)) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (state.mode !== 'runtime' && task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + results.map(result => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(displayText(result.title, 'Result file', state)) + '</button>').join('') + resultFilesHTML(results) + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + diagnostics + '</div>';
     }
 
     function toolEventHTML(tool, state, agent = null) {
@@ -9246,6 +9311,20 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const names = [...new Set(state.agents.map(agent => labels.agent(agent, state.tasks)))];
       const label = names.join(', ') + (active.length ? ' working' : state.run.status === 'paused' ? ' paused' : state.run.status === 'failed' ? ' need attention' : state.run.status === 'cancelled' ? ' stopped' : complete.length === state.agents.length ? ' complete' : ' waiting');
       return '<div class="aw-agent-presence"><span class="aw-agent-symbols">' + state.agents.map(agent => '<button type="button" class="aw-agent-symbol cursor-interaction" data-aw-agent-reveal="' + esc(agent.id) + '" aria-label="View ' + esc(labels.agent(agent, state.tasks)) + ' activity: ' + esc(labels.task(agent.taskId, state.tasks, 'Background task')) + '">' + window.AthenaAvatars.html({ agentId: agent.id, role: agent.role, status: agent.status, size: 20 }) + '</button>').join('') + '</span><span>' + esc(label) + '</span></div>';
+    }
+
+    function taskRecoveryHTML(task, state) {
+      const retry = state.retryOperations?.[task.id];
+      const attempt = (state.attempts || []).find(item => item.id === (retry?.expectedAttemptId || task.attemptId));
+      const fallback = task.status === 'paused' ? 'This task was interrupted before it finished.' : task.status === 'cancelled' ? 'This task was cancelled before it finished.' : 'The agent could not complete this task.';
+      const canRetry = state.capabilities?.retryTask && (task.retryable === true || retry?.pending || retry?.accepted);
+      const button = canRetry ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '"' + (retry?.pending || retry?.accepted ? ' disabled aria-busy="' + Boolean(retry.pending) + '"' : '') + '>' + icon('rotate-ccw') + (retry?.pending ? 'Retrying…' : retry?.accepted ? 'Retry queued' : 'Retry task') + '</button>' : '';
+      return '<section class="aw-approval-inline" data-aw-task-recovery="' + esc(task.id) + '"><span>' + icon('rotate-ccw') + '</span><div><strong>' + esc(labels.task(task, state.tasks)) + '</strong><p>' + esc(displayText(attempt?.error, fallback, state)) + '</p>'
+        + (retry?.error ? '<p role="alert" data-aw-retry-error>Retry was not confirmed. ' + esc(displayText(retry.error, 'Check the connection and try again.', state)) + '</p>' : '')
+        + (retry?.accepted ? '<p role="status">Retry accepted. Waiting for the task update.</p>' : '')
+        + (!canRetry && task.retryUnavailableReason ? '<p>' + esc(displayText(task.retryUnavailableReason, 'This task cannot be retried yet.', state)) + '</p>' : '')
+        + '<div class="aw-agent-links">' + button + '<button type="button" class="aw-text-button cursor-interaction" data-aw-task-details="' + esc(task.id) + '">Task details' + icon('arrow-up-right') + '</button></div>'
+        + labels.diagnostics([['Attempt ID', attempt?.id], ['Attempt error', attempt?.error], ['Retry request ID', retry?.requestId], ['Retry error', retry?.error]], 'recovery:' + task.id) + '</div></section>';
     }
 
     function revealTool(selection = {}) {
@@ -9329,15 +9408,16 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       else rememberDiagnostics();
       currentRunKey = runKey;
       if(state.mode==='runtime'){
-        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.tasks,state.agents,state.tools,state.processes,state.artifacts,state.approvals,[...requestedTools],[...expandedTools]]);
+        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.tasks,state.agents,state.attempts,state.tools,state.processes,state.artifacts,state.approvals,state.retryOperations,[...requestedTools],[...expandedTools]]);
         if(signature!==renderSignature){
           renderSignature=signature;
           const previous=host.contains(document.activeElement)?captureKey(document.activeElement):null;
           const tools=state.tools.filter(tool=>tool.source!=='pi'||requestedTools.has(tool.id));
           const pending=state.approvals.filter(request=>request.status==='pending');
+          const recovery=state.tasks.filter(task=>task.parentTaskId&&(['failed','paused','cancelled'].includes(task.status)||state.retryOperations?.[task.id]?.pending||state.retryOperations?.[task.id]?.accepted));
           const runContext = (LABELS[state.run.status] || displayText(state.run.status, 'Ready', state)) + ' · ' + state.tasks.length + (state.tasks.length === 1 ? ' task' : ' tasks');
           const diagnostics = labels.diagnostics([['Session ID', state.sessionId], ['Run ID', state.run.id]], 'run');
-          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+agentGroupHTML(state)+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>');
+          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!recovery.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+agentGroupHTML(state)+recovery.map(task=>taskRecoveryHTML(task,state)).join('')+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>');
           for(const line of host.querySelectorAll('.aw-tool-task'))line.textContent=line.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*demo steps/,'');
           if(!state.capabilities?.retryTask)host.querySelectorAll('[data-aw-retry]').forEach(button=>button.disabled=true);
           restoreDiagnostics();
@@ -9425,6 +9505,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (button.dataset.awArtifact) { options.onNavigate?.('artifacts', { artifactId: button.dataset.awArtifact, ...(button.dataset.awArtifactVersion ? {version:button.dataset.awArtifactVersion} : {}) }); return; }
       if (button.dataset.awTimeline) { options.onNavigate?.('timeline', { taskId: button.dataset.awTimeline }); return; }
       if (button.dataset.awRetry) { store.retryTask(button.dataset.awRetry); return; }
+      if (button.dataset.awTaskDetails) { options.onNavigate?.('workflow', { taskId: button.dataset.awTaskDetails }); return; }
       const action = button.dataset.awAction;
       if (action === 'workflow') options.onNavigate?.('workflow');
       if (action === 'preview-reply') options.onPreviewReply?.();

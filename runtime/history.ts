@@ -18,7 +18,12 @@ function withToolIds(message: unknown, attempt: Context): unknown {
   return message;
 }
 
-/** Match finalized messages inside an unambiguous user turn; never join history by raw ID alone. */
+function isTurnAnchor(message: unknown): boolean {
+  return object(message) && (message.role === 'user' || (message.role === 'custom' &&
+    message.customType === 'athena-reconciliation' && message.display === false));
+}
+
+/** Match finalized messages inside an unambiguous user or host continuation turn. */
 export function projectHistory(messages: readonly unknown[], journal: readonly HistoryEvent[]): readonly unknown[] {
   type Turn = { readonly attempt: Context; readonly messages: unknown[] };
   const journalTurns = new Map<string, Turn | null>();
@@ -26,7 +31,7 @@ export function projectHistory(messages: readonly unknown[], journal: readonly H
   for (const row of journal) {
     const {type, message} = row.event;
     if (type !== 'message_end' || !object(message)) continue;
-    if (message.role === 'user') {
+    if (isTurnAnchor(message)) {
       const key = JSON.stringify(message);
       const turn: Turn = {attempt: row, messages: []};
       journalTurns.set(key, journalTurns.has(key) ? null : turn);
@@ -37,19 +42,19 @@ export function projectHistory(messages: readonly unknown[], journal: readonly H
   }
   if (!journalTurns.size) return messages;
 
-  const userCounts = new Map<string, number>();
+  const anchorCounts = new Map<string, number>();
   for (const message of messages) {
-    if (object(message) && message.role === 'user') {
+    if (isTurnAnchor(message)) {
       const key = JSON.stringify(message);
-      userCounts.set(key, (userCounts.get(key) ?? 0) + 1);
+      anchorCounts.set(key, (anchorCounts.get(key) ?? 0) + 1);
     }
   }
   let turn: Turn | null | undefined;
   let index = 0;
   return messages.map(message => {
-    if (object(message) && message.role === 'user') {
+    if (isTurnAnchor(message)) {
       const key = JSON.stringify(message);
-      turn = userCounts.get(key) === 1 ? journalTurns.get(key) : undefined;
+      turn = anchorCounts.get(key) === 1 ? journalTurns.get(key) : undefined;
       index = 0;
     } else if (turn) {
       // The event is stored just before Pi appends to JSONL. An interrupted or divergent
