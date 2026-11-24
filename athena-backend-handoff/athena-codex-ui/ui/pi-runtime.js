@@ -42,12 +42,12 @@
   const select = (name,label,options,value) => field(name,label,'select',{options:options.map(v=>typeof v==='string'?{value:v,label:v}:v),value});
   const action = (id,group,title,description,icon,fields=[],submitLabel) => ({id,group,title,description,icon,fields,submitLabel:submitLabel||title});
   function initial() {
-    return {revision:0,connected:false,mode:'disconnected',connectionLabel:'No Pi connection',busy:[],error:null,session:{},model:null,models:[],thinkingLevel:null,thinkingLevels:[],thinkingLevelsPending:false,tools:[],activeTools:[],queues:{steering:[],followUp:[],steeringMode:'one-at-a-time',followUpMode:'one-at-a-time'},stats:{},context:{},config:{autoCompaction:null,autoRetry:null},resources:{commands:[],skills:[],prompts:[],extensions:[],themes:[],contextFiles:[],diagnostics:[]},messages:[],entries:[],tree:[],forkMessages:[],sessions:[],ui:{requests:[],pendingRequestCount:0,notifications:[],statuses:[],widgets:[],editorText:'',title:''},capabilities:{},lastResult:null,clearedQueue:null,retry:null,compaction:null,settings:{},scopedModels:[],cacheWarming:null,systemPrompt:''};
+    return {revision:0,connected:false,mode:'disconnected',connectionLabel:'No Pi connection',busy:[],error:null,session:{},model:null,models:[],thinkingLevel:null,thinkingLevels:[],thinkingLevelsPending:false,tools:[],activeTools:[],queues:{steering:[],followUp:[],steeringMode:'one-at-a-time',followUpMode:'one-at-a-time'},stats:{},context:{},config:{autoCompaction:null,autoRetry:null},resources:{commands:[],skills:[],prompts:[],extensions:[],themes:[],contextFiles:[],diagnostics:[]},messages:[],historyRevision:0,entries:[],tree:[],forkMessages:[],sessions:[],ui:{requests:[],pendingRequestCount:0,notifications:[],statuses:[],widgets:[],editorText:'',title:''},capabilities:{},lastResult:null,clearedQueue:null,retry:null,compaction:null,settings:{},scopedModels:[],cacheWarming:null,systemPrompt:''};
   }
   function create(options = {}) {
     const requestPrefix=window.crypto.randomUUID();
     let state=initial(),target=null,mode='disconnected',epoch=0,sessionEpoch=0,sequence=0,unsubscribe=null,destroyed=false,refreshing=null,refreshTimer=0;
-    let modelRevision=0,thinkingRevision=0,scheduledFullRefresh=false,queuedFullRefresh=false;
+    let modelRevision=0,thinkingRevision=0,messagesRevision=0,scheduledFullRefresh=false,queuedFullRefresh=false;
     const listeners=new Set(),eventListeners=new Set(),pending=new Map(),dialogTimers=new Map(),busy=new Map(),uiPending=new Map();
     let declared=null,attachOptions={},facade=null;
     function getState(){return clone(state)}
@@ -177,7 +177,7 @@
       if(type==='extension_ui_resolved'){removeUIRequest(epoch+':'+sessionEpoch+':'+event.id);publish();return true;}
       if(type==='queue_update'){state.queues.steering=list(event.steering).map(v=>String(v??''));state.queues.followUp=list(event.followUp).map(v=>String(v??''));}
       else if(type==='agent_start')state.session.isStreaming=true;
-      else if(type==='agent_settled'){state.session.isStreaming=false;scheduleRefresh();}
+      else if(type==='agent_settled'){state.session.isStreaming=false;scheduleRefresh(true);}
       else if(type==='session_info_changed'){state.session.sessionName=string(event.name);state.session.name=string(event.name);}
       else if(type==='thinking_level_changed'){thinkingRevision++;state.thinkingLevel=string(event.level);}
       else if(type==='entry_appended'){state.entries=[...state.entries.filter(e=>e.id!==event.entry?.id),safe(event.entry)].filter(Boolean).slice(-250);}
@@ -186,17 +186,17 @@
       else if(type==='auto_retry_start'||type==='auto_retry_end'||type.startsWith('summarization_retry_'))state.retry=safe(event);
       else if(type==='session_changed'||type==='host_session_changed'){if(Array.isArray(event.capabilities))declared=new Set(event.capabilities);resetSessionData();scheduleRefresh(true);}
       else if(type==='extension_error'||type==='host_error'){state.error=string(event.message||event.error||'The host reported an error.');notification(state.error,'error');}
-      else if(type==='message_end'){if(event.message)state.messages=[...state.messages,safe(event.message)].slice(-150);}
+      else if(type==='message_end'){if(event.message){messagesRevision++;state.messages=[...state.messages,safe(event.message)].slice(-150);}}
       if(!['message_update','tool_execution_update','bash_execution_update'].includes(type))publish();
       emit(event);return true;
     }
     function scheduleRefresh(full=false){clearTimeout(refreshTimer);scheduledFullRefresh=scheduledFullRefresh||full;const bound=epoch;refreshTimer=setTimeout(()=>{refreshTimer=0;const nextFull=scheduledFullRefresh;scheduledFullRefresh=false;if(!destroyed&&bound===epoch&&target)refresh(nextFull).catch(()=>{})},100)}
     function resetSessionData(){
       cancelPendingUI('session-changed');
-      sessionEpoch++;modelRevision++;thinkingRevision++;refreshing=null;queuedFullRefresh=false;
+      sessionEpoch++;modelRevision++;thinkingRevision++;messagesRevision++;refreshing=null;queuedFullRefresh=false;
       for(const timer of dialogTimers.values())clearTimeout(timer);dialogTimers.clear();
       const next=initial();
-      for(const key of ['session','messages','entries','tree','forkMessages','stats','context','queues','retry','compaction','ui','model','models','thinkingLevel','thinkingLevels','thinkingLevelsPending','tools','activeTools','resources','scopedModels','cacheWarming','settings','config','systemPrompt'])state[key]=next[key];
+      for(const key of ['session','messages','historyRevision','entries','tree','forkMessages','stats','context','queues','retry','compaction','ui','model','models','thinkingLevel','thinkingLevels','thinkingLevelsPending','tools','activeTools','resources','scopedModels','cacheWarming','settings','config','systemPrompt'])state[key]=next[key];
     }
     function updateResult(command,data,params,scope={model:modelRevision,thinking:thinkingRevision,modelChanging:false}){
       const result=safe(data);
@@ -218,7 +218,12 @@
       else if(command==='cycle_thinking_level'&&result?.level&&scope.thinking===thinkingRevision)state.thinkingLevel=result.level;
       else if(command==='get_session_stats'){state.stats=result||{};if(result?.contextUsage)state.context=result.contextUsage;}
       else if(command==='get_context_usage')state.context=result&&Object.hasOwn(result,'contextUsage')?(result.contextUsage||{}):(result||{});
-      else if(command==='get_messages')state.messages=list(result?.messages||result);
+      else if(command==='get_messages'){
+        // A same-session history response can still predate newly observed
+        // messages. Keep that live suffix and request an authoritative reread.
+        if(scope.messages!==messagesRevision){scheduleRefresh(true);return;}
+        state.messages=list(result?.messages||result);messagesRevision++;state.historyRevision++;
+      }
       else if(command==='get_entries'){state.entries=params.since?[...state.entries,...list(result?.entries)].slice(-250):list(result?.entries);state.session.leafId=result?.leafId;}
       else if(command==='get_tree'){state.tree=list(result?.tree||result);state.session.leafId=result?.leafId;}
       else if(command==='get_fork_messages')state.forkMessages=list(result?.messages||result);
@@ -335,7 +340,7 @@
       if(MODEL_CHANGE.has(id)){modelRevision++;thinkingRevision++;invalidateThinkingLevels();}
       else if(MODEL_CONTROL.has(id))thinkingRevision++;
       if(id==='get_available_thinking_levels')state.thinkingLevelsPending=true;
-      const scope={model:modelRevision,thinking:thinkingRevision,modelChanging:modelChanging()};
+      const scope={model:modelRevision,thinking:thinkingRevision,messages:messagesRevision,modelChanging:modelChanging()};
       busy.set(id,marker);state.error=null;publish();
       try{
         let data;
@@ -389,7 +394,7 @@
     }
     function detach(){
       cancelPendingUI('disconnected');
-      epoch++;modelRevision++;thinkingRevision++;clearTimeout(refreshTimer);refreshTimer=0;scheduledFullRefresh=false;queuedFullRefresh=false;unsubscribe?.();unsubscribe=null;
+      epoch++;modelRevision++;thinkingRevision++;messagesRevision++;clearTimeout(refreshTimer);refreshTimer=0;scheduledFullRefresh=false;queuedFullRefresh=false;unsubscribe?.();unsubscribe=null;
       for(const wait of pending.values()){clearTimeout(wait.timer);wait.reject(new Error('Pi disconnected.'));}pending.clear();
       for(const timer of dialogTimers.values())clearTimeout(timer);dialogTimers.clear();
       target=null;mode='disconnected';declared=null;refreshing=null;facade=null;attachOptions={};busy.clear();state=initial();publish();

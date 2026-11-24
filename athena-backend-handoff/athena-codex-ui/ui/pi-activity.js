@@ -132,7 +132,7 @@
     const listeners = new Set();
     const outputModes = safeArgs(options.toolOutputModes);
     let destroyed = false, started = false, counter = 0, current = null, blocks = new Map();
-    let messageBoundary = 0, lastTerminal = null;
+    let messageBoundary = 0, lastTerminal = null, streamOrder = 0, owner = null, messageTimestamp = null;
     const completedMessages = new Map();
     const messageKey = (message, event) => message?.id ?? message?.messageId ?? event?.messageId ?? null;
     let state;
@@ -159,13 +159,17 @@
       if (current) return current;
       blocks = new Map();
       const index = state.messages.length ? state.messages[state.messages.length - 1].index + 1 : 0;
-      current = { id: 'pi-' + state.runId + '-message-' + index, index, text: '', complete: false, stopReason: null };
+      current = { id: 'pi-' + state.runId + '-message-' + index, index, order: null, parts: [], athena: owner, timestamp: messageTimestamp, text: '', complete: false, stopReason: null };
       state.messages.push(current);
       state.messageId = current.id;
       return current;
     }
     function syncText() {
-      if (current) current.text = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(entry => entry[1]).join('').slice(0, maxText);
+      if (current) {
+        current.parts = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(([index, text]) => ({ index, text, order: current.parts.find(part => part.index === index)?.order ?? (text ? ++streamOrder : null) }));
+        current.text = current.parts.map(part => part.text).join('').slice(0, maxText);
+        current.order = current.parts.find(part => part.order != null)?.order ?? null;
+      }
       const text = state.messages.map(message => message.text).filter(Boolean).join('\n\n').slice(-maxText);
       if (text !== state.text) { state.text = text; state.textRevision += 1; }
     }
@@ -179,16 +183,19 @@
       // never deduplicate by text, because separate messages can be identical.
       const companion = !current && lastTerminal && !lastTerminal.paired && lastTerminal.boundary === messageBoundary && lastTerminal.source !== source && (externalId == null || lastTerminal.externalId == null || String(externalId) === String(lastTerminal.externalId));
       const record = known || (companion ? lastTerminal.record : ensureMessage());
+      record.timestamp ??= message.timestamp ?? null;
+      record.athena ||= owner;
       if (Array.isArray(message.content)) {
         if (record === current) {
           blocks.clear();
           message.content.forEach((block, i) => { if (block?.type === 'text') blocks.set(i, textValue(block.text, maxText)); });
-        } else record.text = message.content.filter(block => block?.type === 'text').map(block => textValue(block.text, maxText)).join('');
+        } else { record.parts = message.content.flatMap((block, index) => block?.type === 'text' ? [{ index, text: textValue(block.text, maxText), order: record.parts.find(part => part.index === index)?.order ?? ++streamOrder }] : []); record.text = record.parts.map(part => part.text).join(''); }
       } else if (typeof message.content === 'string') {
         if (record === current) { blocks.clear(); blocks.set(0, message.content); }
-        else record.text = message.content;
+        else { record.text = message.content; record.parts = [{ index: 0, text: message.content, order: record.parts[0]?.order ?? ++streamOrder }]; }
       }
       syncText();
+      if (record.text && record.order == null) record.order = ++streamOrder;
       record.complete = true; record.stopReason = textValue(message.stopReason, 50) || null;
       if (externalId != null) { record.sourceMessageId = String(externalId); completedMessages.set(String(externalId), record); }
       lastTerminal = { record, source, externalId, boundary: messageBoundary, paired: Boolean(known || companion) };
@@ -203,7 +210,7 @@
       let tool = findTool(id);
       if (!tool) {
         const toolName = textValue(event.toolName, 100) || 'custom';
-        tool = { id, toolCallId: id, toolName, ...inputPreview(event.args), status, output: '', outputCharacters: 0, outputPreviewCharacters: 0, outputTruncated: false, outputRevision: 0, durationMs: null, parentToolCallId: textValue(event.parentToolCallId, 300) || null, startedAt: status === 'running' ? now() : null, endedAt: null };
+        tool = { id, toolCallId: id, toolName, ...inputPreview(event.args), order: ++streamOrder, athena: owner, status, output: '', outputCharacters: 0, outputPreviewCharacters: 0, outputTruncated: false, outputRevision: 0, durationMs: null, parentToolCallId: textValue(event.parentToolCallId, 300) || null, startedAt: status === 'running' ? now() : null, endedAt: null };
         state.tools.push(tool);
         if (state.tools.length > maxTools) { const removable = state.tools.findIndex(item => item !== tool && item.status !== 'running'); state.tools.splice(removable < 0 ? 0 : removable, 1); }
       } else {
@@ -229,6 +236,10 @@
       if (!meaningful.includes(type)) return false;
       if (state.settled && started && !['agent_start','queue_update'].includes(type)) return false;
       if (['message_start','message_update','message_end'].includes(type) && event.message?.role && event.message.role !== 'assistant') return false;
+      // Ownership is supplied by the host's normalized event, never inferred
+      // from message text. Order records receipt, including identical messages.
+      if (typeof event.runId === 'string' && typeof event.attemptId === 'string') owner = Object.fromEntries(['projectId','sessionId','runId','taskId','parentTaskId','agentSessionId','attemptId'].filter(key => typeof event[key] === 'string' || key === 'parentTaskId' && event[key] === null).map(key => [key, event[key]]));
+      messageTimestamp = event.message?.timestamp ?? event.assistantMessageEvent?.message?.timestamp ?? null;
       const previousText = state.textRevision;
       if (type === 'agent_start') {
         if (state.settled) { state = initial(state.runId + 1); current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; }
@@ -327,7 +338,7 @@
       receive,
       getState: snapshot,
       subscribe(listener) { if (destroyed || typeof listener !== 'function') return () => {}; listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
-      reset() { if (destroyed) return false; state = initial(state.runId + 1); started = false; current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; publish(); return true; },
+      reset() { if (destroyed) return false; state = initial(state.runId + 1); started = false; current = null; owner = null; messageTimestamp = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; publish(); return true; },
       destroy() { if (destroyed) return; destroyed = true; listeners.clear(); current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; }
     });
   }

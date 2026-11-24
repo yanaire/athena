@@ -46,6 +46,28 @@ test('fresh browser runtimes cannot reuse durable command receipt identifiers', 
   assert.equal(receipts.size, 2);
 });
 
+test('late same-session history cannot overwrite observed messages and a fresh read restores the prefix', async t => {
+  let resolveFirst, reads = 0;
+  const prefix = [{ role: 'user', content: 'Earlier question' }, { role: 'assistant', content: 'Earlier answer' }];
+  const owner = { projectId: 'p', sessionId: 's', runId: 'r', taskId: 't', parentTaskId: null, agentSessionId: 'a', attemptId: 'attempt' };
+  const observed = { role: 'assistant', content: [{ type: 'text', text: 'Live answer' }], athena: owner };
+  const connection = host({ capabilities: ['get_messages'], request() {
+    return ++reads === 1 ? new Promise(resolve => { resolveFirst = resolve; }) : { messages: [...prefix, observed] };
+  } });
+  const runtime = setup(t, connection);
+  const pending = runtime.execute('get_messages');
+  connection.emit({ type: 'message_end', message: observed, ...owner });
+  resolveFirst({ messages: prefix }); await pending;
+  assert.deepEqual(plain(runtime.getState().messages), [observed]);
+  assert.equal(runtime.getState().historyRevision, 0, 'Discarded reads are not exposed as accepted history.');
+  await new Promise(resolve => setTimeout(resolve, 120));
+  assert.deepEqual(plain(runtime.getState().messages), [...prefix, observed]);
+  assert.equal(runtime.getState().historyRevision, 1);
+  connection.emit({ type: 'session_changed' });
+  assert.equal(runtime.getState().historyRevision, 0);
+  assert.deepEqual(plain(runtime.getState().messages), []);
+});
+
 test('message limits reject intact before sending; valid long messages and slash arguments are never sliced', async t => {
   const body = '  ' + '한'.repeat(100000) + '\nend\n';
   const connection = host({ request: wire => wire.type === 'get_commands' ? { commands: [{ name: 'review' }] } : wire.type === 'get_messages' ? { messages: [{ role: 'user', content: body }] } : { disposition: 'started' } });

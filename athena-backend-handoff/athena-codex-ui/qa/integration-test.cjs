@@ -671,8 +671,8 @@ test('Hidden reconciliation context stays out of hydrated and streaming transcri
   assert.equal(env.qa('#ac-pi-transcript article').length, 2);
   assert.equal(env.q('#ac-live-user').hidden, true, 'Internal context does not create a synthetic user bubble.');
   host.stream.emit({ type: 'pi', sessionId: 's1', event: { type: 'message_start', message: { role: 'user', content } } });
-  assert.equal(env.q('#ac-live-user').hidden, false);
-  assert.equal(env.q('#ac-live-user').textContent, content, 'A real user message is not altered by content heuristics.');
+  assert.equal(env.q('#ac-live-user').hidden, true, 'Connected messages now occupy their own transcript position.');
+  assert.equal(env.qa('#ac-pi-transcript article[data-role="user"] p').at(-1).textContent, content, 'A real user message is not altered by content heuristics.');
   env.destroy();
 });
 
@@ -689,6 +689,44 @@ test('Hosted events received during history hydration reach the active conversat
   host.stream.open();
   await env.waitFor(() => env.q('.ar-text').textContent === 'Arrived during hydration');
   assert.equal(env.q('#ac-pi-transcript').textContent.includes('Saved answer'), true);
+  env.destroy();
+});
+
+test('A delayed initial history read cannot erase live work; fresh history restores its prefix and tool sequence once', async () => {
+  const env = createEnvironment(), app = env.window.AthenaApp, pending = deferred();
+  const context = { projectId: 'timeline-project', sessionId: 'timeline-session', runId: 'timeline-run', taskId: 'timeline-parent', parentTaskId: null, agentSessionId: 'timeline-agent', attemptId: 'timeline-attempt' };
+  const prefix = [{ role: 'user', content: 'Earlier question' }, { role: 'assistant', content: 'Earlier answer' }];
+  let history = prefix, reads = 0;
+  const host = hostFor({ capabilities: ['get_state', 'get_messages'], respond: wire => {
+    if (wire.type === 'get_state') return { sessionId: context.sessionId, isStreaming: false };
+    if (wire.type === 'get_messages') return ++reads === 1 ? pending.promise : { messages: history };
+    return {};
+  } });
+  app.attachPiTransport(host, { refresh: false }); await app.executePi('get_state');
+  const initialRead = app.executePi('get_messages');
+  const user = { role: 'user', content: 'Inspect task-2026.csv exactly', timestamp: 100, athena: context };
+  const prelude = { role: 'assistant', content: [{ type: 'text', text: 'Inspecting the assigned file.' }, { type: 'toolCall', id: 'timeline-read', name: 'read', arguments: { path: 'task-2026.csv' } }], timestamp: 110, athena: context };
+  const result = { role: 'toolResult', toolCallId: 'timeline-read', content: [{ type: 'text', text: 'Observed file text' }], isError: false, timestamp: 120, athena: context };
+  const answer = { role: 'assistant', content: [{ type: 'text', text: 'The file was inspected.' }], timestamp: 130, athena: context };
+  for (const event of [
+    { type: 'agent_start' }, { type: 'message_start', message: user }, { type: 'message_end', message: user },
+    { type: 'message_start', message: { ...prelude, content: [] } }, { type: 'message_end', message: prelude },
+    { type: 'tool_execution_start', toolCallId: 'timeline-read', toolName: 'read', args: { path: 'task-2026.csv' } },
+    { type: 'tool_execution_end', toolCallId: 'timeline-read', toolName: 'read', result }, { type: 'message_end', message: result },
+    { type: 'message_start', message: { ...answer, content: [] } }, { type: 'message_end', message: answer }
+  ]) host.emit({ ...event, ...context });
+  history = [...prefix, user, prelude, result, answer];
+  host.emit({ type: 'agent_settled', ...context });
+  assert.equal(env.q('#ac-pi-transcript [data-ap-tool="timeline-read"]').dataset.piStatus, 'succeeded');
+  pending.resolve({ messages: prefix }); await initialRead;
+  env.clock.advance(150);
+  await env.waitFor(() => env.q('#ac-pi-transcript').textContent.includes('Earlier answer') && env.q('#ac-pi-transcript').textContent.includes('The file was inspected.'));
+  assert.equal(env.qa('#ac-pi-transcript [data-ap-tool="timeline-read"]').length, 1);
+  const texts = env.qa('#ac-pi-transcript article p').map(node => node.textContent);
+  assert.deepEqual(texts, ['Earlier question', 'Earlier answer', user.content, 'Inspecting the assigned file.', 'The file was inspected.']);
+  const flow = [...env.q('#ac-pi-transcript').children].filter(node => !node.hidden);
+  assert.ok(flow.indexOf(env.q('[data-ap-tool="timeline-read"]').parentElement) < flow.indexOf(env.qa('#ac-pi-transcript article').at(-1)));
+  assert.equal(env.q('#ac-live-user').hidden, true);
   env.destroy();
 });
 async function runTest({ name, callback }) {
@@ -1287,7 +1325,7 @@ test('Explicit response preview demonstrates all built-in operations and finishe
   assert.equal(env.state().piActivity.tools.length, 8);
   const kinds = new Set(env.state().piActivity.tools.map(tool => tool.toolName));
   for (const name of ['read', 'write', 'edit', 'bash', 'powershell', 'grep', 'find', 'ls']) assert.ok(kinds.has(name));
-  assert.equal(env.qa('#ac-live-reply [data-ap-tool]').length, 8);
+  assert.equal(env.qa('#ac-pi-transcript [data-ap-tool]').length, 8);
   env.clock.advance(15000);
   assert.equal(env.state().piActivity.phase, 'complete');
   assert.equal(env.state().busy, false);
