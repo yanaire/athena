@@ -30,8 +30,9 @@ test('the real Node worker computes statistics from the immutable file version a
   const attempt = await runner.start({ ...match, grantId: grant.grantId, column: '--inspect' }).result;
   assert.equal(attempt.status, 'succeeded', attempt.stderr || attempt.error);
   assert.equal(attempt.program, process.execPath);
-  assert.equal(attempt.args.at(-1), '--inspect');
-  assert.equal(basename(attempt.args.at(-2) ?? ''), 'csv-worker.mjs');
+  assert.equal(basename(attempt.args.at(-1) ?? ''), 'csv-worker.mjs');
+  assert.equal(attempt.mcp?.phase, 'tools/call');
+  assert.equal(attempt.mcp?.server, 'athena-measurements');
   assert.deepEqual(attempt.env, { LANG: 'C', LC_ALL: 'C', TZ: 'UTC' });
   assert.ok(attempt.cwd);
   assert.equal(basename(dirname(attempt.cwd)), 'attempts');
@@ -48,7 +49,7 @@ test('the real Node worker computes statistics from the immutable file version a
   assert.equal(events.at(0)?.type, 'process_queued');
   assert.equal(events.at(1)?.type, 'process_started');
   assert.equal(events.at(-1)?.type, 'process_finished');
-  assert.match(events.flatMap(event => event.type === 'process_output' && event.stream === 'stdout' ? [event.text] : []).join(''), /Finished: 4 data records/);
+  assert.match(events.flatMap(event => event.type === 'process_output' && event.stream === 'stdout' ? [event.text] : []).join(''), /MCP tools\/list\nMCP tools\/call/);
 
   await runner.close();
   const reopened = new CsvJobRunner({ dataDir });
@@ -122,15 +123,15 @@ test('artifact downloads reject changed data, symlinks and cross-session receipt
   await assert.rejects(runner.download(artifact), { code: 'ARTIFACT_DENIED' });
 });
 
-test('malformed CSV produces a real nonzero exit and stderr without a downloadable artifact', async t => {
+test('malformed CSV returns an MCP tool error even with a clean transport exit', async t => {
   const events: CsvJobEvent[] = [];
   const { runner } = await fixture(t, { onEvent: event => events.push(event) });
   const grant = await runner.grant({ ...file, bytes: Buffer.from('x,y\n"not closed,y\n') });
   const result = await runner.start({ ...match, grantId: grant.id }).result;
   assert.equal(result.status, 'failed');
-  assert.equal(result.exitCode, 2);
+  assert.equal(result.exitCode, 0);
   assert.equal(result.cancellation, 'not_requested');
-  assert.match(result.stderr, /Unclosed quoted CSV field/);
+  assert.match(result.error ?? '', /Unclosed quoted CSV field/);
   assert.equal(result.artifact, undefined);
   assert.equal(events.flatMap(event => event.type === 'process_output' && event.stream === 'stderr' ? [event.text] : []).join(''), result.stderr);
 });

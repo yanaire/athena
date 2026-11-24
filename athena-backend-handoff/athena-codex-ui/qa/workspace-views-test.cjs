@@ -4,17 +4,19 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const dependencyPaths=[__dirname,...(process.env.ATHENA_QA_DEPENDENCIES?[process.env.ATHENA_QA_DEPENDENCIES]:[])];
 const {parseHTML}=require(require.resolve('linkedom',{paths:dependencyPaths}));
 const base=path.resolve(__dirname,'..')+path.sep;
-function env(overrides={}){
+function env(overrides={},fetchFile){
  const {window,document}=parseHTML('<html><body><div id="athena-codex"><div id="host"></div></div></body></html>');
  Object.defineProperty(window.HTMLSelectElement.prototype,'value',{configurable:true,get(){return [...this.options].find(o=>o.hasAttribute('selected'))?.value||this.options[0]?.value||'';},set(value){for(const o of this.options)o.toggleAttribute('selected',o.value===String(value));}});
  let snapshot={mode:'runtime',projectId:'project-rc',sessionId:'session-a',taskManagerConnected:false,run:{status:'ready'},tasks:[],agents:[],tools:[],artifacts:[],events:[],approvals:[],capabilities:{},...overrides};
  let callback,nav=[],copied=[],retry=[],cancelled=0;
  const store={getState:()=>snapshot,subscribe(fn){callback=fn;fn(snapshot);return()=>{callback=null}},retryTask:id=>retry.push(id),cancel:()=>cancelled++};
  window.AthenaPiActivity={iconHTML:()=>'<svg></svg>',toolPresentation:()=>({icon:'terminal'})};
+ if(fetchFile) window.fetch=fetchFile;
  const context={window,document,AbortController,URL,Date,Blob,setTimeout,clearTimeout,navigator:{clipboard:{writeText:async value=>copied.push(value)}}};
  vm.runInNewContext(fs.readFileSync(base+'ui/research-records.js','utf8'),context);
  const records=window.AthenaResearchRecords.create({projectId:'project-rc'});
  records.ensureDocument({documentId:'research-note',text:'Current document v1',title:'Current research',version:'1',originalSample:true,evidence:[{sourceId:'source-a',version:'1'}],review:{status:'approved',version:'1'}});
+ vm.runInNewContext(fs.readFileSync(base+'ui/result-files.js','utf8'),context);
  vm.runInNewContext(fs.readFileSync(base+'ui/workspace-views.js','utf8'),context);
  const host=document.querySelector('#host'),api=window.AthenaWorkspaceViews.mount(host,{store,records,onNavigate:(view,selection)=>nav.push({view,...selection})});
  const q=selector=>host.querySelector(selector),fire=(node,type)=>node.dispatchEvent(new window.Event(type,{bubbles:true,cancelable:true}));
@@ -56,4 +58,26 @@ test('runtime document binding requires an actual host revision instead of reusi
  e.put({artifacts:[{id:'live-note',version:'artifact-3',documentId:'actual-note',documentVersion:'host-3',text:'Optional artifact text'}]});e.api.open('artifacts',{artifactId:'live-note',version:'artifact-3'});
  assert.equal(e.q('.awv-record-text').textContent,'Exact host revision');assert.equal(e.q('[data-awv-document-version]').disabled,true);assert.match(e.q('.awv-record-review').textContent,/unreviewed/);assert.equal(e.q('[data-awv-action="original-reference"]'),null);
  e.click('[data-awv-action="open-manuscript"]');assert.deepEqual(e.nav.pop(),{view:'manuscript',documentId:'actual-note',version:'host-3'});e.destroy();
+});
+
+test('measurement board follows the process and reads the published artifact URL',async()=>{
+ const process={id:'proc',runId:'run',taskId:'child',status:'running',job:{mcp:{tool:'calculate_csv',phase:'tools/list'}}};
+ const artifact={id:'file',title:'statistics.json',sessionId:'session-a',processId:'proc',taskId:'child',version:'v1',location:{uri:'/api/artifacts/session-a/file'}};
+ const reads=[];
+ const e=env({run:{id:'run',status:'running'},processes:[process],tasks:[{id:'child',title:'Voltage',status:'running'}]},async url=>{
+   reads.push(url);
+   return {ok:true,json:async()=>({schemaVersion:1,rowCount:5,statistics:[{column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,mean:19,max:35}]})};
+ });
+ for(const [status,label] of [['running','Running'],['failed','Failed'],['cancelled','Cancelled']]){
+   e.put({processes:[{...process,status}]});
+   assert.match(e.q('[data-awv-measurements]').textContent,new RegExp('MCP · calculate_csv · tools/list'+label));
+   assert.equal(e.q('[data-awv-measurements] [data-awv-open-artifact]'),null);
+ }
+ e.put({processes:[{...process,status:'succeeded',job:{mcp:{tool:'calculate_csv',phase:'tools/call'},artifact:{id:'file'}}}],artifacts:[artifact]});
+ e.api.open('artifacts',{artifactId:'file',version:'v1'});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(reads,['/api/artifacts/session-a/file']);
+ assert.equal(e.q('a[download]').getAttribute('href'),reads[0]);
+ assert.deepEqual([...e.q('tbody tr').children].map(cell=>cell.textContent),['measurement_mV','4','1','0','7','19','35']);
+ e.destroy();
 });

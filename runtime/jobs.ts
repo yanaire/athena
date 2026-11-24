@@ -1,3 +1,4 @@
+import { csvMcpClient, csvServer, type CsvMcpPhase } from './csv-mcp.ts';
 import { analysisAccess, analysisEnv, ANALYSIS_LIMITS, SandboxCleanupError, runSandbox, type SandboxJob, type AnalysisAccess } from './analysis-sandbox.ts';
 import { AnalysisFiles, validateOutputNames, type AnalysisArtifact, type AnalysisSnapshot } from './analysis-files.ts';
 export { ANALYSIS_LIMITS } from './analysis-sandbox.ts';
@@ -97,6 +98,7 @@ function parseGrant(bytes: Buffer, grantId: string, scope: Scope): CsvGrant {
 type Identity = Omit<CsvJob,'grantId'|'column'>;
 export type AnalysisJob = Identity & SandboxJob & { readonly inputs: readonly (AnalysisSnapshot & {readonly fileId?:string; readonly versionId?:string})[] };
 export type CsvAttempt = Identity & { readonly grantId?: string; readonly column?: string;
+  readonly mcp?: typeof csvServer & { readonly phase: CsvMcpPhase };
   readonly artifacts?: readonly AnalysisArtifact[]; readonly containerId?: string; readonly executionId?: string;
   readonly analysis?: { readonly language: SandboxJob['language']; readonly script: string; readonly outputs: readonly string[];
     readonly inputs: readonly {readonly name:string; readonly sha256:string; readonly fileId?:string; readonly versionId?:string}[];
@@ -146,6 +148,7 @@ type Pending = {
 };
 
 type ProcessResult = {
+  readonly outputDigest?: string;
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly termination: 'not_requested' | 'confirmed' | 'unknown';
@@ -279,7 +282,7 @@ export class CsvJobRunner {
     if (this.#queue.length >= CSV_LIMITS.queue) throw new CsvJobError('QUEUE_FULL', 'The CSV job queue is full.');
     this.#known.add(key);
     const { promise: result, resolve } = Promise.withResolvers<CsvAttempt>();
-    const pending: Pending = { result, resolve, analysis, attempt: Object.freeze({ ...job, program: analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
+    const pending: Pending = { result, resolve, analysis, attempt: Object.freeze({ ...job, ...(analysis ? {} : { mcp: { ...csvServer, phase: 'initialize' as const } }), program: analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
       cwd: null, env: analysis ? analysisEnv : ENV, limits: this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
       exitCode: null, signal: null, cancellation: 'not_requested', stdout: '', stderr: '' }) };
     this.#queue.push(pending);
@@ -416,7 +419,7 @@ export class CsvJobRunner {
       const args = Object.freeze([
         '--permission', `--allow-fs-read=${WORKER}`, `--allow-fs-read=${inputPath}`, `--allow-fs-write=${outputPath}`,
         `--max-old-space-size=${CSV_LIMITS.heapMiB}`, '--disallow-code-generation-from-strings', '--no-addons',
-        '--', WORKER, ...(job.column === undefined ? [] : [job.column]),
+        '--', WORKER,
       ]);
       await writeFile(inputPath, bytes, { flag: 'wx', mode: 0o400 });
       if (pending.stop) {
@@ -448,6 +451,7 @@ export class CsvJobRunner {
         return;
       }
       const content = await readBounded(cwd, 'statistics.json', CSV_LIMITS.artifactBytes);
+      if (sha256(content) !== processResult.outputDigest) throw new CsvJobError('INVALID_FILE', 'MCP result does not match the stored statistics file.');
       const summary: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(content));
       if (!object(summary) || summary.schemaVersion !== 1 || !Array.isArray(summary.columns) || !Array.isArray(summary.statistics)
         || typeof summary.rowCount !== 'number' || !Number.isSafeInteger(summary.rowCount) || summary.rowCount < 0) {
@@ -535,7 +539,7 @@ export class CsvJobRunner {
   }
 
   #execute(pending: Pending, cwd: string, args: readonly string[]): Promise<ProcessResult> {
-    const child = spawn(pending.attempt.program, args, { cwd, env: ENV, shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(pending.attempt.program, args, { cwd, env: ENV, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     return new Promise(resolveResult => {
       let ended = false;
       let signalled = false;
@@ -563,6 +567,13 @@ export class CsvJobRunner {
         }
       };
 
+      const client = csvMcpClient(child.stdin, pending.attempt.toolId, pending.attempt.column, phase => {
+        pending.attempt = Object.freeze({ ...pending.attempt, mcp: { ...csvServer, phase } });
+        consume('stdout', Buffer.from('MCP ' + phase + '\n'));
+      });
+      let wireBytes = 0;
+      const wireDecoder = new StringDecoder('utf8');
+      child.stdin.on('error', failure => { error ??= 'MCP input pipe closed: ' + failure.message; });
       const settle = () => {
         if (ended) return;
         ended = true;
@@ -581,7 +592,9 @@ export class CsvJobRunner {
           output(stream, rest);
         }
         pending.attempt = Object.freeze({ ...pending.attempt, stdout: stdout.text, stderr: stderr.text });
-        resolveResult({ exitCode, signal, termination, stop: pending.stop, error });
+        const outputDigest = client.digest();
+        if (!pending.stop && !error && !outputDigest) error = 'MCP server closed before a successful tools/call response.';
+        resolveResult({ exitCode, signal, termination, stop: pending.stop, error, outputDigest });
       };
 
       const timeout = setTimeout(() => this.#stop(pending, 'timed_out'), this.#limits.timeoutMs);
@@ -602,6 +615,7 @@ export class CsvJobRunner {
       child.once('spawn', () => {
         pending.attempt = Object.freeze({ ...pending.attempt, status: 'running', pid: child.pid ?? null, startedAt: Date.now() });
         this.#emit({ type: 'process_started', attempt: pending.attempt });
+        if (!pending.stop) client.initialize();
       });
       child.once('error', failure => { error = `CSV process failed to launch: ${failure.message}`; });
       child.once('exit', (code, terminatingSignal) => {
@@ -620,7 +634,16 @@ export class CsvJobRunner {
         }
       });
       child.once('close', settle);
-      child.stdout.on('data', chunk => consume('stdout', chunk));
+      child.stdout.on('data', (chunk: Buffer) => {
+        if (error || pending.stop) return;
+        wireBytes += chunk.length;
+        if (wireBytes > CSV_LIMITS.streamBytes) { this.#stop(pending, 'output_limit'); return; }
+        try { client.consume(wireDecoder.write(chunk)); }
+        catch (failure) {
+          error = failure instanceof Error ? failure.message : 'Invalid measurement MCP response.';
+          if (!client.finished) pending.terminate?.();
+        }
+      });
       child.stderr.on('data', chunk => consume('stderr', chunk));
     });
   }

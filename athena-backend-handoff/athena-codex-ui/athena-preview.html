@@ -6375,7 +6375,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowShell() {
-      return '<div class="awv-scroll"><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
+      return '<div class="awv-scroll"><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
     }
 
     function artifactShell() {
@@ -6449,7 +6449,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function processButton(process) {
       const job = process.job || process;
-      return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(job.program || process.processId) + (Array.isArray(job.args) && job.args.length ? ' · ' + esc(JSON.stringify(job.args)) : '') + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
+      const description = job.mcp ? 'MCP · ' + job.mcp.tool + ' · ' + job.mcp.phase
+        : (job.program || process.processId) + (Array.isArray(job.args) && job.args.length ? ' · ' + JSON.stringify(job.args) : '');
+      return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(description) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }
 
     function orchestrationDetails(item) {
@@ -6470,6 +6472,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       press('[data-awv-action="workflow-mode"]', state.workflowMode);
       setText('[data-awv-task-count]', tasks().filter(t => t.status === 'succeeded').length + ' / ' + tasks().length + ' complete');
       setHTML('[data-awv-workflow-map]', workflowMap());
+      const measurements = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
+      setHTML('[data-awv-measurements]', measurements.map(p => {
+        const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
+        return '<section class="awv-task-detail"><h3>' + esc(task(p.taskId)?.title || p.taskId) + '</h3>'
+          + processButton(p) + (p.job.error ? '<p>' + esc(p.job.error) + '</p>' : '')
+          + (file ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
+            + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + 'View measurement results</button>' : '') + '</section>';
+      }).join(''));
       const item = task(state.taskId);
       if (!item) { setHTML('[data-awv-task-detail]', '<div class="awv-empty"><h3>' + (live() && !snapshot.taskManagerConnected ? 'TaskManager not connected' : 'No tasks in this run') + '</h3><p>' + (live() && !snapshot.taskManagerConnected ? 'The Pi session can report messages and tool activity. Task scheduling, agent assignments, and output links need the Athena TaskManager connection.' : live() ? 'Tasks will appear when the connected TaskManager reports them.' : 'Choose a development scenario to inspect sample tasks.') + '</p></div>'); return; }
       const deps = (item.dependencies || []).map(id => '<button type="button" class="awv-link-chip" data-awv-task="' + esc(id) + '" data-awv-focus="dependency-' + esc(id) + '">' + esc(task(id)?.title || id) + '</button>').join('');
@@ -6615,6 +6625,24 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(item.title || item.id) + '</h3>' + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button>' + (download ? '' : '<button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button>') + '</div>' : '') + '</div><dl class="awv-detail-list"><div><dt>Artifact</dt><dd>' + esc(item.id) + '</dd></div><div><dt>Version</dt><dd>' + esc(artifactVersion(item) || 'Not reported') + '</dd></div><div><dt>Task</dt><dd>' + esc(item.taskId || 'Not reported') + '</dd></div>' + provenance + (item.documentId ? '<div><dt>Document</dt><dd>' + esc(item.documentId) + ' · v' + esc(item.documentVersion ?? 'Not reported') + '</dd></div>' : '') + '<div><dt>Review</dt><dd>' + esc(String(review).replaceAll('_', ' ')) + '</dd></div><div><dt>Original</dt><dd>' + esc(typeof item.location === 'string' ? item.location : item.location?.uri || 'Not provided') + '</dd></div></dl>' + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : download ? '' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>') + (download ? '<a class="awv-button" href="' + esc(download) + '" download>Download result file' + icon('download') + '</a>' : '') + (location && !download ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '') + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '') + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
     }
 
+    async function renderMeasurementTable(section, url) {
+      try {
+        const response = await window.fetch(url, { credentials: 'same-origin' });
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        if (data.schemaVersion !== 1 || !Array.isArray(data.statistics)) throw new Error();
+        const fields = ['column', 'count', 'missing', 'nonNumeric', 'min', 'mean', 'max'];
+        const headings = ['Column', 'Numeric', 'Missing', 'Nonnumeric', 'Min', 'Mean', 'Max'];
+        section.innerHTML = '<table class="awv-table"><caption>Measurement statistics · ' + esc(data.rowCount)
+          + ' rows</caption><thead><tr>' + headings.map(h => '<th scope="col">' + h + '</th>').join('')
+          + '</tr></thead><tbody>' + data.statistics.map(stat => '<tr>' + fields.map((key, index) =>
+            index === 0 ? '<th scope="row">' + esc(stat[key]) + '</th>' : '<td>' + esc(stat[key] ?? '—') + '</td>'
+          ).join('') + '</tr>').join('') + '</tbody></table>';
+      } catch {
+        section.textContent = 'Could not load the saved measurement file.';
+      }
+    }
+
     function updateArtifacts(force = false) {
       const items = artifactList();
       if (!state.artifactId && items.length) { state.artifactId = items[0].id; state.artifactVersion = live() ? artifactVersion(items[0]) : null; }
@@ -6632,6 +6660,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (force || holder.dataset.awvArtifact !== signature) {
         const focusKey = holder.contains(document.activeElement) ? document.activeElement?.dataset?.awvFocus : null;
         holder.innerHTML = canonical ? noteHTML() : live() ? liveArtifactHTML(item) : ({ plot: plotHTML, evidence: evidenceHTML, code: codeHTML, reference: referenceHTML, document: noteHTML }[item.kind] || (() => '<p class="awv-empty">No preview renderer is connected for this artifact.</p>'))();
+        const process = live() && (snapshot.processes || []).find(p => p.id === item.processId && p.status === 'succeeded'
+          && p.job?.mcp?.tool === 'calculate_csv' && p.job.artifact?.id === item.id);
+        const download = process && window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        if (download) {
+          const section = document.createElement('div');
+          section.className = 'awv-table-scroll';
+          section.setAttribute('aria-live', 'polite');
+          section.textContent = 'Loading saved measurements…';
+          holder.querySelector('h3').parentElement.after(section);
+          // The request owns this element. A late reply can only update its detached old view.
+          void renderMeasurementTable(section, download);
+        }
         holder.dataset.awvArtifact = signature;
         if (focusKey) Array.from(holder.querySelectorAll('[data-awv-focus]')).find(element => element.dataset.awvFocus === focusKey && !element.disabled)?.focus({ preventScroll: true });
       }
