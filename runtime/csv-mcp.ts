@@ -1,8 +1,7 @@
 import type { Writable } from 'node:stream';
 
-export const csvServer = Object.freeze({
-  server: 'athena-measurements', version: '1.0.0', protocol: '2025-06-18', tool: 'calculate_csv',
-});
+import { measurements as csvServer } from './mcp-contract.mjs';
+export { csvServer };
 export type CsvMcpPhase = 'initialize' | 'tools/list' | 'tools/call';
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
