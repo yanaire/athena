@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,7 @@ import { TaskManager, type TaskManagerOptions } from '../runtime/manager.ts';
 import { ModelProfiles } from '../runtime/model-profiles.ts';
 import { createPiSession } from '../runtime/pi.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
+import { openLocalCredentials } from '../runtime/local-credentials.ts';
 
 type Wire = { model: string; messages: { role: string; content: unknown }[];
   tools: { function: { name: string } }[] };
@@ -526,6 +527,114 @@ test('recovery pins the original model revision after profile edits and a host r
   assert.deepEqual(attempt(after, accepted.reconciliationAttemptId).model, sourceAttempt.model);
   const retried = state.hits.slice(count); assert.ok(retried.some(h => !parent(h.wire)));
   assert.ok(retried.every(h => h.route === '/a/v1/chat/completions' && h.wire.model === 'fixture-a'));
+});
+
+test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch', { timeout: 30_000 }, async t => {
+  const keyA = 'recovery-binding-fixture-A', keyB = 'recovery-binding-fixture-B';
+  const headers: (string | undefined)[] = [];
+  const state = await fixture(t, (wire, res, req) => {
+    headers.push(req.headers.authorization);
+    if (parent(wire)) {
+      if (input(wire).includes('Start a new request')) completion(res, 'New request uses the current credential.');
+      else coordinator(wire, res, ['Bound worker']);
+    } else failure(res);
+  });
+  const authDir = join(state.directory, 'auth');
+  let credentials = await openLocalCredentials(authDir);
+  let providers = await ProviderManager.create(credentials, state.directory);
+  const compatible = await providers.registerCompatible({ id: 'bound-provider', name: 'Bound', endpoint: state.origin + '/a/v1' }, keyA);
+  const profileStore = () => new ModelProfiles(state.directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
+  let profiles = profileStore(); profiles.saveEndpoint(compatible);
+  const models = { resolve: (conversation: string | null | undefined, project: string | null | undefined) => profiles.resolve(conversation, project),
+    pin: (model: Parameters<ProviderManager['pin']>[0]) => providers.pin(model), requireProfile: (id: string) => { profiles.get(id); } };
+  let manager = await state.manager({ models });
+  t.after(async () => { profiles.close(); await providers.close(); });
+  const profile = profiles.save({ name: 'Bound', provider: compatible.id, modelId: 'fixture-a' });
+  const activation = await session(manager); manager.setProjectProfile(activation.projectId!, profile.id);
+  await manager.pi(activation.sessionId, { type: 'prompt', id: 'bound-source', message: 'Delegate.' });
+  const before = await terminal(manager), original = task(before, 'Bound worker'); assert.ok(original.attemptId);
+  const reference = attempt(before, original.attemptId).model!;
+  assert.match(reference.authRef!, /^credential:v1:[a-f0-9]{64}$/u);
+  const reopen = async () => {
+    await manager.close(); profiles.close(); await providers.close();
+    credentials = await openLocalCredentials(authDir);
+    providers = await ProviderManager.create(credentials, state.directory);
+    profiles = profileStore();
+    for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
+    manager = await state.manager({ models });
+  };
+  await reopen();
+  const same = await manager.retryTask(original.id, { requestId: 'same-credential', expectedAttemptId: original.attemptId });
+  const retried = await terminal(manager), child = task(retried, 'Bound worker');
+  assert.equal(child.status, 'failed'); assert.equal(child.attemptId, same.attemptId);
+  assert.equal(attempt(retried, same.attemptId).model?.authRef, reference.authRef);
+  assert.ok(headers.length); assert.ok(headers.every(value => value === 'Bearer ' + keyA));
+
+  await providers.saveApiKey(compatible.id, keyB); await reopen();
+  const current = manager.getSnapshot(), count = headers.length;
+  await assert.rejects(manager.retryTask(child.id, { requestId: 'replacement-rejected', expectedAttemptId: same.attemptId }), { code: 'MODEL_UNAVAILABLE' });
+  assert.equal(headers.length, count);
+  assert.deepEqual(manager.getSnapshot().attempts, current.attempts);
+  assert.equal(manager.getSnapshot().events.filter(e => e.type === 'task_retry_accepted').length,
+    current.events.filter(e => e.type === 'task_retry_accepted').length);
+
+  // Upgrade fixture: old records named a provider/type without identifying its key.
+  await manager.close();
+  const db = new DatabaseSync(join(state.directory, 'workspace.sqlite'));
+  try {
+    const row = db.prepare("SELECT body FROM records WHERE kind='attempt' AND id=?").get(same.attemptId);
+    assert.ok(row && typeof row.body === 'string');
+    const legacy = JSON.parse(row.body);
+    legacy.model.authRef = compatible.id + ':api_key';
+    db.prepare("UPDATE records SET body=? WHERE kind='attempt' AND id=?").run(JSON.stringify(legacy), same.attemptId);
+  } finally { db.close(); }
+  manager = await state.manager({ models });
+  await assert.rejects(manager.retryTask(child.id, { requestId: 'legacy-rejected', expectedAttemptId: same.attemptId }), { code: 'MODEL_UNAVAILABLE' });
+  assert.equal(headers.length, count);
+
+  await manager.pi(activation.sessionId, { type: 'prompt', id: 'new-current-credential', message: 'Start a new request.' });
+  const next = await terminal(manager); assert.equal(next.run.status, 'succeeded');
+  assert.notEqual(next.run.model?.authRef, reference.authRef);
+  assert.ok(headers.slice(count).length); assert.ok(headers.slice(count).every(value => value === 'Bearer ' + keyB));
+  const history = await manager.getAgentHistory(activation.sessionId, activation.sessionId);
+  const publicText = JSON.stringify({ snapshot: next, history });
+  const privateKey = (await readFile(join(state.directory, 'provider-bindings', 'key.v1'), 'utf8')).trim();
+  for (const secret of [keyA, keyB, privateKey]) assert.equal(publicText.includes(secret), false);
+});
+
+test('an in-flight API pin keeps its original key while a new run uses the replacement', { timeout: 30_000 }, async t => {
+  const arrived = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const keyA = 'pin-binding-fixture-A', keyB = 'pin-binding-fixture-B';
+  const headers: (string | undefined)[] = []; let held = false;
+  t.after(() => release.resolve());
+  const state = await fixture(t, async (wire, res, req) => {
+    headers.push(req.headers.authorization);
+    if (parent(wire)) {
+      if (input(wire).includes('New run')) { completion(res, 'Current credential.'); return; }
+      if (!held) { held = true; arrived.resolve(); await release.promise; }
+      coordinator(wire, res, ['Pinned child']);
+    } else completion(res, 'Original credential.');
+  });
+  const providers = await ProviderManager.create(new InMemoryCredentialStore());
+  await providers.registerCompatible({ id: 'pinned-api', name: 'Pinned', endpoint: state.origin + '/a/v1' }, keyA);
+  const profiles = new ModelProfiles(state.directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
+  t.after(async () => { profiles.close(); await providers.close(); });
+  const models = { resolve: (conversation: string | null | undefined, project: string | null | undefined) => profiles.resolve(conversation, project),
+    pin: (model: Parameters<ProviderManager['pin']>[0]) => providers.pin(model), requireProfile: (id: string) => { profiles.get(id); } };
+  const manager = await state.manager({ models });
+  const profile = profiles.save({ name: 'Pinned', provider: 'pinned-api', modelId: 'fixture-a' });
+  const activation = await session(manager); manager.setProjectProfile(activation.projectId!, profile.id);
+  await manager.pi(activation.sessionId, { type: 'prompt', id: 'inflight-key', message: 'Delegate.' });
+  await arrived.promise;
+  await providers.saveApiKey('pinned-api', keyB); release.resolve();
+  const original = await terminal(manager); assert.equal(original.run.status, 'succeeded');
+  assert.equal(task(original, 'Pinned child').status, 'succeeded');
+  assert.ok(headers.length > 1 && headers.every(value => value === 'Bearer ' + keyA));
+  const count = headers.length;
+  await manager.pi(activation.sessionId, { type: 'prompt', id: 'new-key', message: 'New run.' });
+  const next = await terminal(manager); assert.equal(next.run.status, 'succeeded');
+  assert.notEqual(next.run.model?.authRef, original.run.model?.authRef);
+  assert.ok(headers.slice(count).length && headers.slice(count).every(value => value === 'Bearer ' + keyB));
 });
 
 test('three identical tool failures stop the actual Pi attempt; manual retry starts a fresh budget', { timeout: 30_000 }, async t => {

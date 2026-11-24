@@ -918,7 +918,15 @@ export class TaskManager implements AthenaTaskManager {
       return {statistics,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
     }finally{signal.removeEventListener('abort',cancel);}
   }
-  #processEvent(event:CsvJobEvent){this.#commit(()=>this.#journal.process(event));}
+  #processEvent(event:CsvJobEvent){
+    this.#storage.transaction(()=>{this.#journal.process(event);this.#storage.advanceRevision();});
+    // The runner treats a thrown completion callback as an uncommitted result.
+    // A listener failure after commit must not revoke an already published artifact.
+    try{this.#publish();}
+    catch(error){process.emitWarning('The committed process update could not notify every listener.',{
+      code:'PROCESS_NOTIFICATION_FAILED',detail:error instanceof Error?error.message:String(error),
+    });}
+  }
   #history(conversation:StoredSession,runtime:ManagedPiSession) {
     const messages=runtime.getMessages();
     if(!Array.isArray(messages))throw new ManagerError('INVALID_HISTORY','Invalid Pi history.');

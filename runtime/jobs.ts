@@ -131,6 +131,7 @@ export type CsvJobRunnerOptions = {
   readonly dataDir: string;
   readonly concurrency?: number;
   readonly timeoutMs?: number;
+  // Admission and completion receipts must be persisted synchronously and atomically.
   readonly onEvent?: (event: CsvJobEvent) => void;
   readonly recoveredAttempts?: readonly CsvAttempt[];
 };
@@ -352,12 +353,32 @@ export class CsvJobRunner {
   }
 
   #finish(pending: Pending, result: Partial<CsvAttempt> & { readonly status: CsvAttempt['status'] }): void {
-    const attempt = Object.freeze({ ...pending.attempt, ...result, endedAt: Date.now() });
+    let attempt: CsvAttempt = Object.freeze({ ...pending.attempt, ...result, endedAt: Date.now() });
+    let haltQueue = false;
     pending.terminate = undefined;
     pending.attempt = attempt;
+    try {
+      // Completion publishes artifacts in the same transaction as the terminal
+      // process record. A computed file alone is not a successful publication.
+      this.#observer?.({ type: 'process_finished', attempt });
+    } catch {
+      attempt = Object.freeze({ ...attempt, status: 'failed', artifact: undefined, artifacts: undefined,
+        error: 'Could not persist process completion. Result artifacts were not published.' });
+      pending.attempt = attempt;
+      try {
+        this.#observer?.({ type: 'process_finished', attempt });
+      } catch (error) {
+        // Never leave promises or queued work waiting on an unavailable store.
+        haltQueue = !this.#halted;
+        this.#halted = true;
+        process.emitWarning('The failed process completion could not be persisted.', {
+          code: 'CSV_COMPLETION_PERSIST_FAILED', detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     this.#active.delete(pending);
-    this.#emit({ type: 'process_finished', attempt });
     pending.resolve(attempt);
+    if (haltQueue) for (const queued of [...this.#queue]) this.#stop(queued, 'cancelled');
     this.#drain();
   }
 

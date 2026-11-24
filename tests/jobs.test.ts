@@ -83,6 +83,54 @@ test('start synchronously obtains its queued receipt and does not dispatch when 
   assert.equal(fresh.status, 'succeeded', fresh.error);
 });
 
+test('a one-time terminal persistence failure withholds the artifact and lets the next job run', async t => {
+  const saved: CsvJobEvent[] = [];
+  let failed = false;
+  const { runner } = await fixture(t, { onEvent(event) {
+    if (event.type === 'process_finished' && event.attempt.status === 'succeeded' && !failed) {
+      failed = true;
+      throw new Error('Synthetic terminal persistence failure');
+    }
+    saved.push(event);
+  } });
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
+  const first = runner.start({ ...match, grantId: grant.id });
+  const next = runner.start({ ...match, attemptId: 'next', grantId: grant.id });
+  const result = await first.result;
+  assert.equal(failed, true);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.exitCode, 0, 'the worker finished; publication is what failed');
+  assert.match(result.error ?? '', /persist.*completion/i);
+  assert.equal(result.artifact, undefined);
+  assert.equal(result.artifacts, undefined);
+  assert.deepEqual(saved.filter(e => e.type === 'process_finished' && e.attempt.attemptId === match.attemptId).map(e => e.attempt), [result]);
+  assert.equal((await next.result).status, 'succeeded');
+});
+
+test('permanent terminal persistence failure halts admission and settles the queue and close', { timeout: 5_000 }, async t => {
+  const started: string[] = [];
+  const { runner } = await fixture(t, { onEvent(event) {
+    if (event.type === 'process_started') started.push(event.attempt.attemptId);
+    if (event.type === 'process_finished') throw new Error('Synthetic persistent storage failure');
+  } });
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
+  const first = runner.start({ ...match, grantId: grant.id });
+  const queued = ['next-1', 'next-2'].map(attemptId => runner.start({ ...match, attemptId, grantId: grant.id }));
+  const result = await first.result;
+  assert.equal(result.status, 'failed');
+  assert.equal(result.artifact, undefined);
+  assert.match(result.error ?? '', /persist.*completion/i);
+  assert.throws(() => runner.start({ ...match, attemptId: 'late', grantId: grant.id }), { code: 'CLOSED' });
+  for (const handle of queued) {
+    const stopped = await handle.result;
+    assert.notEqual(stopped.status, 'succeeded');
+    assert.equal(stopped.pid, null);
+    assert.equal(stopped.artifact, undefined);
+  }
+  await runner.close();
+  assert.deepEqual(started, [match.attemptId]);
+});
+
 test('a grant ID does not authorize a different project or session, or changed bytes', async t => {
   const { runner, dataDir } = await fixture(t);
   const grant = await runner.grant({ ...file, bytes: Buffer.from('amount\n10\n') });

@@ -33,6 +33,41 @@ function displayedText(root){
  return own+' '+children.map(displayedText).join(' ');
 }
 function hidesIds(root,ids){const text=displayedText(root);for(const id of ids)assert.equal(text.includes(id),false,'Visible text must not include '+id);}
+test('runtime tool cards preserve terminal outcomes, logs and result links while their task is retried',()=>{
+ const {window,document}=parseHTML('<html><body><div id="root"><div id="aw-activity"></div></div></body></html>');
+ const context={window,document,AbortController,URL,Date,Blob,setTimeout,clearTimeout,navigator:{}};
+ window.AthenaAvatars={html:()=>''};
+ for(const file of ['activity-labels.js','pi-activity.js','result-files.js','workspace-chrome.js'])vm.runInNewContext(fs.readFileSync(base+'ui/'+file,'utf8'),context);
+ const expected=[
+  {status:'succeeded',label:'CSV statistics calculated',badge:'Complete'},
+  {status:'failed',label:'CSV calculation failed',badge:'Needs attention'},
+  {status:'cancelled',label:'Calculate CSV statistics · stopped',badge:'Stopped'}
+ ];
+ const tools=expected.map(({status})=>({id:'tool-'+status,taskId:'task-child',attemptId:'attempt-old',sdkToolName:'calculate_csv',name:'calculate_csv',status,args:{column:'measurement_mV'},logs:[{at:1000,text:'Retained '+status+' output.'}],cwd:'',command:''}));
+ const artifact={id:'artifact-success',sessionId:'session-one',taskId:'task-child',attemptId:'attempt-old',toolId:'tool-succeeded',title:'statistics.json',version:'1',location:{uri:'/api/artifacts/session-one/artifact-success'}};
+ let snapshot={mode:'runtime',revision:1,sessionId:'session-one',run:{id:'run-one',status:'failed'},tasks:[{id:'task-child',parentTaskId:'task-root',title:'Inspect measurements',attemptId:'attempt-old',status:'failed'}],agents:[],attempts:[],processes:[],artifacts:[artifact],approvals:[],tools};
+ let publish;const store={getState:()=>snapshot,subscribe(fn){publish=fn;fn(snapshot);return()=>{}}};
+ const root=document.querySelector('#root'),api=window.AthenaWorkspaceChrome.mount(root,{store});
+ try{
+  for(const [revision,status] of [[1,'failed'],[2,'running'],[3,'succeeded']]){
+   snapshot={...snapshot,revision,run:{...snapshot.run,status},tasks:[{...snapshot.tasks[0],status,attemptId:revision===1?'attempt-old':'attempt-retry'}]};publish(snapshot);
+   for(const expectedTool of expected){
+    const card=root.querySelector('[data-aw-event-tool="tool-'+expectedTool.status+'"]');
+    const summary=card.querySelector('summary'),badge=summary.querySelector('.aw-status');
+    assert.ok(summary.textContent.startsWith(expectedTool.label),'The '+expectedTool.status+' tool must keep its outcome when the task is '+status+'.');
+    assert.equal(badge.textContent,expectedTool.badge);assert.equal(badge.dataset.status,expectedTool.status);
+    assert.equal(summary.querySelector('[data-pi-active]').dataset.piActive,'false','A terminal tool must not animate as active during retry.');
+    assert.equal(card.querySelector('.aw-tool-log').textContent,'[00:00:01] Retained '+expectedTool.status+' output.');
+    assert.equal(card.querySelector('[data-aw-timeline]').dataset.awTimeline,'task-child');
+    assert.equal(card.querySelector('[data-aw-tool-action="copy-log"]').dataset.awTool,'tool-'+expectedTool.status);
+   }
+   const succeeded=root.querySelector('[data-aw-event-tool="tool-succeeded"]');
+   assert.equal(succeeded.querySelector('[data-aw-artifact]').dataset.awArtifact,artifact.id);
+   assert.equal(succeeded.querySelector('[data-aw-artifact]').dataset.awArtifactVersion,artifact.version);
+   assert.equal(succeeded.querySelector('a[download]').getAttribute('href'),artifact.location.uri);
+  }
+ }finally{api.destroy();}
+});
 test('agent history keeps raw tool results in closed diagnostics while preserving user and assistant messages',async()=>{
  const taskId='task-1',agentSessionId='agent-session-history',toolCallId='tool-call-history';
  const user='Keep task-1 as written <b>not markup</b>.';
