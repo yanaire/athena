@@ -6831,15 +6831,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!item) values.unshift(['', state.artifactId ? 'Requested version unavailable' : 'No artifacts reported']);
       syncSelect('[data-awv-artifact-select]', values, item ? live() ? artifactKey(item) : item.id : '');
       const select = q('[data-awv-artifact-select]'); if (select) select.disabled = !items.length;
+      const holder = q('[data-awv-artifact-view]');
+      // Empty and populated views invalidate each other's render cache.
+      if (!item) delete holder.dataset.awvArtifact;
       if (!item) { setHTML('[data-awv-provenance]', '<span class="awv-provenance-label">' + icon('files') + 'Runtime artifacts</span><p>No example output is substituted for a missing runtime artifact.</p>'); setHTML('[data-awv-artifact-view]', '<div class="awv-empty"><h3>' + (state.artifactId ? 'Artifact version unavailable' : 'No artifacts reported') + '</h3><p>' + (state.artifactId ? 'The requested artifact version is not available in this conversation.' : snapshot.taskManagerConnected ? 'Outputs will appear when tasks produce results.' : 'Connect TaskManager to link output artifacts to tasks.') + '</p>' + (state.artifactId ? labels.diagnostics([['Artifact ID', state.artifactId], ['Version', state.artifactVersion]], 'unavailable-artifact') : '') + '</div>'); return; }
       const available = isAvailable(item.id);
       const canonical = canonicalDocument(item);
       setHTML('[data-awv-provenance]', live() ? '<span class="awv-provenance-label">' + icon('file-text') + 'Runtime artifact</span><p>' + esc(artifactTitle(item)) + ' · v' + esc(artifactVersion(item) || 'not reported') + '</p>' : canonical ? '<span class="awv-provenance-label">' + icon('file-text') + 'Document revision</span><p>' + esc(canonical.doc.documentId) + ' · v' + esc(canonical.version.version) + ' · ' + (canonical.version.persistence === 'host' ? 'Project storage confirmed' : 'Session revision') + '</p>' : '<span class="awv-provenance-label">' + icon(available ? 'circle-check' : 'book-open') + (available ? 'Local demo output' : 'Example library') + '</span><p>' + (available ? 'The matching demo task completed. This remains an authored, synthetic example.' : 'Preview available before the run. This is authored sample material, not a completed run output.') + '</p>');
-      const holder = q('[data-awv-artifact-view]');
       const signature = JSON.stringify([live(), item, state.citation, state.documentVersion, state.referenceOpen, canonical?.doc, options.records?.getState().capabilities]);
       if (force || holder.dataset.awvArtifact !== signature) {
         const focusKey = holder.contains(document.activeElement) ? document.activeElement?.dataset?.awvFocus : null;
         rememberDiagnostics(holder);
+        delete holder._awvHTML;
         holder.innerHTML = canonical ? noteHTML() : live() ? liveArtifactHTML(item) : ({ plot: plotHTML, evidence: evidenceHTML, code: codeHTML, reference: referenceHTML, document: noteHTML }[item.kind] || (() => '<p class="awv-empty">No preview renderer is connected for this artifact.</p>'))();
         const process = live() && (snapshot.processes || []).find(p => p.id === item.processId && p.status === 'succeeded'
           && p.job?.mcp?.tool === 'calculate_csv' && p.job.artifact?.id === item.id);

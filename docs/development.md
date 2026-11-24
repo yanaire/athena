@@ -28,7 +28,7 @@ After the children settle, the coordinator gets a new turn to update the final a
 
 Each attempt stops after three failures for the same tool and equivalent arguments, or eight total tool failures. A successful call clears the repeated-failure count only for its own argument signature. The total failure count remains for the attempt. The host persists a failed outcome before aborting Pi, so a later aborted event cannot replace the recorded cause. A user-approved new attempt gets a fresh budget; existing artifacts and logs remain available.
 
-Tool activity cards show each recorded tool call's own outcome. Retrying its task does not change a previously completed tool into a running or failed tool, and the earlier logs and result links remain attached to that call.
+Tool activity cards show each recorded tool call's own outcome. Retrying its task does not change a previously completed tool into a running or failed tool, and the earlier logs and result links remain attached to that call. Moving between a conversation with results and an empty conversation invalidates both artifact render caches: the empty conversation cannot retain another conversation's result, and reopening the original conversation restores its table and download.
 
 Process completion and artifact publication must be stored before a successful result is returned to the model. A publication failure returns a failed result without an artifact. If even the failure cannot be recorded, the runner stops admitting work and settles queued requests instead of reporting unrecorded successes. A notification listener failing after the storage transaction commits does not undo the stored publication.
 

@@ -161,6 +161,26 @@ test('runtime document binding requires an actual host revision instead of reusi
  e.click('[data-awv-action="open-manuscript"]');assert.deepEqual(e.nav.pop(),{view:'manuscript',documentId:'actual-note',version:'host-3'});e.destroy();
 });
 
+for(const startEmpty of [false,true])test('CSV artifacts '+(startEmpty?'clear when returning to an empty conversation':'restore when returning from an empty conversation'),async()=>{
+ const file={id:'file-csv',projectId:'project-rc',sessionId:'session-a',attemptId:'process-csv',name:'statistics.json',mimeType:'application/json',bytes:512,sha256:'a'.repeat(64)};
+ const process={id:'process-csv',runId:'run-csv',taskId:'task-csv',status:'succeeded',job:{mcp:{server:'athena-measurements',version:'1.0.0',protocol:'2025-06-18',tool:'calculate_csv',phase:'tools/call'},artifact:file}};
+ const artifact={id:file.id,projectId:file.projectId,sessionId:file.sessionId,processId:process.id,taskId:process.taskId,title:file.name,version:'1',status:'ready',file,location:{uri:'/api/artifacts/session-a/file-csv'}};
+ const full={sessionId:'session-a',taskManagerConnected:true,run:{id:'run-csv',status:'succeeded'},tasks:[{id:'task-csv',title:'Inspect measurements',status:'succeeded'}],processes:[process],artifacts:[artifact]};
+ const empty={sessionId:'session-b',taskManagerConnected:true,run:{status:'ready'},tasks:[],processes:[],artifacts:[]};
+ const saved={schemaVersion:1,rowCount:5,columns:['measurement_mV'],statistics:[{column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,mean:19,max:35}]};
+ const requests=[];
+ const e=env(startEmpty?empty:full,async(url,options)=>{requests.push({url,credentials:options.credentials});return{ok:true,json:async()=>saved}});
+ try{
+  e.api.open('artifacts');
+  for(const snapshot of startEmpty?[empty,full,empty]:[full,empty,full,empty]){
+   e.put(snapshot);await new Promise(resolve=>setImmediate(resolve));
+   const view=e.q('[data-awv-artifact-view]');
+   if(snapshot===empty){assert.equal(Boolean(view.querySelector('table')),false,'An empty conversation must not retain another conversation\'s table.');assert.equal(Boolean(view.querySelector('a[download]')),false,'An empty conversation must not retain another conversation\'s download.');assert.match(view.textContent,/No artifacts reported/);}
+   else{assert.ok(view.querySelector('table'),'The saved CSV table must return with its conversation.');assert.deepEqual([...view.querySelector('tbody tr').children].map(cell=>cell.textContent),['measurement_mV','4','1','0','7','19','35']);assert.equal(view.querySelector('a[download]').getAttribute('href'),artifact.location.uri);}
+  }
+  assert.deepEqual(requests,Array(startEmpty?1:2).fill({url:artifact.location.uri,credentials:'same-origin'}),'Returning to a saved artifact must fetch that same authenticated result file again.');
+ }finally{e.destroy();}
+});
 test('measurement board follows the process and reads the published artifact URL',async()=>{
  const process={id:'proc',runId:'run',taskId:'child',status:'running',job:{mcp:{tool:'calculate_csv',phase:'tools/list'}}};
  const artifact={id:'file',title:'statistics.json',sessionId:'session-a',processId:'proc',taskId:'child',version:'v1',location:{uri:'/api/artifacts/session-a/file'}};

@@ -35,6 +35,19 @@ through failure, a new running attempt, and success. It also checks preserved
 logs, identifiers used by controls, artifact version, and download URL. The
 regression failed on the original rendering code before the fix.
 
+### Empty and populated conversations reused inconsistent artifact caches
+
+The artifact panel used both a generic HTML cache and a separate populated
+artifact signature. Switching from a populated conversation to an empty one
+and back could leave the empty view in the populated conversation. Starting
+with the empty conversation and returning to it after viewing a result could
+instead leave the previous conversation's table and download link visible.
+
+Both caches are invalidated when the corresponding rendering path changes.
+Two DOM regressions use a historical CSV result and cover both conversation
+orders, including the restored authenticated download URL and a fresh table
+request. Both failed before the fix in the baseline and the common MCP UI.
+
 ### Reopening a run could silently select a replacement API key
 
 A real TaskManager/Pi test using a controlled local provider created a run
@@ -84,12 +97,14 @@ Finder interaction.
 
 The independent review also exercised the existing CSV runner suite, the
 measurement orchestration/restart cases, and selected recovery races. The
-candidate adds focused regressions for the three findings above. Use the
+candidate adds focused regressions for the four findings above. Use the
 workflow associated with the candidate commit for its final test counts;
 the baseline counts above are not the candidate's result.
 
 Before publication, the candidate passed TypeScript checking, 106 UI
-integration assertions, 4 label tests, and 89 DOM/adapter contract tests.
+integration assertions, 4 label tests, and 89 DOM/adapter contract tests before
+the cache correction; the two additional cache regressions then passed in
+both worktrees. The final candidate workflow includes those regressions.
 The focused backend review passed 31 process/recovery checks and 43
 credential/profile/recovery checks; these groups overlap and are not an
 additive test count. The new WASI publication-failure regression remains in
