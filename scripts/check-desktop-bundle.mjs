@@ -194,6 +194,16 @@ try {
       assert.equal(result.analysis.backend,'wasi');
       assert.equal((await files.download(result.artifacts[1])).toString(),'BUNDLE INPUT');
     }
+    const scope = {projectId:'bundle', sessionId:'bundle'};
+    const grant = await runner.grant({...scope, fileId:'voltage', versionId:'one', name:'measurements.csv',
+      bytes:Buffer.from('measurement_mV\\n7\\n13\\n\\n21\\n35\\n')});
+    const study = await runner.start({...scope, taskId:'measurement', attemptId:'measurement',
+      requestId:'measurement', toolId:'measurement-tool', grantId:grant.id, column:'measurement_mV'}).result;
+    assert.equal(study.status, 'succeeded', study.error);
+    assert.equal(study.mcp.phase, 'tools/call');
+    assert.deepEqual(JSON.parse((await runner.download(study.artifact)).toString()).statistics, [
+      {column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,max:35,mean:19}
+    ]);
     await runner.close();
   `, workspace, '--desktop'], { cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' }, timeout: 45_000 });
   let profileId;
@@ -240,7 +250,7 @@ try {
   });
   assert.equal(successfulRequests, 3);
   assert.ok(vault.equals(await readFile(vaultPath)), 'Authenticated restart changed the existing vault.');
-  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
+  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, measurement MCP statistics, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
 } finally {
   fixture.closeAllConnections();
   await new Promise(resolve => fixture.close(resolve));
