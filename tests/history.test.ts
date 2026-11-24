@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { projectHistory } from '../runtime/history.ts';
+import { projectHistory, withoutAttachmentContext } from '../runtime/history.ts';
 import type { HistoryEvent } from '../runtime/history.ts';
 import { TaskManager } from '../runtime/manager.ts';
 import { object } from '../runtime/orchestration.ts';
@@ -100,4 +100,17 @@ test('legacy and unmatched messages keep their raw IDs even when a journaled tur
   assert.deepEqual(projected.at(-1), result);
   assert.notDeepEqual(projected.slice(4, 6), [call, result]);
   assert.deepEqual(projectHistory([legacy, call, result], []), [legacy, call, result]);
+});
+
+test('identical timed user messages project by attempt occurrence', () => {
+  const dispatch = 'User input\n\nAttachment instruction';
+  const user = 'User input';
+  const anchor = {role: 'user', timestamp: 1, content: [{type: 'text', text: dispatch}]};
+  const context = {projectId: 'project', sessionId: 'session', runId: 'run', taskId: 'task',
+    parentTaskId: null, agentSessionId: 'session'};
+  const journal: HistoryEvent[] = ['attachment-turn', 'literal-turn'].map(attemptId =>
+    ({...context, attemptId, event: {type: 'message_end', message: anchor}}));
+  const projected = projectHistory([anchor, anchor], journal, (message, attempt) =>
+    withoutAttachmentContext(message, attempt.attemptId === 'attachment-turn' ? {dispatch, user} : undefined));
+  assert.deepEqual(projected, [{...anchor, content: [{type: 'text', text: user}]}, anchor]);
 });

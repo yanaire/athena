@@ -48,9 +48,13 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 
 /** Remove credential-bearing fields and accidental provider echoes at the public boundary. */
+function publicText(text: string, redact: (text: string) => string): string {
+  return redact(text).replace(/Bearer\s+[^\s"',]+/gi, "Bearer [redacted]");
+}
+
 function publicValue(value: unknown, redact: (text: string) => string): unknown {
   if (typeof value === "string") {
-    return redact(value).replace(/Bearer\s+[^\s"',]+/gi, "Bearer [redacted]");
+    return publicText(value, redact);
   }
   if (Array.isArray(value)) return value.map(item => publicValue(item, redact));
   if (!object(value)) return value;
@@ -286,6 +290,7 @@ export async function createPiSession(options: PiSessionOptions) {
       ensureOpen();
       return session.messages.map(message => publicValue(message, redact));
     },
+    publicText: (text: string) => publicText(text, redact),
     subscribe(listener: (event: PiEvent) => void): () => void {
       ensureOpen();
       return adapter.subscribe((value: unknown) => {
