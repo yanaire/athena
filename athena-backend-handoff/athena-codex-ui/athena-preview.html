@@ -9292,16 +9292,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function toolEventHTML(tool, state, agent = null) {
       const task = state.tasks.find(item => item.id === tool.taskId) || (state.mode === 'runtime' ? { id: null, title: 'Session tool', status: tool.status } : null);
       if (!task) return '';
+      const process = (state.processes || []).find(item => item.toolId === tool.id);
+      const outcomeStatus = process?.status || tool.status || task.status;
       const latest = tool.logs[tool.logs.length - 1];
       const open = expandedTools.has(tool.id) || (agent && expanded.has(agent.id));
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
       const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
-      const presentation = window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, task.status, state.tasks);
+      const presentation = window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, outcomeStatus, state.tasks);
       const glyph = window.AthenaPiActivity.iconHTML(presentation.icon, { active: presentation.active });
       const owner = agent ? labels.agent(agent, state.tasks) : '';
-      const status = LABELS[task.status] || displayText(task.status, 'Working', state);
+      const status = LABELS[outcomeStatus] || displayText(outcomeStatus, 'Working', state);
       const summary = latest && displayText(latest.text, [owner, status].filter(Boolean).join(' · '), state);
-      return '<details class="aw-agent-event" ' + identity + ' data-aw-event-tool="' + esc(tool.id) + '" data-pi-tool="' + esc(tool.sdkToolName || 'custom') + '"' + (open ? ' open' : '') + '><summary class="cursor-interaction" ' + summaryKey + '>' + glyph + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(presentation.label) + '<span class="aw-agent-owner">' + (owner ? ' · ' + esc(owner) : '') + '</span><span class="aw-status" data-status="' + esc(task.status) + '">' + esc(status) + '</span></span><span class="aw-tool-target">' + esc(presentation.detail) + '</span>' + (latest ? '<span class="aw-tool-activity" data-aw-progress="' + esc(tool.id) + '">' + esc(summary) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>' + toolDetailsHTML(tool, task, state) + '</details>';
+      return '<details class="aw-agent-event" ' + identity + ' data-aw-event-tool="' + esc(tool.id) + '" data-pi-tool="' + esc(tool.sdkToolName || 'custom') + '"' + (open ? ' open' : '') + '><summary class="cursor-interaction" ' + summaryKey + '>' + glyph + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(presentation.label) + '<span class="aw-agent-owner">' + (owner ? ' · ' + esc(owner) : '') + '</span><span class="aw-status" data-status="' + esc(outcomeStatus) + '">' + esc(status) + '</span></span><span class="aw-tool-target">' + esc(presentation.detail) + '</span>' + (latest ? '<span class="aw-tool-activity" data-aw-progress="' + esc(tool.id) + '">' + esc(summary) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>' + toolDetailsHTML(tool, task, state) + '</details>';
     }
 
     function agentGroupHTML(state) {
@@ -9384,6 +9386,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function processHTML(process) {
       const job = process.job || process;
+      const title = job.mcp?.tool === 'calculate_csv' ? 'Measurement calculation' : displayText(job.program, 'Process');
       const status = LABELS[process.status] || displayText(String(process.status || '').replaceAll('_', ' '), 'Working');
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
       const recorded = field('Working directory', job.cwd)
@@ -9395,7 +9398,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId]], 'process:' + process.id);
       const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
-      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(displayText(job.program, 'Process')) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(title) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }
