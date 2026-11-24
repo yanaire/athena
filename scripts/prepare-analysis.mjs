@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { WASI } from 'node:wasi';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -23,6 +24,21 @@ async function pinned(work, name, url, digest) {
   if (hash(await readFile(temp)) !== digest) throw new Error(`Invalid upstream hash for ${name}`);
   await rename(temp, destination);
   return destination;
+}
+
+// Compile only the pinned distribution's standard library during packaging.
+async function preparePythonBytecode(runtime) {
+  const wasi = new WASI({
+    version: 'preview1',
+    args: ['python', '-B', '-s', '-P', '-m', 'compileall', '-q',
+      '--invalidation-mode', 'checked-hash', '/runtime/lib/python3.15'],
+    env: { PYTHONHOME: '/runtime', PYTHONHASHSEED: '0' },
+    preopens: { '/runtime': join(runtime, 'python') },
+    returnOnExit: true,
+  });
+  const module = await WebAssembly.compile(await readFile(join(runtime, 'python.wasm')));
+  const instance = await WebAssembly.instantiate(module, wasi.getImportObject());
+  if (wasi.start(instance) !== 0) throw new Error('Could not prepare the offline Python standard library.');
 }
 
 export async function prepareAnalysis(destination, binaryDestination) {
@@ -47,6 +63,7 @@ export async function prepareAnalysis(destination, binaryDestination) {
     await mkdir(join(out, 'python'), { recursive: true });
     execFileSync('unzip', ['-q', python, '-d', join(out, 'python')]);
     await rename(join(out, 'python/python.wasm'), join(out, 'python.wasm'));
+    await preparePythonBytecode(out);
     await copyFile(javascript, join(out, 'qjs.wasm'));
     const helper = join(root, 'sandbox', 'target', target, 'release', 'athena-sandbox');
     const binary = binaryDestination ?? join(out, 'athena-sandbox');

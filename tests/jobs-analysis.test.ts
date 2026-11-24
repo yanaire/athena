@@ -139,11 +139,28 @@ for (const scenario of [
   const {runner,files,dir}=await fixture(t);
   const result=await runner.startAnalysis({...job(scenario.source),outputs:['marker.txt']}).result;
   assert.equal(result.status,'failed',result.error);
+  assert.ok(result.executionId, 'the interpreter must start before exercising the output limit');
   assert.equal(result.artifacts,undefined);
   assert.equal(await files.has(scope,'marker.txt'),false);
   const [attempt] = await readdir(join(dir,'csv-jobs','attempts'));
   assert.ok(attempt);
   assert.deepEqual(await readdir(join(dir,'csv-jobs','attempts',attempt)),[]);
+});
+
+test('a signalled interpreter records the signal and execution phase', live, async t => {
+  const { runner } = await fixture(t, { onEvent(event) {
+    if (event.type === 'process_started') {
+      assert.ok(event.attempt.pid);
+      process.kill(event.attempt.pid, 'SIGTERM');
+    }
+  } });
+  const result = await runner.startAnalysis({ ...identity, language: 'node',
+    script: { name: 'wait.mjs', bytes: Buffer.from('while (true) {}') }, inputs: [], outputs: [] }).result;
+  assert.equal(result.status, 'failed');
+  assert.equal(result.exitCode, null);
+  assert.equal(result.signal, 'SIGTERM');
+  assert.match(result.error ?? '', /SIGTERM during analysis/);
+  assert.equal(result.artifacts, undefined);
 });
 
 test('a guest exit cannot impersonate the native memory watchdog',live,async t=>{

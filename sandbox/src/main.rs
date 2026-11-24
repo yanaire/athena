@@ -12,6 +12,7 @@ use wasmtime_wasi::{I32Exit, WasiCtxBuilder, filesystem::FsPerms, p1::{self, Was
 
 mod memory;
 
+const STARTUP_MS: u64 = 10_000;
 const PREVIEW1: &str = "wasi_snapshot_preview1";
 const NOTCAPABLE: i32 = 76;
 const OUTPUTS_FD: i32 = 5;
@@ -113,7 +114,11 @@ fn run(args: &[String]) -> Result<u8> {
     restrict(Resource::Core, 0)?;
     restrict(Resource::Fsize, MAX_BYTES)?;
     restrict(Resource::Nofile, 96)?;
-    restrict(Resource::Cpu, timeout.div_ceil(1000) + 5)?;
+    // RLIMIT_CPU counts compilation and guest execution cumulatively. Use
+    // the same total budget as the hard wall deadline; the guest epoch below
+    // starts at readiness and still enforces the requested execution timeout.
+    let hard_deadline_ms = STARTUP_MS + timeout;
+    restrict(Resource::Cpu, hard_deadline_ms.div_ceil(1000))?;
     memory::start(memory::LIMIT_BYTES)?;
 
     // This is a host-only liveness pipe. The guest has an empty stdin instead.
@@ -125,7 +130,7 @@ fn run(args: &[String]) -> Result<u8> {
     // Independent hard deadline even if the Node parent or a host call stalls.
     // Allow bounded time for compilation/instantiation as well as guest execution.
     thread::Builder::new().name("athena-deadline".into()).spawn(move || {
-        thread::sleep(Duration::from_millis(timeout + 10_000));
+        thread::sleep(Duration::from_millis(hard_deadline_ms));
         process::exit(124);
     })?;
 
@@ -133,6 +138,8 @@ fn run(args: &[String]) -> Result<u8> {
     let mut config = Config::new();
     // Interpret guest bytecode so this helper needs no executable-memory entitlement.
     config.target("pulley64")?;
+    // The Python initialization image exceeds RLIMIT_FSIZE on Linux memfds.
+    config.memory_init_cow(false);
     config.epoch_interruption(true).max_wasm_stack(1_048_576);
     let engine = Engine::new(&config)?;
     let mut wasi = WasiCtxBuilder::new();
