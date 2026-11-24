@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,7 +73,7 @@ function terminal(manager: TaskManager) {
 
 // Control only the provider. Pi transcripts, TaskManager, SQLite, the scheduler and CSV MCP are real.
 async function fixture(t: TestContext, handler: Handler) {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-manager-recovery-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'athena-manager-recovery-')));
   const hits: Hit[] = [];
   const server = createServer(async (req, res) => {
     if (req.url?.endsWith('/models')) {
