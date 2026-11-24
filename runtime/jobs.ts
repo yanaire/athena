@@ -495,7 +495,11 @@ export class CsvJobRunner {
       exitSignal=result.signal;
       ctl.signal.throwIfAborted();
       pending.exited=true;
-      if (exitCode!==0) throw new Error('Analysis interpreter returned '+String(exitCode)+'.');
+      const phase = result.started ? 'during analysis' : 'before the interpreter was ready';
+      if (exitSignal) throw new Error(`Analysis process terminated by ${exitSignal} ${phase}.`);
+      if (exitCode === 126) throw new Error('The sandbox exceeded its native memory limit or memory accounting failed.');
+      if (!result.started) throw new Error(`Analysis process exited with code ${exitCode} ${phase}.`);
+      if (exitCode !== 0) throw new Error(`Analysis interpreter returned ${exitCode}.`);
       const produced=await Promise.all(job.outputs.map(async name=>{
         const bytes=await readBounded(join(cwd,'outputs'),name,ANALYSIS_LIMITS.fileBytes).catch(error=>{
           if (errorCode(error)==='ENOENT') throw new Error('Declared output was not written: '+name);

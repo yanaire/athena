@@ -43,7 +43,7 @@ type SandboxRun = { readonly cwd: string; readonly timeoutMs: number; readonly s
   readonly job: SandboxJob; started(id: string, pid: number): void;
   output(stream: 'stdout' | 'stderr', text: string): void; stop(reason: 'timed_out' | 'output_limit'): void };
 
-export async function runSandbox(run: SandboxRun): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> {
+export async function runSandbox(run: SandboxRun): Promise<{ started: boolean; exitCode: number | null; signal: NodeJS.Signals | null }> {
   const { job, cwd, signal, timeoutMs } = run;
   const input = join(cwd, 'workspace');
   await mkdir(input, { mode: 0o700 });
@@ -122,10 +122,8 @@ export async function runSandbox(run: SandboxRun): Promise<{ exitCode: number | 
         if (rest) run.output(stream, rest);
       }
       if (result.exitCode === 124) run.stop('timed_out');
-      if (result.exitCode === 126) throw new Error('The sandbox exceeded its native memory limit or memory accounting failed.');
       if (problem && !signal.aborted) throw problem;
-      if (!started && !signal.aborted) throw new Error('The WASI runtime could not start analysis.');
-      return result;
+      return { ...result, started };
     } finally {
       clearTimeout(timer);
       clearTimeout(reapTimer);

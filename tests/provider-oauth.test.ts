@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
@@ -444,7 +444,7 @@ test('a verified callback whose vault write fails returns a distinct failure and
 });
 
 test('sign-in surfaces a local credential write failure after verifying the grant', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-oauth-local-limit-'));
+  const directory = await mkdtemp(join(await realpath(tmpdir()), 'athena-oauth-local-limit-'));
   const store = await openLocalCredentials(join(directory, 'auth'));
   t.mock.method(store, 'modify', async () => { throw localWriteFailed(); });
   let nonce = '';

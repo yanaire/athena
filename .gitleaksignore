@@ -1,0 +1,9 @@
+# Reviewed historical matches. Each fingerprint covers one rule, commit, path and line.
+# Synthetic UI account reference and Pi redaction fixture
+cbb6ef7a6d76319a63f88e70564e2366c903267f:athena-backend-handoff/athena-codex-ui/qa/model-profiles-test.cjs:generic-api-key:671
+e3bcd872d25e0a4dbeade5ffde3396bef2cc5f04:tests/pi.test.ts:generic-api-key:54
+# Figma component identifiers and browser localStorage key (including generated copies)
+ffc8643c8bcd87c49ed1bd2f325ebb53f4a2569a:athena-backend-handoff/athena-codex-ui/athena-preview.html:generic-api-key:7078
+ffc8643c8bcd87c49ed1bd2f325ebb53f4a2569a:athena-backend-handoff/athena-codex-ui/export/athena-design.json:generic-api-key:1997
+ffc8643c8bcd87c49ed1bd2f325ebb53f4a2569a:athena-backend-handoff/athena-codex-ui/export/figma-import/code.js:generic-api-key:4
+ffc8643c8bcd87c49ed1bd2f325ebb53f4a2569a:athena-backend-handoff/athena-codex-ui/ui/knowledge.js:generic-api-key:6
