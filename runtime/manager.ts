@@ -1,3 +1,4 @@
+import { builtins, bindCall } from './mcp-registry.ts';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -7,10 +8,10 @@ import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Sta
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
 import type { PiOrchestration } from './agent-tools.ts';
 import type { PiModelSelection, PiSessionOptions } from './pi.ts';
-import { CsvJobRunner, ANALYSIS_LIMITS, CSV_LIMITS } from './jobs.ts';
+import { JobRunner, ANALYSIS_LIMITS, MCP_LIMITS } from './jobs.ts';
 import { AnalysisFiles, ANALYSIS_FILE_LIMITS, validateAnalysisName, validateOutputNames } from './analysis-files.ts';
 import type { AnalysisSnapshot } from './analysis-files.ts';
-import type { CsvJobEvent } from './jobs.ts';
+import type { JobEvent } from './jobs.ts';
 import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef, executionProjects } from './orchestration.ts';
 import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
@@ -94,12 +95,12 @@ export class TaskManager implements AthenaTaskManager {
   readonly #listeners = new Set<(snapshot: WorkspaceSnapshot) => void>();
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
   readonly #journal: Journal;
-  readonly #jobs: CsvJobRunner;
+  readonly #jobs: JobRunner;
   readonly #files: AnalysisFiles;
   readonly #enabledProjects = executionProjects();
   readonly #runtimeExecution = new WeakMap<ManagedPiSession, boolean>();
   readonly #concurrency = limit('ATHENA_PROCESS_CONCURRENCY', 1, 1, 4);
-  #access: Awaited<ReturnType<CsvJobRunner['analysisAccess']>> = {available:false,reason:'Analysis runtime has not been checked.'};
+  #access: Awaited<ReturnType<JobRunner['analysisAccess']>> = {available:false,reason:'Analysis runtime has not been checked.'};
   readonly #timeoutMs = 5000;
   readonly #registry = new Map<string, ManagedPiSession>();
   readonly #loading = new Map<string, Promise<ManagedPiSession>>();
@@ -123,7 +124,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#storage = new Storage(options.dataDir);
     this.#journal = new Journal(this.#storage);
     this.#files = new AnalysisFiles(options.dataDir);
-    this.#jobs = new CsvJobRunner({dataDir: options.dataDir, concurrency: this.#concurrency, timeoutMs:this.#timeoutMs,
+    this.#jobs = new JobRunner({dataDir: options.dataDir, concurrency: this.#concurrency, timeoutMs:this.#timeoutMs,
       recoveredAttempts: this.#storage.sessions().flatMap(s => this.#storage.records<ProcessRow>('process', s.id).map(p => p.job)),
       onEvent: event => this.#processEvent(event) });
     this.#factory = options.createPiSession ?? (async options => {
@@ -300,7 +301,7 @@ export class TaskManager implements AthenaTaskManager {
       revision: this.#storage.revision(), projectId, sessionId: session?.id ?? null,
       execution: {projectId, enabled:projectId!==null && this.#executionEnabled(projectId), backend:'wasi' as const,
         shell:false as const, network:false as const, runtime:this.#access,
-        limits:{...ANALYSIS_FILE_LIMITS,...ANALYSIS_LIMITS,queue:CSV_LIMITS.queue,timeoutMs:this.#timeoutMs,concurrency:this.#concurrency,modelConcurrency:this.#modelConcurrency,maxDepth:this.#depth,maxChildren:this.#maxChildren}},
+        limits:{...ANALYSIS_FILE_LIMITS,...ANALYSIS_LIMITS,queue:MCP_LIMITS.queue,timeoutMs:this.#timeoutMs,concurrency:this.#concurrency,modelConcurrency:this.#modelConcurrency,maxDepth:this.#depth,maxChildren:this.#maxChildren}},
       projects: this.#storage.projects(),
       sessions: this.#storage.sessions().map(({ sessionFile: _file, sessionDir: _dir, ...metadata }) => metadata),
       run: { id: run?.id ?? null, status: run?.status ?? 'ready', startedAt: run?.startedAt ?? null,
@@ -897,28 +898,31 @@ export class TaskManager implements AthenaTaskManager {
       if(typeof args.artifactId==='string')return (await this.#readArtifact(this.#artifact(a,args.artifactId))).toString('utf8');
       return Buffer.from((await this.#analysisInput(a,text(args.name,'Name'))).bytes).toString('utf8');
     }
-    if(name!=='read' && name!=='calculate_csv')throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
-    const keys=name==='read'?['fileId']:['fileId','column'];
-    if(Object.keys(args).some(k=>!keys.includes(k)))throw new ManagerError('INVALID_INPUT','Unexpected child tool arguments.');
-    const {f,bytes}=this.#upload(a,args.fileId);
-    if(name==='read')return bytes.toString('utf8');
-    const grant=await this.#jobs.grant({projectId:a.projectId,sessionId:a.sessionId,fileId:f.id,versionId:text(f.versionId,'Version'),name:f.name,bytes});
+    if (name === 'read') {
+      if (Object.keys(args).some(key => key !== 'fileId')) throw new ManagerError('INVALID_INPUT','Unexpected read argument.');
+      return this.#upload(a,args.fileId).bytes.toString('utf8');
+    }
+    const entry = builtins.get(name);
+    if (!entry || entry.role !== 'child') throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
+    const {fileId, wire} = bindCall(entry,args);
+    const {f,bytes} = this.#upload(a,fileId);
+    const grant = await this.#jobs.grant({projectId:a.projectId,sessionId:a.sessionId,fileId:f.id,versionId:text(f.versionId,'Version'),name:f.name,bytes},name);
     signal.throwIfAborted();
     const tid=toolId(a,raw);
     // A process owns its own attempt key: multiple jobs within one Pi turn remain distinct.
     const processId=randomUUID();
     const request={projectId:a.projectId,sessionId:a.sessionId,taskId:a.taskId,attemptId:processId,
-      toolId:tid,grantId:grant.id,requestId:raw,...(args.column!==undefined?{column:text(args.column,'Column')}:{})};
-    const job=this.#jobs.start(request);
+      toolId:tid,grantId:grant.id,requestId:raw};
+    const job=this.#jobs.startMcp(name,request,wire);
     const cancel=()=>job.cancel();signal.addEventListener('abort',cancel,{once:true});
     try{
       const result=await job.result;
-      if(result.status!=='succeeded' || !result.artifact)throw new ManagerError('CSV_FAILED',result.error??('CSV process '+result.status));
-      const statistics:unknown=JSON.parse((await this.#jobs.download(result.artifact)).toString('utf8'));
-      return {statistics,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
+      if(result.status!=='succeeded' || !result.artifact)throw new ManagerError(entry.errorCode,result.error??('MCP process '+result.status));
+      const output:unknown=JSON.parse((await this.#jobs.download(result.artifact)).toString('utf8'));
+      return {[entry.resultField]:output,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
     }finally{signal.removeEventListener('abort',cancel);}
   }
-  #processEvent(event:CsvJobEvent){this.#commit(()=>this.#journal.process(event));}
+  #processEvent(event:JobEvent){this.#commit(()=>this.#journal.process(event));}
   #history(conversation:StoredSession,runtime:ManagedPiSession) {
     const messages=runtime.getMessages();
     if(!Array.isArray(messages))throw new ManagerError('INVALID_HISTORY','Invalid Pi history.');
