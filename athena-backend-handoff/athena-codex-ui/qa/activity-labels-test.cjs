@@ -183,3 +183,59 @@ test('workspace activity hides runtime identities in summaries and preserves age
     hidesIds(process);
   } finally { view.destroy(); }
 });
+
+test('measurement activity keeps failed tool outcomes after child or process completion', async () => {
+  const { csvServer: metadata } = await import(path.resolve(sourceRoot, '../../runtime/csv-mcp.ts'));
+  const e = environment(['activity-labels', 'pi-activity', 'workspace-chrome']);
+  e.window.AthenaAvatars = { html: () => '<span aria-hidden="true">●</span>' };
+  const task = { id: ids.task, title: 'Summarize measurements', status: 'succeeded', attemptId: ids.attempt, agentSessionId: ids.agentSession };
+  const program = '/Applications/Athena.app/Contents/MacOS/athena-node';
+  const tool = { id: ids.tool, taskId: task.id, name: 'calculate_csv', sdkToolName: 'calculate_csv', args: { column: 'measurement_mV' }, source: 'host', status: 'failed', logs: [{ at: 1, text: 'measurement_mV · Unclosed quoted CSV field.' }], command: 'calculate_csv', cwd: '/work' };
+  const process = { id: ids.process, processId: ids.process, taskId: task.id, attemptId: ids.attempt, toolId: tool.id, status: 'failed', job: { mcp: { ...metadata, phase: 'tools/call' }, program, args: [], stdout: 'MCP tools/call', stderr: '', error: 'Unclosed quoted CSV field.' } };
+  let snapshot = { mode: 'runtime', revision: 1, sessionId: ids.session, run: { id: ids.run, status: 'succeeded' }, tasks: [task], attempts: [{ id: ids.attempt, taskId: task.id, status: 'succeeded' }], agents: [{ id: ids.agent, name: 'Measurement worker', role: 'worker', taskId: task.id, agentSessionId: ids.agentSession, status: 'succeeded' }], tools: [tool], processes: [process], artifacts: [], events: [], approvals: [], capabilities: {} };
+  let update;
+  const store = { getState: () => snapshot, subscribe(fn) { update = fn; fn(snapshot); return () => {}; } };
+  const root = e.document.querySelector('#root');
+  const view = e.window.AthenaWorkspaceChrome.mount(root, { store });
+  try {
+    const activity = root.querySelector('#aw-activity');
+    const toolRow = activity.querySelector('[data-aw-event-tool]');
+    assert.match(toolRow.querySelector('.aw-agent-name').textContent, /CSV calculation failed/);
+    assert.equal(toolRow.querySelector('.aw-status').dataset.status, 'failed');
+    assert.equal(toolRow.querySelector('.aw-status').textContent, 'Needs attention');
+    assert.equal(toolRow.textContent.includes('CSV statistics calculated'), false);
+    assert.equal(toolRow.textContent.includes('Complete'), false);
+    assert.match(activity.querySelector('.aw-agent-presence').textContent, /complete/, 'The child that explained the failure remains complete.');
+
+    const processRow = activity.querySelector('[data-aw-process]');
+    assert.match(processRow.querySelector('.aw-agent-name').textContent, /Measurement calculation/);
+    assert.equal(processRow.querySelector('.aw-status').textContent, 'Needs attention');
+    assert.equal(processRow.querySelector('summary').textContent.includes(program), false);
+    processRow.open = true;
+    assert.ok(processRow.querySelector('.aw-tool-command').textContent.includes(program), 'Technical details retain the full program path.');
+
+    // Successful worker exit does not make a failed tool wrapper successful.
+    snapshot = { ...snapshot, revision: 2, tools: [{ ...tool, logs: [{ at: 2, text: 'Artifact verification failed.' }] }], processes: [{ ...process, status: 'succeeded', job: { ...process.job, error: undefined } }] };
+    update(snapshot);
+    const failedWrapper = activity.querySelector('[data-aw-event-tool]');
+    assert.match(failedWrapper.querySelector('.aw-agent-name').textContent, /CSV calculation failed/);
+    assert.equal(failedWrapper.querySelector('.aw-status').dataset.status, 'failed');
+    assert.equal(failedWrapper.querySelector('.aw-status').textContent, 'Needs attention');
+    assert.equal(activity.querySelector('[data-aw-process] .aw-status').dataset.status, 'succeeded');
+    assert.match(failedWrapper.querySelector('[data-aw-log]').textContent, /Artifact verification failed/);
+
+    snapshot = { ...snapshot, revision: 3, tools: [{ ...tool, status: 'succeeded', logs: [] }] };
+    update(snapshot);
+    const successfulTool = activity.querySelector('[data-aw-event-tool]');
+    assert.match(successfulTool.querySelector('.aw-agent-name').textContent, /CSV statistics calculated/);
+    assert.equal(successfulTool.querySelector('.aw-status').textContent, 'Complete');
+
+    // Preview activity remains task-driven, even with stale tool/process state.
+    snapshot = { ...snapshot, mode: 'preview', revision: 4, run: { ...snapshot.run, status: 'failed' }, tasks: [{ ...task, status: 'failed', progress: 1, total: 2 }] };
+    update(snapshot);
+    const previewTool = activity.querySelector('[data-aw-event-tool]');
+    assert.match(previewTool.querySelector('.aw-agent-name').textContent, /CSV calculation failed/);
+    assert.equal(previewTool.querySelector('.aw-status').dataset.status, 'failed');
+    assert.equal(previewTool.querySelector('.aw-status').textContent, 'Needs attention');
+  } finally { view.destroy(); }
+});

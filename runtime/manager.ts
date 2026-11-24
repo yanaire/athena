@@ -14,9 +14,9 @@ import type { CsvJobEvent } from './jobs.ts';
 import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef, executionProjects } from './orchestration.ts';
 import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
-import { projectHistory } from './history.ts';
+import { projectHistory, withoutAttachmentContext } from './history.ts';
 import { ToolFailureBudget } from './tool-failure-budget.ts';
-import type { HistoryEvent } from './history.ts';
+import type { AttachmentMessage, HistoryEvent } from './history.ts';
 export { ManagerError } from './orchestration.ts';
 export type PiCommand = Readonly<Record<string, unknown>> & { readonly type: string; readonly id?: string };
 export type StagedFileInput = { readonly name: string; readonly mimeType: string; readonly data: string };
@@ -29,6 +29,7 @@ export interface ManagedPiSession {
   close(): void;
   getState(): unknown;
   getMessages(): unknown;
+  publicText?(text: string): string;
   prompt(message: string, options?: { readonly kind?: 'reconciliation' }): Promise<void>;
 }
 export type PiSessionFactory = (options: PiSessionOptions) => Promise<ManagedPiSession>;
@@ -484,13 +485,32 @@ export class TaskManager implements AthenaTaskManager {
           throw new ManagerError('FILE_SCOPE_MISMATCH', 'The staged file does not belong to this session or version.');
         }
         this.#readUpload(stored);
-        message += `\n\nInput attachment (never a result): ${JSON.stringify({fileId:stored.id,name:stored.name})}. ` +
-          `Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ` +
-          `Call read with these exact arguments: ${JSON.stringify({ path: relative(this.#projectDir(session.projectId), stored.path) })}`;
+        message += this.#attachmentInstruction(stored);
       }
     }
     if (message.length > this.inputContract.maxMessageCharacters) throw new ManagerError('INPUT_TOO_LARGE', 'The complete message exceeds 262144 UTF-16 code units.');
     return message;
+  }
+
+  #attachmentInstruction(file: StoredFile): string {
+    return `\n\nInput attachment (never a result): ${JSON.stringify({fileId:file.id,name:file.name})}. ` +
+      `Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ` +
+      `Call read with these exact arguments: ${JSON.stringify({ path: relative(this.#projectDir(file.projectId), file.path) })}`;
+  }
+
+  #attachmentMessage(attempt: Attempt, runtime: ManagedPiSession): AttachmentMessage | undefined {
+    if (attempt.parentTaskId !== null || attempt.kind === 'reconciliation' || !attempt.fileIds.length) return;
+    let suffix = '';
+    for (const fileId of attempt.fileIds) {
+      const file = this.#storage.record<StoredFile>('file', fileId);
+      if (!file || file.sessionId !== attempt.sessionId || file.projectId !== attempt.projectId) return;
+      suffix += this.#attachmentInstruction(file);
+    }
+    // Older attempts stored the full dispatch and file IDs. The immutable upload
+    // metadata identifies their exact appended suffix without scanning user text.
+    if (!attempt.prompt.endsWith(suffix)) return;
+    const user = attempt.prompt.slice(0, -suffix.length);
+    return {dispatch: runtime.publicText?.(attempt.prompt) ?? attempt.prompt, user: runtime.publicText?.(user) ?? user};
   }
 
   async pi(sessionId: string, command: PiCommand): Promise<unknown> {
@@ -503,6 +523,19 @@ export class TaskManager implements AthenaTaskManager {
         return reply(command, { ...(object(state) ? state : {}), inputContract: this.inputContract });
       }
       case 'get_messages': return reply(command, { messages: this.#history(session, runtime) });
+      case 'get_entries': {
+        const since = typeof command.since === 'string' && command.since.trim() ? command.since : undefined;
+        // Project the whole transcript before slicing so a repeated message can be
+        // matched to its original occurrence even when the requested page omits it.
+        const response = await runtime.command(since === undefined ? command : {...command,since:undefined});
+        if (!object(response) || !object(response.data) || !Array.isArray(response.data.entries)) return response;
+        const entries = response.data.entries;
+        const messages = this.#history(session, runtime, entries.map(entry => object(entry) ? entry.message : undefined), false);
+        const index = since === undefined ? -1 : entries.findIndex(entry => object(entry) && entry.id === since);
+        if (since !== undefined && index === -1) return runtime.command(command);
+        return { ...response, data: { ...response.data, entries: entries.map((entry, index) =>
+          object(entry) && entry.type === 'message' ? { ...entry, message: messages[index] } : entry).slice(index + 1) } };
+      }
       case 'abort': {
         const run = this.#currentRun(sessionId);
         if (run && pending(run.status)) { await this.cancelRun(run.id); return reply(command,{runId:run.id}); }
@@ -629,6 +662,7 @@ export class TaskManager implements AthenaTaskManager {
         });
       }
       this.#executing.set(a.agentSessionId,a);
+      const attachment = this.#attachmentMessage(a, runtime);
       unsubscribe=runtime.subscribe(event=>{
         if(this.#closed || this.#executing.get(a.agentSessionId)!==a)return;
         const semantic=SNAPSHOT_EVENTS.has(event.type);
@@ -646,7 +680,10 @@ export class TaskManager implements AthenaTaskManager {
           this.#turns.get(a.id)?.controller.abort(new ManagerError(failure.code, failure.message));
           void runtime.command({type:'abort',id:randomUUID()}).catch(() => {});
         }
-        const normalized=normalizeEvent(a,event);
+        const normalized=normalizeEvent(a,attachment ? {...event,
+          ...('message' in event ? {message:withoutAttachmentContext(event.message,attachment)} : {}),
+          ...(Array.isArray(event.messages) ? {messages:event.messages.map(message=>withoutAttachmentContext(message,attachment))} : {}),
+        } : event);
         for(const listener of this.#piListeners)listener(a.agentSessionId,structuredClone(normalized));
         if(semantic)this.#publish();
       });
@@ -927,12 +964,16 @@ export class TaskManager implements AthenaTaskManager {
       code:'PROCESS_NOTIFICATION_FAILED',detail:error instanceof Error?error.message:String(error),
     });}
   }
-  #history(conversation:StoredSession,runtime:ManagedPiSession) {
-    const messages=runtime.getMessages();
+  #history(conversation:StoredSession,runtime:ManagedPiSession,messages=runtime.getMessages(),linkTools=true) {
     if(!Array.isArray(messages))throw new ManagerError('INVALID_HISTORY','Invalid Pi history.');
     const journal=this.#storage.records<HistoryEvent>('pi_event',conversation.id)
       .filter(row=>row.projectId===conversation.projectId && row.agentSessionId===runtime.sessionId);
-    return projectHistory(messages,journal);
+    return projectHistory(messages,journal,(message, owner)=>{
+      const attempt=this.#storage.record<Attempt>('attempt',owner.attemptId);
+      return attempt && attempt.projectId===owner.projectId && attempt.sessionId===owner.sessionId &&
+        attempt.runId===owner.runId && attempt.agentSessionId===owner.agentSessionId
+        ? withoutAttachmentContext(message,this.#attachmentMessage(attempt,runtime)) : message;
+    },linkTools);
   }
   async getAgentHistory(conversationId:string,agentSessionId:string) {
     this.#assertReady();

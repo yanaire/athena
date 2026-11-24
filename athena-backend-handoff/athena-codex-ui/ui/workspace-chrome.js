@@ -139,6 +139,7 @@
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
       const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
       // A retry changes the task's current attempt, not the recorded tool outcome.
+      // A successful worker process can still be followed by a failed tool wrapper.
       const activityStatus = state.mode === 'runtime' ? tool.status : task.status;
       const presentation = window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, activityStatus, state.tasks);
       const glyph = window.AthenaPiActivity.iconHTML(presentation.icon, { active: presentation.active });
@@ -228,6 +229,7 @@
 
     function processHTML(process) {
       const job = process.job || process;
+      const title = job.mcp?.tool === 'calculate_csv' ? 'Measurement calculation' : displayText(job.program, 'Process');
       const status = LABELS[process.status] || displayText(String(process.status || '').replaceAll('_', ' '), 'Working');
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
       const recorded = field('Working directory', job.cwd)
@@ -239,7 +241,7 @@
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId]], 'process:' + process.id);
       const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
-      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(displayText(job.program, 'Process')) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(title) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }

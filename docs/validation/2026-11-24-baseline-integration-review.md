@@ -13,11 +13,12 @@ The review candidate is maintained on `integration/athena-baseline-review`. Its 
 the existing functionality. They do not implement the second MCP or assume a
 future registry contract.
 
-At the start of this review, the remote did not contain
-`feature/athena-mcp-registry` or `fix/athena-mac-acceptance`, and no actual-account
-acceptance report for this candidate had been supplied. Real Mac acceptance
-and the common MCP interface remain separate prerequisites. Do not infer
-either from this report or from controlled-provider tests.
+The initial review preceded the cloud and Mac handoffs. Both are now available:
+the common MCP contract is at `a5ddf42438daa5a4a31117dbda4e998505c77351`,
+and the [Mac acceptance report](../mac-chatgpt-acceptance.md) is preserved from
+`6c3e2698c4c4e892ca6a98200bfbfc708fd5c868`. That report covers the native
+build at `22cda9171ef3ecd4f2201531eaaa9f3f39e0160d`, not this integration
+candidate. Exact-candidate Mac acceptance remains a release prerequisite.
 
 ## Reproduced findings
 
@@ -109,6 +110,49 @@ The focused backend review passed 31 process/recovery checks and 43
 credential/profile/recovery checks; these groups overlap and are not an
 additive test count. The new WASI publication-failure regression remains in
 the normal suite and requires the prepared native CI runtime.
+
+## Mac corrections and acceptance intake
+
+The Mac source fixes were reviewed against the actual remote commits.
+Attachment instructions remain in the model dispatch and Pi JSONL, while
+live user messages and public history show the original user input. The
+projection matches the owning attempt and the exact host-appended suffix;
+a user's literal copy, whitespace and Unicode are preserved. Public history
+continues to redact credentials. Invalid `get_entries.since` requests retain
+the SDK error instead of returning an unfiltered history.
+
+The Mac display fix was adapted to retain each recorded tool call's own
+status. A worker can finish successfully before its tool wrapper fails, so
+process success must not override a recorded failed tool. The regression
+covers that case as well as a completed child whose CSV tool failed.
+The existing CSV process row now has a readable measurement name.
+
+The supplied report establishes real ChatGPT Luna inference, parent-to-child
+CSV delegation, original and changed calculations, equal downloaded bytes
+after reopening, malformed-input failure, cancellation before a tool call,
+manual retry with sibling preservation and parent reconciliation, profile
+pinning on one registration, rejection when that registration is absent, and
+paused recovery after host interruption. Timing-sensitive profile switching
+used the exact packaged host followed by native-app retry, as the report
+explains. It does not establish cancellation inside a running MCP worker,
+switching between two real accounts, or a fresh OAuth consent flow.
+
+The last previously published review candidate,
+`599427d04f82c40fc04720345548095a09eed788`, passed
+[its Apple Silicon workflow](https://github.com/yanaire/athena-1/actions/runs/45415950169):
+201 host tests, 106 UI integration assertions, 4 label tests and 91
+DOM/adapter tests, plus security and bundle checks. The Mac corrections above
+were then checked locally with 11 history/manager tests, selected recovery
+checks, type checking, 106 UI integration assertions, 5 label tests and the
+existing DOM suite. These overlapping checks are not an additive total.
+
+An execution-environment interruption occurred before the local combined
+revision was published. The source was recovered from the exact remote bases
+and successful patch records. The display files also match blob prefixes
+printed before the interruption; regenerated HTML was reproduced from a
+builder first checked against both previously published HTML blob hashes.
+The recovered candidate must pass its own workflow and actual Mac acceptance.
+Neither the older CI nor the Mac report is relabelled as that evidence.
 
 ## Separate UI integration of the published MCP contract
 
