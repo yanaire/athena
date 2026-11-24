@@ -183,3 +183,28 @@ test('workspace activity hides runtime identities in summaries and preserves age
     hidesIds(process);
   } finally { view.destroy(); }
 });
+
+test('registered RC tools and process phases use readable labels without exposing file or execution IDs', async () => {
+  const { circuits } = await import(path.resolve(sourceRoot, '../../runtime/mcp-contract.mjs'));
+  const e = environment(['activity-labels', 'pi-activity', 'result-files', 'workspace-chrome']);
+  const presentation = e.window.AthenaPiActivity.toolPresentation(circuits.alias, { fileId: ids.tool }, 'running');
+  assert.equal(presentation.label, 'Calculating RC response');
+  assert.equal(presentation.detail, 'Assigned circuit JSON');
+  assert.equal(e.window.AthenaPiActivity.toolPresentation(circuits.alias, {}, 'succeeded').label, 'RC response calculated');
+  const process = { id: ids.process, processId: ids.process, taskId: ids.task, attemptId: ids.attempt, toolId: ids.tool, status: 'running', job: { mcp: { ...circuits, phase: 'tools/list' }, program: '/bundled/node' } };
+  let snapshot = { mode: 'runtime', revision: 1, sessionId: ids.session, run: { id: ids.run, status: 'running' }, tasks: [{ id: ids.task, title: 'Inspect circuit response', status: 'running' }], agents: [], attempts: [], tools: [], processes: [process], artifacts: [], approvals: [] };
+  let update;
+  const store = { getState: () => snapshot, subscribe(fn) { update = fn; fn(snapshot); return () => {}; } };
+  const host = e.document.querySelector('#root');
+  const view = e.window.AthenaWorkspaceChrome.mount(host, { store });
+  try {
+    const summary = host.querySelector('[data-aw-process] > summary');
+    assert.match(summary.textContent, /RC step response/); assert.match(summary.textContent, /Discovering tools/); hidesIds(host);
+    assert.equal(summary.textContent.includes('/bundled/node'), false);
+    assert.equal(summary.textContent.includes(circuits.tool), false);
+    assert.ok(host.querySelector('[data-aw-process] [data-aw-diagnostics]').textContent.includes(circuits.server));
+    snapshot = { ...snapshot, revision: 2, processes: [{ ...process, job: { ...process.job, mcp: { ...process.job.mcp, server: 'unregistered-server' } } }] };
+    update(snapshot);
+    assert.match(host.querySelector('[data-aw-process] > summary').textContent, /Engineering calculation/); hidesIds(host);
+  } finally { view.destroy(); }
+});

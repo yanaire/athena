@@ -1,3 +1,4 @@
+import { builtins } from './mcp-registry.ts';
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { TObject } from "typebox";
@@ -49,7 +50,7 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
 
   switch (role) {
     case "parent": return {
-      systemPrompt: measurementParent + " " + (executionEnabled ? "Delegate with spawn_agent and join with wait_for_agents. In the join response, result is the child's own report; artifacts is what Athena actually published. If outputs were requested but artifacts is empty, send_to_agent with a correction and join again, or report the failure. Read the published result using read_file({artifactId}) before citing its values. Copy URIs only from artifacts. Use fileIds or artifactIds to explicitly pass inputs." : parentPrompt),
+      systemPrompt: measurementParent + " Delegate a granted RC input JSON to one child for calculate_rc_response, then join. " + (executionEnabled ? "Delegate with spawn_agent and join with wait_for_agents. In the join response, result is the child's own report; artifacts is what Athena actually published. If outputs were requested but artifacts is empty, send_to_agent with a correction and join again, or report the failure. Read the published result using read_file({artifactId}) before citing its values. Copy URIs only from artifacts. Use fileIds or artifactIds to explicitly pass inputs." : parentPrompt),
       customTools: [executionEnabled ? delegated({name:"read",label:"Read attached input",description:"Read an input attachment using its exact granted project-relative path.",readOnly:true,parameters:Type.Object({path:id},closed)}) : projectRead,
         ...(executionEnabled ? [delegated({name:"read_file",label:"Verify artifact",description:"Read the verified contents of a direct child's completed artifact in this run.",parameters:artifact,readOnly:true})] : []),
         delegated({ name: "spawn_agent", label: "Spawn agent", description: "Start a direct child research task. Returns its task ID. Omit requestId unless retrying the same request.",
@@ -64,7 +65,7 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       ],
     };
     case "child": return {
-      systemPrompt: measurementChild + " " + (executionEnabled ? "For other calculations that require a script, use the standard library only (no pandas). First write_file({name:'analysis.py',content:<your script text>}), then run_command({language:'python',script:'analysis.py',inputs:['original.csv'],outputs:['result.json']}). Substitute the actual input and output names. The script field is a filename; put code only in write_file.content. calculate_csv accepts granted uploads only. If a call fails, do not repeat identical arguments. A string input names a private workspace file first, or exactly one granted upload with that original filename. For ambiguous upload names pass {fileId,name}; pass transferred artifacts as {artifactId,name}. Your script reads /workspace/<name> and writes /outputs/<name>. Never paste or paraphrase the rows of an assigned upload into the script, and never compute from memorised values: declare the upload in inputs and open /workspace/<name> during the run, so the produced numbers depend on the actual staged bytes. No shell, package installation, network or host filesystem. Verify with read_file. Cite only real artifacts returned by successful tools. Report failures." : childPrompt),
+      systemPrompt: measurementChild + " For an RC low-pass step response, use calculate_rc_response on the assigned JSON. Report values from its published result. " + (executionEnabled ? "For other calculations that require a script, use the standard library only (no pandas). First write_file({name:'analysis.py',content:<your script text>}), then run_command({language:'python',script:'analysis.py',inputs:['original.csv'],outputs:['result.json']}). Substitute the actual input and output names. The script field is a filename; put code only in write_file.content. calculate_csv accepts granted uploads only. If a call fails, do not repeat identical arguments. A string input names a private workspace file first, or exactly one granted upload with that original filename. For ambiguous upload names pass {fileId,name}; pass transferred artifacts as {artifactId,name}. Your script reads /workspace/<name> and writes /outputs/<name>. Never paste or paraphrase the rows of an assigned upload into the script, and never compute from memorised values: declare the upload in inputs and open /workspace/<name> during the run, so the produced numbers depend on the actual staged bytes. No shell, package installation, network or host filesystem. Verify with read_file. Cite only real artifacts returned by successful tools. Report failures." : childPrompt),
       customTools: [
         ...(executionEnabled ? [
           delegated({name:"read_file",label:"Read scoped file",description:"Supply exactly one of name, fileId, or artifactId; omit the other two fields entirely.",readOnly:true,parameters:Type.Object({name:Type.Optional(id),fileId:Type.Optional(id),artifactId:Type.Optional(id)},{...closed,oneOf:[{required:["name"]},{required:["fileId"]},{required:["artifactId"]}]})}),
@@ -73,8 +74,10 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
         ] : []),
         delegated({ name: "read", label: "Read granted file", description: "Read the assigned text file with {}. Specify fileId only to select an exact ID from the task.", readOnly: true,
           parameters: Type.Object({ fileId: uniqueGrant }, closed) }),
-        delegated({ name: "calculate_csv", label: "Calculate CSV statistics", description: 'Create a statistics.json file for the assigned CSV. Use {} for all columns, or specify the requested column name. Specify fileId only to select an exact ID from the task.',
-          parameters: Type.Object({ fileId: uniqueGrant, column: Type.Optional(id) }, closed) }),
+        ...Array.from(builtins.values()).filter(entry => entry.role === role).map(entry => delegated({
+          name:entry.binding.identity.alias, label:entry.binding.identity.displayName,
+          description:entry.description, parameters:entry.parameters,
+        })),
       ],
     };
   }

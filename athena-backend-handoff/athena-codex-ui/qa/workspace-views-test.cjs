@@ -4,6 +4,18 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const dependencyPaths=[__dirname,...(process.env.ATHENA_QA_DEPENDENCIES?[process.env.ATHENA_QA_DEPENDENCIES]:[])];
 const {parseHTML}=require(require.resolve('linkedom',{paths:dependencyPaths}));
 const base=path.resolve(__dirname,'..')+path.sep;
+const publicMcpContract=import(path.resolve(base,'../../runtime/mcp-contract.mjs'));
+const rcFile={schemaVersion:1,timeConstantSeconds:0.001,cutoffHz:159.15494309189535,samples:[{timeSeconds:0,outputVolt:0},{timeSeconds:0.001,outputVolt:0.6321205588285577},{timeSeconds:0.001,outputVolt:0.6321205588285577},{timeSeconds:0.005,outputVolt:0.9932620530009145}]};
+const csvFile={schemaVersion:1,rowCount:5,columns:['measurement_mV'],statistics:[{column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,mean:19,max:35}]};
+function mcpFixture(metadata){
+ const rc=metadata.alias==='calculate_rc_response',kind=rc?'rc':'csv';
+ const scope={projectId:'project-rc',sessionId:'session-a',runId:'run-mcp'};
+ const file={...scope,id:'file-'+kind,attemptId:'process-'+kind,name:rc?'rc-response.json':'statistics.json',mimeType:'application/json',bytes:512,sha256:'b'.repeat(64),mcpAlias:metadata.alias};
+ const process={...scope,id:file.attemptId,processId:file.attemptId,taskId:'task-'+kind,toolId:'tool-'+kind,attemptId:'attempt-'+kind,status:'succeeded',job:{mcp:{...metadata,phase:'tools/call'},artifact:file}};
+ const artifact={...scope,id:file.id,processId:process.id,taskId:process.taskId,toolId:process.toolId,attemptId:process.attemptId,title:file.name,version:'v1',status:'ready',file,location:{uri:'/api/artifacts/'+scope.sessionId+'/'+file.id}};
+ const task={...scope,id:process.taskId,title:rc?'Inspect RC response':'Inspect measurements',status:'succeeded'};
+ return{process,artifact,task};
+}
 function env(overrides={},fetchFile,historyMessages=[{role:'assistant',content:'Measurements checked.'}]){
  const {window,document}=parseHTML('<html><body><div id="athena-codex"><div id="host"></div></div></body></html>');
  Object.defineProperty(window.HTMLElement.prototype,'open',{configurable:true,get(){return this.hasAttribute('open');},set(value){this.toggleAttribute('open',Boolean(value));}});
@@ -182,25 +194,130 @@ for(const startEmpty of [false,true])test('CSV artifacts '+(startEmpty?'clear wh
  }finally{e.destroy();}
 });
 test('measurement board follows the process and reads the published artifact URL',async()=>{
- const process={id:'proc',runId:'run',taskId:'child',status:'running',job:{mcp:{tool:'calculate_csv',phase:'tools/list'}}};
+ const legacy={server:'athena-measurements',version:'1.0.0',protocol:'2025-06-18',tool:'calculate_csv',phase:'tools/list'};
+ const process={id:'proc',runId:'run',taskId:'child',status:'running',job:{mcp:legacy}};
  const artifact={id:'file',title:'statistics.json',sessionId:'session-a',processId:'proc',taskId:'child',version:'v1',location:{uri:'/api/artifacts/session-a/file'}};
  const reads=[];
  const e=env({run:{id:'run',status:'running'},processes:[process],tasks:[{id:'child',title:'Voltage',status:'running'}]},async url=>{
    reads.push(url);
-   return {ok:true,json:async()=>({schemaVersion:1,rowCount:5,statistics:[{column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,mean:19,max:35}]})};
+   return {ok:true,json:async()=>csvFile};
  });
  for(const [status,label] of [['running','Running'],['failed','Failed'],['cancelled','Cancelled']]){
    e.put({processes:[{...process,status}]});
-   assert.match(e.q('[data-awv-measurements]').textContent,new RegExp('MCP · calculate_csv · tools/list'+label));
+   assert.match(e.q('[data-awv-measurements]').textContent,/Measurement statistics/);
+   assert.match(e.q('[data-awv-measurements]').textContent,new RegExp(label));
+   if(status==='running')assert.match(e.q('[data-awv-measurements]').textContent,/Discovering tools/);
    assert.equal(e.q('[data-awv-measurements] [data-awv-open-artifact]'),null);
  }
- e.put({processes:[{...process,status:'succeeded',job:{mcp:{tool:'calculate_csv',phase:'tools/call'},artifact:{id:'file'}}}],artifacts:[artifact]});
+ e.put({processes:[{...process,status:'succeeded',job:{mcp:{...legacy,phase:'tools/call'},artifact:{id:'file',name:'statistics.json',mimeType:'application/json'}}}],artifacts:[artifact]});
  e.api.open('artifacts',{artifactId:'file',version:'v1'});
  await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(reads,['/api/artifacts/session-a/file']);
  assert.equal(e.q('a[download]').getAttribute('href'),reads[0]);
  assert.deepEqual([...e.q('tbody tr').children].map(cell=>cell.textContent),['measurement_mV','4','1','0','7','19','35']);
  e.destroy();
+});
+
+test('registered CSV and RC results share scoped file routes and render the saved values with units',async()=>{
+ const contract=await publicMcpContract,csv=mcpFixture(contract.measurements),rc=mcpFixture(contract.circuits),reads=[];
+ const e=env({run:{id:'run-mcp',status:'succeeded'},processes:[csv.process,rc.process],artifacts:[csv.artifact,rc.artifact],tasks:[csv.task,rc.task]},async(url,options)=>{
+  reads.push({url,options});return{ok:true,json:async()=>url===rc.artifact.location.uri?rcFile:csvFile};
+ });
+ try{
+  assert.match(e.q('[data-awv-measurements]').textContent,/Measurement statistics/);assert.match(e.q('[data-awv-measurements]').textContent,/RC step response/);
+  assert.equal(e.q('[data-awv-open-artifact="file-rc"]').textContent,'View RC response');
+  e.api.open('artifacts',{artifactId:rc.artifact.id,version:'v1'});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(e.q('a[download]').getAttribute('href'),rc.artifact.location.uri);
+  assert.equal(reads.at(-1).url,rc.artifact.location.uri);assert.equal(reads.at(-1).options.credentials,'same-origin');
+  assert.deepEqual([...e.q('[data-awv-rc-response] .awv-metrics').querySelectorAll('dd')].map(node=>node.textContent),['0.001 s','159.15494309189535 Hz']);
+  assert.deepEqual([...e.q('[data-awv-rc-response] thead').querySelectorAll('th')].map(node=>node.textContent),['Time (s)','Output (V)']);
+  assert.deepEqual([...e.q('[data-awv-rc-response] tbody').children].map(row=>[...row.children].map(cell=>cell.textContent)),rcFile.samples.map(sample=>[String(sample.timeSeconds),String(sample.outputVolt)]));
+  assert.match(e.q('[data-awv-rc-response]').textContent,/initial capacitor voltage 0 V · input step at 0 s/);
+  assert.match(e.q('[data-awv-rc-response]').textContent,/Input units: resistance Ω · capacitance F · step voltage V · sample time s/);
+  assert.equal(e.q('[data-awv-chart]'),null,'Runtime RC results do not reuse the authored frequency-response example.');
+  hidesIds(e.host,[rc.process.id,rc.process.toolId,rc.process.attemptId,rc.task.id]);
+  e.api.open('artifacts',{artifactId:csv.artifact.id,version:'v1'});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(e.q('a[download]').getAttribute('href'),reads.at(-1).url);
+  assert.deepEqual([...e.q('tbody tr').children].map(cell=>cell.textContent),['measurement_mV','4','1','0','7','19','35']);
+  assert.equal(e.q('[data-awv-rc-response]'),null);
+ }finally{e.destroy();}
+});
+
+test('structured MCP previews require matching registered identities and output receipts',async()=>{
+ const {circuits}=await publicMcpContract;
+ const changes=[{server:'athena-measurements'},{tool:'calculate_csv'},{alias:'calculate_csv'},{resultKind:'csv-statistics'},{registryVersion:2},{version:'2.0.0'},{protocol:'unknown'}];
+ for(const change of changes){
+  const f=mcpFixture(circuits);f.process.job.mcp={...f.process.job.mcp,...change};let reads=0;
+  const e=env({run:{id:'run-mcp'},processes:[f.process],artifacts:[f.artifact],tasks:[f.task]},async()=>{reads++;return{ok:true,json:async()=>rcFile}});
+  try{e.api.open('artifacts',{artifactId:f.artifact.id});await new Promise(resolve=>setImmediate(resolve));assert.equal(reads,0,JSON.stringify(change));assert.equal(e.q('table'),null);assert.match(e.q('[data-awv-mcp-result]').textContent,/not available for this tool version/);assert.equal(e.q('a[download]').getAttribute('href'),f.artifact.location.uri);}finally{e.destroy();}
+ }
+ for(const change of [{name:'statistics.json'},{mimeType:'text/plain'},{mcpAlias:'calculate_csv'}]){
+  const f=mcpFixture(circuits);f.process.job.artifact={...f.process.job.artifact,...change};let reads=0;
+  const e=env({processes:[f.process],artifacts:[f.artifact]},async()=>{reads++;return{ok:true,json:async()=>rcFile}});
+  try{e.api.open('artifacts',{artifactId:f.artifact.id});await new Promise(resolve=>setImmediate(resolve));assert.equal(reads,0);assert.equal(e.q('table'),null);}finally{e.destroy();}
+ }
+});
+
+test('unknown RC schemas and malformed samples never become a result table',async()=>{
+ const {circuits}=await publicMcpContract;
+ const cases=[{...rcFile,schemaVersion:2},{...rcFile,timeConstantSeconds:0},{...rcFile,cutoffHz:'159 Hz'},{...rcFile,samples:[]},{...rcFile,samples:[{timeSeconds:-1,outputVolt:0}]},{...rcFile,samples:[{timeSeconds:0,outputVolt:Infinity}]}];
+ for(const saved of cases){
+  const f=mcpFixture(circuits),e=env({processes:[f.process],artifacts:[f.artifact]},async()=>({ok:true,json:async()=>saved}));
+  try{e.api.open('artifacts',{artifactId:f.artifact.id});await new Promise(resolve=>setImmediate(resolve));assert.equal(e.q('table'),null);assert.match(e.q('[data-awv-mcp-result]').textContent,/format is not supported/);}finally{e.destroy();}
+ }
+ const f=mcpFixture(circuits),e=env({processes:[f.process],artifacts:[f.artifact]},async()=>({ok:false}));
+ try{e.api.open('artifacts',{artifactId:f.artifact.id});await new Promise(resolve=>setImmediate(resolve));assert.equal(e.q('table'),null);assert.match(e.q('[data-awv-mcp-result]').textContent,/Could not load/);}finally{e.destroy();}
+});
+
+test('failed and unlinked MCP artifacts expose no result preview or download',async()=>{
+ const {circuits}=await publicMcpContract;
+ for(const status of ['queued','running','failed','cancelled','timed_out','interrupted']){
+  const f=mcpFixture(circuits);f.process.status=status;f.artifact.location.uri='https://example.invalid/result.json';let reads=0;
+  const e=env({run:{id:'run-mcp'},processes:[f.process],artifacts:[f.artifact],tasks:[f.task]},async()=>{reads++;return{ok:true,json:async()=>rcFile}});
+  try{assert.equal(e.q('[data-awv-measurements] [data-awv-open-artifact]'),null);e.api.open('artifacts',{artifactId:f.artifact.id});await new Promise(resolve=>setImmediate(resolve));assert.equal(e.q('a'),null,'A failed MCP result cannot fall back to an unverified original link.');assert.equal(e.q('table'),null);assert.equal(reads,0);}finally{e.destroy();}
+ }
+ const f=mcpFixture(circuits);f.process.job.artifact={...f.process.job.artifact,id:'unrelated-file'};
+ const e=env({processes:[f.process],artifacts:[f.artifact]});try{e.api.open('artifacts',{artifactId:f.artifact.id});assert.equal(e.q('a[download]'),null);assert.equal(e.q('table'),null);}finally{e.destroy();}
+});
+
+test('new MCP receipts without their process expose no download or original link',async()=>{
+ const contract=await publicMcpContract;
+ for(const metadata of [contract.measurements,contract.circuits])for(const externalLocation of [false,true]){
+  const f=mcpFixture(metadata);if(externalLocation)f.artifact.location.uri='https://example.invalid/result.json';let reads=0;
+  const e=env({processes:[],artifacts:[f.artifact],tasks:[f.task]},async()=>{reads++;return{ok:true,json:async()=>rcFile}});
+  try{e.api.open('artifacts',{artifactId:f.artifact.id});await new Promise(resolve=>setImmediate(resolve));assert.equal(Boolean(e.q('a')),false,'A new MCP receipt needs its published process before exposing either link.');assert.equal(Boolean(e.q('table')),false);assert.equal(reads,0);}finally{e.destroy();}
+ }
+});
+
+test('late RC replies cannot replace a selected CSV, a changed process contract or another conversation',async()=>{
+ const contract=await publicMcpContract,rc=mcpFixture(contract.circuits),csv=mcpFixture(contract.measurements),pending=[];
+ const e=env({run:{id:'run-mcp'},processes:[rc.process,csv.process],artifacts:[rc.artifact,csv.artifact]},url=>url===rc.artifact.location.uri?new Promise(resolve=>pending.push(resolve)):Promise.resolve({ok:true,json:async()=>csvFile}));
+ try{
+  e.api.open('artifacts',{artifactId:rc.artifact.id});assert.equal(pending.length,1);
+  e.api.open('artifacts',{artifactId:csv.artifact.id});await new Promise(resolve=>setImmediate(resolve));
+  pending.shift()({ok:true,json:async()=>rcFile});await new Promise(resolve=>setImmediate(resolve));
+  assert.match(e.q('table').textContent,/Measurement statistics/);assert.equal(e.q('[data-awv-rc-response]'),null);assert.equal(e.q('a[download]').getAttribute('href'),csv.artifact.location.uri);
+  e.api.open('artifacts',{artifactId:rc.artifact.id});assert.equal(pending.length,1);
+  e.put({processes:[{...rc.process,job:{...rc.process.job,mcp:{...rc.process.job.mcp,resultKind:'csv-statistics'}}},csv.process]});
+  pending.shift()({ok:true,json:async()=>rcFile});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(e.q('table'),null);assert.match(e.q('[data-awv-mcp-result]').textContent,/not available for this tool version/);
+  e.put({processes:[rc.process,csv.process]});assert.equal(pending.length,1);
+  e.put({sessionId:'session-b',artifacts:[],processes:[]});
+  pending.shift()({ok:true,json:async()=>rcFile});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(e.q('table'),null);assert.equal(e.q('a[download]'),null);assert.match(e.host.textContent,/No artifacts reported/);
+ }finally{e.destroy();}
+});
+
+test('pre-MCP CSV receipts remain downloadable without inventing a structured preview',()=>{
+ const artifact={id:'historical-file',sessionId:'session-a',version:'v1',title:'statistics.json',status:'ready',location:{uri:'/api/artifacts/session-a/historical-file'}};
+ const e=env({artifacts:[artifact]});try{e.api.open('artifacts',{artifactId:artifact.id});assert.equal(e.q('a[download]').getAttribute('href'),artifact.location.uri);assert.equal(e.q('table'),null);}finally{e.destroy();}
+});
+
+test('WASI analysis receipts keep their scoped downloads without an MCP preview',()=>{
+ const file={id:'analysis-file',sessionId:'session-a',projectId:'project-rc',attemptId:'analysis-process',name:'analysis.csv',mimeType:'text/csv',bytes:6,sha256:'c'.repeat(64)};
+ const process={id:file.attemptId,status:'succeeded',job:{analysis:{backend:'wasi',language:'node',script:'analysis.mjs',inputs:[],outputs:[file.name],limits:{}},artifacts:[file]}};
+ const artifact={id:file.id,sessionId:file.sessionId,processId:process.id,title:file.name,version:'v1',status:'ready',file,location:{uri:'/api/artifacts/session-a/analysis-file'}};
+ const e=env({processes:[process],artifacts:[artifact]});try{e.api.open('artifacts',{artifactId:artifact.id});assert.equal(e.q('a[download]').getAttribute('href'),artifact.location.uri);assert.equal(e.q('table'),null);}finally{e.destroy();}
 });
 
 test('workflow and agent history show readable labels while exact identities remain actionable and inspectable',async()=>{

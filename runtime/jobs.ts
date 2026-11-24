@@ -1,4 +1,5 @@
-import { csvMcpClient, csvServer, type CsvMcpPhase } from './csv-mcp.ts';
+import { mcpClient, type McpPhase } from './mcp-client.ts';
+import { builtins, bindCall, csvRegistration, verifyMcpOutput, MCP_LIMITS, type Registration } from './mcp-registry.ts';
 import { analysisAccess, analysisEnv, ANALYSIS_LIMITS, SandboxCleanupError, runSandbox, type SandboxJob, type AnalysisAccess } from './analysis-sandbox.ts';
 import { AnalysisFiles, validateOutputNames, type AnalysisArtifact, type AnalysisSnapshot } from './analysis-files.ts';
 export { ANALYSIS_LIMITS } from './analysis-sandbox.ts';
@@ -12,13 +13,13 @@ import { fileURLToPath } from 'node:url';
 
 type Scope = { readonly projectId: string; readonly sessionId: string };
 type FileVersion = Scope & { readonly fileId: string; readonly versionId: string; readonly name: string };
-export type CsvGrant = FileVersion & { readonly id: string; readonly grantId: string; readonly bytes: number; readonly sha256: string };
+export type McpGrant = FileVersion & { readonly id: string; readonly grantId: string; readonly mcpAlias?: string; readonly bytes: number; readonly sha256: string };
 export type CsvJob = Scope & {
   readonly requestId: string; readonly taskId: string; readonly attemptId: string;
   readonly toolId: string; readonly grantId: string; readonly column?: string;
 };
-export type CsvArtifact = Scope & {
-  readonly id: string; readonly attemptId: string; readonly name: 'statistics.json';
+export type McpArtifact = Scope & {
+  readonly id: string; readonly attemptId: string; readonly name: string; readonly mcpAlias?: string;
   readonly mimeType: 'application/json'; readonly bytes: number; readonly sha256: string;
 };
 type JobErrorCode = 'INVALID_INPUT' | 'CLOSED' | 'QUEUE_FULL' | 'DUPLICATE_ATTEMPT'
@@ -33,11 +34,9 @@ export class CsvJobError extends Error {
   }
 }
 
-export const CSV_LIMITS = Object.freeze({
-  inputBytes: 1024 * 1024, artifactBytes: 64 * 1024, streamBytes: 16 * 1024,
-  queue: 32, heapMiB: 64, maxConcurrency: 4, maxTimeoutMs: 30_000, killWaitMs: 1_000,
-});
-const WORKER = fileURLToPath(new URL('./csv-worker.mjs', import.meta.url));
+// Preserve the public CSV API and on-disk namespace used by older hosts.
+export { MCP_LIMITS, MCP_LIMITS as CSV_LIMITS };
+const runtimeFile = (name:string) => fileURLToPath(new URL(name, import.meta.url));
 const ENV = Object.freeze({ LANG: 'C', LC_ALL: 'C', TZ: 'UTC' });
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -58,18 +57,18 @@ async function privateDirectory(path: string): Promise<string> {
   await mkdir(path, { recursive: true, mode: 0o700 });
   const st = await lstat(path);
   if (!st.isDirectory() || (st.mode & 0o077) !== 0 || st.uid !== process.getuid?.()) {
-    throw new CsvJobError('INVALID_FILE', 'CSV storage must be a private directory owned by the host process.');
+    throw new CsvJobError('INVALID_FILE', 'Job storage must be a private directory owned by the host process.');
   }
   return realpath(path);
 }
 
 async function readBounded(directory: string, name: string, limit: number): Promise<Buffer> {
   // All paths below the private root use fixed names and generated/digested IDs.
-  if (await realpath(directory) !== directory) throw new CsvJobError('INVALID_FILE', 'CSV storage path changed.');
+  if (await realpath(directory) !== directory) throw new CsvJobError('INVALID_FILE', 'Job storage path changed.');
   const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const st = await file.stat();
-    if (!st.isFile() || st.nlink !== 1 || st.size > limit) throw new CsvJobError('INVALID_FILE', 'Invalid CSV job file.');
+    if (!st.isFile() || st.nlink !== 1 || st.size > limit) throw new CsvJobError('INVALID_FILE', 'Invalid job file.');
     const buffer = Buffer.allocUnsafe(limit + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -77,28 +76,31 @@ async function readBounded(directory: string, name: string, limit: number): Prom
       if (!bytesRead) break;
       size += bytesRead;
     }
-    if (size !== st.size || size > limit) throw new CsvJobError('INVALID_FILE', 'CSV job file changed or exceeded its limit.');
+    if (size !== st.size || size > limit) throw new CsvJobError('INVALID_FILE', 'Job file changed or exceeded its limit.');
     return buffer.subarray(0, size);
   } finally {
     await file.close();
   }
 }
 
-function parseGrant(bytes: Buffer, grantId: string, scope: Scope): CsvGrant {
+function parseGrant(bytes: Buffer, grantId: string, scope: Scope): McpGrant {
   const value: unknown = JSON.parse(bytes.toString('utf8'));
   if (!object(value) || value.id !== grantId || value.grantId !== grantId || value.projectId !== scope.projectId
     || value.sessionId !== scope.sessionId || typeof value.fileId !== 'string' || typeof value.versionId !== 'string'
     || typeof value.name !== 'string' || typeof value.bytes !== 'number' || !Number.isSafeInteger(value.bytes)
-    || value.bytes < 1 || value.bytes > CSV_LIMITS.inputBytes || typeof value.sha256 !== 'string' || !SHA256.test(value.sha256)) {
-    throw new CsvJobError('GRANT_DENIED', 'CSV input grant is unavailable to this project and session.');
+    || value.bytes < 1 || value.bytes > MCP_LIMITS.inputBytes || typeof value.sha256 !== 'string' || !SHA256.test(value.sha256)) {
+    throw new CsvJobError('GRANT_DENIED', 'MCP input grant is unavailable to this project and session.');
   }
-  return { ...scope, id: grantId, grantId, fileId: value.fileId, versionId: value.versionId, name: value.name, bytes: value.bytes, sha256: value.sha256 };
+  if (value.mcpAlias !== undefined && typeof value.mcpAlias !== 'string') throw new CsvJobError('GRANT_DENIED','Invalid grant registration.');
+  return { ...scope, id: grantId, grantId, mcpAlias: value.mcpAlias, fileId: value.fileId, versionId: value.versionId, name: value.name, bytes: value.bytes, sha256: value.sha256 };
 }
 
 type Identity = Omit<CsvJob,'grantId'|'column'>;
 export type AnalysisJob = Identity & SandboxJob & { readonly inputs: readonly (AnalysisSnapshot & {readonly fileId?:string; readonly versionId?:string})[] };
-export type CsvAttempt = Identity & { readonly grantId?: string; readonly column?: string;
-  readonly mcp?: typeof csvServer & { readonly phase: CsvMcpPhase };
+export type JobAttempt = Identity & { readonly grantId?: string; readonly column?: string;
+  readonly mcp?: { readonly server:string; readonly version:string; readonly protocol:string; readonly tool:string; readonly phase:McpPhase;
+    readonly alias?:string; readonly resultKind?:string; readonly displayName?:string; readonly registryVersion?:number };
+  readonly toolArguments?: Readonly<Record<string,unknown>>;
   readonly artifacts?: readonly AnalysisArtifact[]; readonly containerId?: string; readonly executionId?: string;
   readonly analysis?: { readonly language: SandboxJob['language']; readonly script: string; readonly outputs: readonly string[];
     readonly inputs: readonly {readonly name:string; readonly sha256:string; readonly fileId?:string; readonly versionId?:string}[];
@@ -109,7 +111,7 @@ export type CsvAttempt = Identity & { readonly grantId?: string; readonly column
   readonly args: readonly string[];
   readonly cwd: string | null;
   readonly env: Readonly<Record<string, string>>;
-  readonly limits: typeof CSV_LIMITS & { readonly timeoutMs: number };
+  readonly limits: typeof MCP_LIMITS & { readonly timeoutMs: number };
   readonly pid: number | null;
   readonly startedAt: number | null;
   readonly endedAt: number | null;
@@ -118,31 +120,33 @@ export type CsvAttempt = Identity & { readonly grantId?: string; readonly column
   readonly cancellation: 'not_requested' | 'confirmed' | 'unknown';
   readonly stdout: string;
   readonly stderr: string;
-  readonly grant?: CsvGrant;
-  readonly artifact?: CsvArtifact;
+  readonly grant?: McpGrant;
+  readonly artifact?: McpArtifact;
   readonly error?: string;
 };
 
-export type CsvJobEvent =
-  | { readonly type: 'process_queued' | 'process_started' | 'process_finished'; readonly attempt: CsvAttempt }
-  | { readonly type: 'process_output'; readonly attempt: CsvAttempt; readonly stream: 'stdout' | 'stderr'; readonly text: string };
+export type JobEvent =
+  | { readonly type: 'process_queued' | 'process_started' | 'process_finished'; readonly attempt: JobAttempt }
+  | { readonly type: 'process_output'; readonly attempt: JobAttempt; readonly stream: 'stdout' | 'stderr'; readonly text: string };
 
-export type CsvJobRunnerOptions = {
+export type JobRunnerOptions = {
   readonly dataDir: string;
   readonly concurrency?: number;
   readonly timeoutMs?: number;
   // Admission and completion receipts must be persisted synchronously and atomically.
-  readonly onEvent?: (event: CsvJobEvent) => void;
-  readonly recoveredAttempts?: readonly CsvAttempt[];
+  readonly onEvent?: (event: JobEvent) => void;
+  readonly recoveredAttempts?: readonly JobAttempt[];
 };
 
 type StopReason = 'cancelled' | 'timed_out' | 'output_limit';
-type JobHandle = { readonly result: Promise<CsvAttempt>; cancel(): void };
+type JobHandle = { readonly result: Promise<JobAttempt>; cancel(): void };
 type Pending = {
-  attempt: CsvAttempt;
+  cancelBeforePublication?: boolean;
+  attempt: JobAttempt;
   readonly analysis?: SandboxJob;
-  readonly result: Promise<CsvAttempt>;
-  readonly resolve: (attempt: CsvAttempt) => void;
+  readonly registration?: Registration;
+  readonly result: Promise<JobAttempt>;
+  readonly resolve: (attempt: JobAttempt) => void;
   stop?: StopReason;
   terminate?: () => void;
   exited?: boolean;
@@ -166,13 +170,13 @@ function boundedInt(value: number | undefined, fallback: number, limit: number, 
 }
 
 /** Only this host's live child handle can request a group signal. */
-export class CsvJobRunner {
+export class JobRunner {
   readonly #directory: string;
   readonly #files: AnalysisFiles;
   #discovery?: Promise<AnalysisAccess>;
   readonly #concurrency: number;
-  readonly #limits: CsvAttempt['limits'];
-  readonly #observer: CsvJobRunnerOptions['onEvent'];
+  readonly #limits: JobAttempt['limits'];
+  readonly #observer: JobRunnerOptions['onEvent'];
   readonly #queue: Pending[] = [];
   readonly #active = new Set<Pending>();
   readonly #known = new Set<string>();
@@ -181,21 +185,21 @@ export class CsvJobRunner {
   #halted = false;
   #closePromise?: Promise<void>;
 
-  constructor(options: CsvJobRunnerOptions) {
+  constructor(options: JobRunnerOptions) {
     if (process.release.name !== 'node' || !['darwin', 'linux'].includes(process.platform) || Number(process.versions.node.split('.')[0]) < 24) {
-      throw new CsvJobError('UNSUPPORTED_PLATFORM', 'CSV execution requires Node 24+ on macOS or Linux.');
+      throw new CsvJobError('UNSUPPORTED_PLATFORM', 'Job execution requires Node 24+ on macOS or Linux.');
     }
     this.#directory = resolve(options.dataDir, 'csv-jobs');
     this.#files = new AnalysisFiles(options.dataDir);
-    this.#concurrency = boundedInt(options.concurrency, 1, CSV_LIMITS.maxConcurrency, 'CSV concurrency');
-    this.#limits = Object.freeze({ ...CSV_LIMITS, timeoutMs: boundedInt(options.timeoutMs, 5_000, CSV_LIMITS.maxTimeoutMs, 'CSV timeout') });
+    this.#concurrency = boundedInt(options.concurrency, 1, MCP_LIMITS.maxConcurrency, 'job concurrency');
+    this.#limits = Object.freeze({ ...MCP_LIMITS, timeoutMs: boundedInt(options.timeoutMs, 5_000, MCP_LIMITS.maxTimeoutMs, 'job timeout') });
     this.#observer = options.onEvent;
     for (const prior of options.recoveredAttempts ?? []) {
       const key = attemptKey(prior);
       if (this.#known.has(key)) continue;
       this.#known.add(key);
       if (prior.status === 'running' || prior.status === 'queued') {
-        const attempt: CsvAttempt = Object.freeze({ ...prior, status: 'interrupted', endedAt: Date.now(),
+        const attempt: JobAttempt = Object.freeze({ ...prior, status: 'interrupted', endedAt: Date.now(),
           exitCode: null, signal: null, cancellation: 'unknown', artifact: undefined, artifacts: undefined,
           error: 'Host restarted before the process attempt settled. Process termination was not observed; the attempt will not rerun.' });
         queueMicrotask(() => this.#emit({ type: 'process_finished', attempt }));
@@ -203,21 +207,23 @@ export class CsvJobRunner {
     }
   }
 
-  async grant(input: FileVersion & { readonly bytes: Uint8Array }): Promise<CsvGrant> {
+  async grant(input: FileVersion & { readonly bytes: Uint8Array }, alias: string = csvRegistration.binding.identity.alias): Promise<McpGrant> {
     this.#assertOpen();
     const fields = { projectId: text(input.projectId, 'project ID'), sessionId: text(input.sessionId, 'session ID'),
       fileId: text(input.fileId, 'file ID'), versionId: text(input.versionId, 'version ID'), name: text(input.name, 'file name') };
-    if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength < 1 || input.bytes.byteLength > CSV_LIMITS.inputBytes) {
-      throw new CsvJobError('INVALID_INPUT', 'CSV requires 1 byte to 1 MiB of staged data.');
+    const entry = builtins.get(alias);
+    if (!entry || !entry.acceptsFile(fields.name)) throw new CsvJobError('GRANT_DENIED','Input file does not match the registered tool.');
+    if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength < 1 || input.bytes.byteLength > entry.binding.inputBytes) {
+      throw new CsvJobError('INVALID_INPUT', 'Input exceeds the registered file bounds.');
     }
     const bytes = Buffer.from(input.bytes);
     const id = randomUUID();
-    const grant: CsvGrant = Object.freeze({ ...fields, id, grantId: id, bytes: bytes.length, sha256: sha256(bytes) });
+    const grant: McpGrant = Object.freeze({ ...fields, id, grantId: id, mcpAlias:alias, bytes: bytes.length, sha256: sha256(bytes) });
     const directory = join(await this.#root('grants'), id);
     this.#assertOpen();
     await mkdir(directory, { mode: 0o700 });
     try {
-      await writeFile(join(directory, 'input.csv'), bytes, { flag: 'wx', mode: 0o400 });
+      await writeFile(join(directory, entry.binding.inputName), bytes, { flag: 'wx', mode: 0o400 });
       await writeFile(join(directory, 'grant.json'), JSON.stringify(grant), { flag: 'wx', mode: 0o400 });
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
@@ -228,15 +234,24 @@ export class CsvJobRunner {
 
   start(input: CsvJob): JobHandle {
     this.#assertOpen();
-    const job: CsvJob = {
+    return this.startMcp(csvRegistration.binding.identity.alias, input, input.column === undefined ? {} : {column:input.column});
+  }
+
+  startMcp(alias: string, input: Identity & {grantId:string}, args: Readonly<Record<string,unknown>> = {}): JobHandle {
+    this.#assertOpen();
+    const registration = builtins.get(alias);
+    if (!registration) throw new CsvJobError('INVALID_INPUT','Unknown built-in MCP tool.');
+    const {fileId, wire} = bindCall(registration,args);
+    if (fileId !== undefined) throw new CsvJobError('INVALID_INPUT','Runner requires an already resolved grant.');
+    const job = {
       projectId: text(input.projectId, 'project ID'), sessionId: text(input.sessionId, 'session ID'),
       requestId: text(input.requestId, 'request ID'), taskId: text(input.taskId, 'task ID'),
       toolId: text(input.toolId, 'tool ID'), attemptId: text(input.attemptId, 'attempt ID'),
       grantId: text(input.grantId, 'grant ID'),
-      ...(input.column !== undefined ? { column: text(input.column, 'CSV column') } : {}),
+      toolArguments: Object.freeze(wire),
     };
-    if (!UUID.test(job.grantId)) throw new CsvJobError('GRANT_DENIED', 'Invalid CSV grant ID.');
-    return this.#admit(job);
+    if (!UUID.test(job.grantId)) throw new CsvJobError('GRANT_DENIED', 'Invalid MCP grant ID.');
+    return this.#admit(job, undefined, registration);
   }
 
   analysisAccess(): Promise<AnalysisAccess> {
@@ -277,13 +292,13 @@ export class CsvJobRunner {
     return this.#admit(job,{language,script,inputs,outputs,args});
   }
 
-  #admit(job: Identity & Partial<Pick<CsvAttempt,'grantId'|'column'|'analysis'|'args'>>, analysis?: SandboxJob):JobHandle {
+  #admit(job: Identity & Partial<Pick<JobAttempt,'grantId'|'column'|'analysis'|'args'|'toolArguments'>>, analysis?: SandboxJob, registration?: Registration):JobHandle {
     const key = attemptKey(job);
-    if (this.#known.has(key)) throw new CsvJobError('DUPLICATE_ATTEMPT', 'CSV attempt IDs cannot be reused.');
-    if (this.#queue.length >= CSV_LIMITS.queue) throw new CsvJobError('QUEUE_FULL', 'The CSV job queue is full.');
+    if (this.#known.has(key)) throw new CsvJobError('DUPLICATE_ATTEMPT', 'Job attempt IDs cannot be reused.');
+    if (this.#queue.length >= MCP_LIMITS.queue) throw new CsvJobError('QUEUE_FULL', 'The job queue is full.');
     this.#known.add(key);
-    const { promise: result, resolve } = Promise.withResolvers<CsvAttempt>();
-    const pending: Pending = { result, resolve, analysis, attempt: Object.freeze({ ...job, ...(analysis ? {} : { mcp: { ...csvServer, phase: 'initialize' as const } }), program: analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
+    const { promise: result, resolve } = Promise.withResolvers<JobAttempt>();
+    const pending: Pending = { result, resolve, analysis, registration, attempt: Object.freeze({ ...job, ...(registration ? { mcp: { ...registration.binding.identity, phase: 'initialize' as const } } : {}), program: analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
       cwd: null, env: analysis ? analysisEnv : ENV, limits: this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
       exitCode: null, signal: null, cancellation: 'not_requested', stdout: '', stderr: '' }) };
     this.#queue.push(pending);
@@ -304,26 +319,27 @@ export class CsvJobRunner {
   }
 
   /** Only persisted, session-authorized artifact records should reach the runner. */
-  async download(artifact: CsvArtifact): Promise<Buffer> {
+  async download(artifact: McpArtifact): Promise<Buffer> {
     const { id, projectId, sessionId, attemptId, bytes, sha256: digest } = artifact;
-    if (!UUID.test(id) || !SHA256.test(digest) || artifact.name !== 'statistics.json' || artifact.mimeType !== 'application/json'
-      || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > CSV_LIMITS.artifactBytes) {
-      throw new CsvJobError('ARTIFACT_DENIED', 'Invalid CSV artifact reference.');
+    const binding = builtins.get(artifact.mcpAlias ?? csvRegistration.binding.identity.alias)?.binding;
+    if (!binding || !UUID.test(id) || !SHA256.test(digest) || artifact.name !== binding.outputName || artifact.mimeType !== binding.mimeType
+      || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > binding.outputBytes) {
+      throw new CsvJobError('ARTIFACT_DENIED', 'Invalid MCP artifact reference.');
     }
     try {
       const directory = join(await this.#root('attempts'), attemptKey({ projectId, sessionId, attemptId }));
       const receipt: unknown = JSON.parse((await readBounded(directory, 'artifact.json', 8 * 1024)).toString('utf8'));
       if (!object(receipt) || receipt.id !== id || receipt.projectId !== projectId || receipt.sessionId !== sessionId
         || receipt.attemptId !== attemptId || receipt.bytes !== bytes || receipt.sha256 !== digest
-        || receipt.name !== artifact.name || receipt.mimeType !== artifact.mimeType) {
-        throw new CsvJobError('ARTIFACT_DENIED', 'CSV artifact reference does not match its receipt.');
+        || receipt.mcpAlias !== artifact.mcpAlias || receipt.name !== artifact.name || receipt.mimeType !== artifact.mimeType) {
+        throw new CsvJobError('ARTIFACT_DENIED', 'MCP artifact reference does not match its receipt.');
       }
-      const content = await readBounded(directory, artifact.name, CSV_LIMITS.artifactBytes);
-      if (content.length !== bytes || sha256(content) !== digest) throw new CsvJobError('ARTIFACT_DENIED', 'CSV artifact failed verification.');
+      const content = await readBounded(directory, binding.outputName, binding.outputBytes);
+      if (content.length !== bytes || sha256(content) !== digest) throw new CsvJobError('ARTIFACT_DENIED', 'MCP artifact failed verification.');
       return content;
     } catch (error) {
       if (error instanceof CsvJobError && error.code === 'ARTIFACT_DENIED') throw error;
-      throw new CsvJobError('ARTIFACT_DENIED', 'CSV artifact is unreadable or failed verification.', { cause: error });
+      throw new CsvJobError('ARTIFACT_DENIED', 'MCP artifact is unreadable or failed verification.', { cause: error });
     }
   }
 
@@ -341,19 +357,19 @@ export class CsvJobRunner {
   }
 
   #assertOpen(): void {
-    if (this.#closed || this.#halted) throw new CsvJobError('CLOSED', 'The CSV job runner is not accepting work.');
+    if (this.#closed || this.#halted) throw new CsvJobError('CLOSED', 'The job runner is not accepting work.');
   }
 
-  #emit(event: CsvJobEvent): void {
+  #emit(event: JobEvent): void {
     try {
       this.#observer?.(event);
     } catch (error) {
-      process.emitWarning('The CSV job event observer failed.', { code: 'CSV_OBSERVER_FAILED', detail: error instanceof Error ? error.message : String(error) });
+      process.emitWarning('The job event observer failed.', { code: 'CSV_OBSERVER_FAILED', detail: error instanceof Error ? error.message : String(error) });
     }
   }
 
-  #finish(pending: Pending, result: Partial<CsvAttempt> & { readonly status: CsvAttempt['status'] }): void {
-    let attempt: CsvAttempt = Object.freeze({ ...pending.attempt, ...result, endedAt: Date.now() });
+  #finish(pending: Pending, result: Partial<JobAttempt> & { readonly status: JobAttempt['status'] }): void {
+    let attempt: JobAttempt = Object.freeze({ ...pending.attempt, ...result, endedAt: Date.now() });
     let haltQueue = false;
     pending.terminate = undefined;
     pending.attempt = attempt;
@@ -383,7 +399,12 @@ export class CsvJobRunner {
   }
 
   #stop(pending: Pending, reason: StopReason): void {
-    if (pending.stop || pending.attempt.endedAt !== null || (pending.exited && reason !== 'output_limit')) return;
+    if (pending.stop || pending.attempt.endedAt !== null) return;
+    if (pending.exited && reason !== 'output_limit') {
+      // A clean worker exit can precede asynchronous verification and receipt persistence.
+      if (pending.registration && reason === 'cancelled') pending.cancelBeforePublication = true;
+      return;
+    }
     pending.stop = reason;
     const index = this.#queue.indexOf(pending);
     if (index >= 0) {
@@ -418,29 +439,37 @@ export class CsvJobRunner {
         await this.#runAnalysis(pending,pending.analysis,cwd);
         return;
       }
-      if (!job.grantId) throw new CsvJobError('GRANT_DENIED','Missing CSV grant ID.');
+      const registration = pending.registration;
+      if (!registration) throw new CsvJobError('INVALID_INPUT','Missing MCP registration.');
+      const binding = registration.binding;
+      if (!job.grantId) throw new CsvJobError('GRANT_DENIED','Missing MCP grant ID.');
       const grantDir = join(await this.#root('grants'), job.grantId);
-      let grant: CsvGrant;
+      let grant: McpGrant;
       let bytes: Buffer;
       try {
         grant = parseGrant(await readBounded(grantDir, 'grant.json', 8 * 1024), job.grantId, {
           projectId: job.projectId, sessionId: job.sessionId,
         });
-        bytes = await readBounded(grantDir, 'input.csv', CSV_LIMITS.inputBytes);
+        if ((grant.mcpAlias ?? csvRegistration.binding.identity.alias) !== binding.identity.alias || !registration.acceptsFile(grant.name)) {
+          throw new CsvJobError('GRANT_DENIED','Input grant belongs to a different tool.');
+        }
+        bytes = await readBounded(grantDir, binding.inputName, binding.inputBytes);
         if (bytes.length !== grant.bytes || sha256(bytes) !== grant.sha256) {
-          throw new CsvJobError('GRANT_DENIED', 'CSV input failed grant verification.');
+          throw new CsvJobError('GRANT_DENIED', 'MCP input failed grant verification.');
         }
       } catch (error) {
         if (error instanceof CsvJobError && error.code === 'GRANT_DENIED') throw error;
-        throw new CsvJobError('GRANT_DENIED', 'CSV input grant is unavailable to this project and session.', { cause: error });
+        throw new CsvJobError('GRANT_DENIED', 'MCP input grant is unavailable to this project and session.', { cause: error });
       }
 
-      const inputPath = join(cwd, 'input.csv');
-      const outputPath = join(cwd, 'statistics.json');
+      const inputPath = join(cwd, binding.inputName);
+      const outputPath = join(cwd, binding.outputName);
+      const worker = runtimeFile(binding.worker);
+      const modules = [worker, runtimeFile('mcp-contract.mjs'), runtimeFile('mcp-worker.mjs')];
       const args = Object.freeze([
-        '--permission', `--allow-fs-read=${WORKER}`, `--allow-fs-read=${inputPath}`, `--allow-fs-write=${outputPath}`,
-        `--max-old-space-size=${CSV_LIMITS.heapMiB}`, '--disallow-code-generation-from-strings', '--no-addons',
-        '--', WORKER,
+        '--permission', ...modules.map(path => `--allow-fs-read=${path}`), `--allow-fs-read=${inputPath}`, `--allow-fs-write=${outputPath}`,
+        `--max-old-space-size=${MCP_LIMITS.heapMiB}`, '--disallow-code-generation-from-strings', '--no-addons',
+        '--', worker,
       ]);
       await writeFile(inputPath, bytes, { flag: 'wx', mode: 0o400 });
       if (pending.stop) {
@@ -448,7 +477,7 @@ export class CsvJobRunner {
         return;
       }
       pending.attempt = Object.freeze({ ...pending.attempt, cwd, args, grant });
-      processResult = await this.#execute(pending, cwd, args);
+      processResult = await this.#execute(pending, cwd, args, registration);
       const { exitCode, signal, termination, stop, error } = processResult;
       const exit = { exitCode, signal, cancellation: termination };
       if (termination === 'unknown') {
@@ -459,35 +488,35 @@ export class CsvJobRunner {
       switch (stop) {
         case 'cancelled': case 'timed_out':
           this.#finish(pending, { ...exit, status: stop,
-            error: stop === 'timed_out' ? 'CSV process exceeded its time limit.' : undefined });
+            error: stop === 'timed_out' ? 'MCP process exceeded its time limit.' : undefined });
           return;
         case 'output_limit':
-          this.#finish(pending, { ...exit, status: 'failed', error: 'CSV process exceeded a stdout or stderr byte limit.' });
+          this.#finish(pending, { ...exit, status: 'failed', error: 'MCP process exceeded a stdout or stderr byte limit.' });
           return;
         case undefined:
           break;
       }
       if (exitCode !== 0 || signal !== null || error) {
-        this.#finish(pending, { ...exit, status: 'failed', error: error ?? 'CSV process did not exit successfully.' });
+        this.#finish(pending, { ...exit, status: 'failed', error: error ?? 'MCP process did not exit successfully.' });
         return;
       }
-      const content = await readBounded(cwd, 'statistics.json', CSV_LIMITS.artifactBytes);
-      if (sha256(content) !== processResult.outputDigest) throw new CsvJobError('INVALID_FILE', 'MCP result does not match the stored statistics file.');
-      const summary: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(content));
-      if (!object(summary) || summary.schemaVersion !== 1 || !Array.isArray(summary.columns) || !Array.isArray(summary.statistics)
-        || typeof summary.rowCount !== 'number' || !Number.isSafeInteger(summary.rowCount) || summary.rowCount < 0) {
-        throw new CsvJobError('INVALID_FILE', 'CSV worker did not produce a statistics JSON artifact.');
-      }
-      const artifact: CsvArtifact = Object.freeze({ id: randomUUID(), projectId: job.projectId, sessionId: job.sessionId,
-        attemptId: job.attemptId, name: 'statistics.json', mimeType: 'application/json', bytes: content.length, sha256: sha256(content) });
+      const content = await readBounded(cwd, binding.outputName, binding.outputBytes);
+      const digest = verifyMcpOutput(registration, content, processResult.outputDigest);
+      const artifact: McpArtifact = Object.freeze({ id: randomUUID(), projectId: job.projectId, sessionId: job.sessionId,
+        attemptId: job.attemptId, mcpAlias:binding.identity.alias, name: binding.outputName, mimeType: binding.mimeType, bytes: content.length, sha256: digest });
       await writeFile(join(cwd, 'artifact.json'), JSON.stringify(artifact), { flag: 'wx', mode: 0o400 });
+      if (pending.cancelBeforePublication) {
+        await rm(join(cwd, 'artifact.json'));
+        this.#finish(pending, { ...exit, status: 'cancelled', cancellation: 'confirmed' });
+        return;
+      }
       this.#finish(pending, { ...exit, status: 'succeeded', artifact });
     } catch (error) {
       if (!processResult && pending.stop) {
         this.#finish(pending, { status: 'cancelled', cancellation: 'confirmed' });
       } else {
         this.#finish(pending, { status: 'failed', exitCode: processResult?.exitCode ?? null, signal: processResult?.signal ?? null,
-          error: error instanceof Error ? error.message : 'CSV attempt failed.' });
+          error: error instanceof Error ? error.message : 'Job attempt failed.' });
       }
     }
   }
@@ -497,7 +526,7 @@ export class CsvJobRunner {
     pending.terminate=()=>ctl.abort();
     let exitCode:number|null=null;
     let exitSignal:NodeJS.Signals|null=null;
-    let cancellation:CsvAttempt['cancellation']='not_requested';
+    let cancellation:JobAttempt['cancellation']='not_requested';
     let artifacts:readonly AnalysisArtifact[]|undefined;
     let failure:string|undefined;
     try {
@@ -559,7 +588,7 @@ export class CsvJobRunner {
     this.#finish(pending,{status,exitCode,signal:exitSignal,artifacts,cancellation,error});
   }
 
-  #execute(pending: Pending, cwd: string, args: readonly string[]): Promise<ProcessResult> {
+  #execute(pending: Pending, cwd: string, args: readonly string[], registration:Registration): Promise<ProcessResult> {
     const child = spawn(pending.attempt.program, args, { cwd, env: ENV, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     return new Promise(resolveResult => {
       let ended = false;
@@ -576,7 +605,7 @@ export class CsvJobRunner {
       };
       const consume = (stream: 'stdout' | 'stderr', chunk: Buffer) => {
         const sink = stream === 'stdout' ? stdout : stderr;
-        const remaining = CSV_LIMITS.streamBytes - sink.size;
+        const remaining = MCP_LIMITS.streamBytes - sink.size;
         const accepted = chunk.subarray(0, remaining);
         const fragment = sink.decoder.write(accepted);
         sink.size += accepted.length;
@@ -588,8 +617,8 @@ export class CsvJobRunner {
         }
       };
 
-      const client = csvMcpClient(child.stdin, pending.attempt.toolId, pending.attempt.column, phase => {
-        pending.attempt = Object.freeze({ ...pending.attempt, mcp: { ...csvServer, phase } });
+      const client = mcpClient(child.stdin, registration, pending.attempt.toolId, pending.attempt.toolArguments ?? {}, phase => {
+        pending.attempt = Object.freeze({ ...pending.attempt, mcp: { ...registration.binding.identity, phase } });
         consume('stdout', Buffer.from('MCP ' + phase + '\n'));
       });
       let wireBytes = 0;
@@ -623,7 +652,7 @@ export class CsvJobRunner {
         const pid = child.pid;
         if (pid !== undefined && !pending.exited && child.exitCode === null && child.signalCode === null) {
           try { signalled = process.kill(-pid, 'SIGKILL'); } catch (failure) {
-            if (errorCode(failure) !== 'ESRCH') error = 'Could not signal the live CSV process group.';
+            if (errorCode(failure) !== 'ESRCH') error = 'Could not signal the live MCP process group.';
           }
         }
         stopTimer = setTimeout(() => {
@@ -631,14 +660,14 @@ export class CsvJobRunner {
           child.stderr.destroy();
           child.unref();
           settle();
-        }, CSV_LIMITS.killWaitMs);
+        }, MCP_LIMITS.killWaitMs);
       };
       child.once('spawn', () => {
         pending.attempt = Object.freeze({ ...pending.attempt, status: 'running', pid: child.pid ?? null, startedAt: Date.now() });
         this.#emit({ type: 'process_started', attempt: pending.attempt });
         if (!pending.stop) client.initialize();
       });
-      child.once('error', failure => { error = `CSV process failed to launch: ${failure.message}`; });
+      child.once('error', failure => { error = `MCP process failed to launch: ${failure.message}`; });
       child.once('exit', (code, terminatingSignal) => {
         pending.exited = true;
         exitCode = code;
@@ -647,21 +676,21 @@ export class CsvJobRunner {
           clearTimeout(timeout);
           // The fixed worker cannot spawn children. Still bound pipe drain if that assumption is violated.
           stopTimer = setTimeout(() => {
-            error = 'CSV process exited without closing its output pipes.';
+            error = 'MCP process exited without closing its output pipes.';
             child.stdout.destroy();
             child.stderr.destroy();
             settle();
-          }, CSV_LIMITS.killWaitMs);
+          }, MCP_LIMITS.killWaitMs);
         }
       });
       child.once('close', settle);
       child.stdout.on('data', (chunk: Buffer) => {
         if (error || pending.stop) return;
         wireBytes += chunk.length;
-        if (wireBytes > CSV_LIMITS.streamBytes) { this.#stop(pending, 'output_limit'); return; }
+        if (wireBytes > MCP_LIMITS.streamBytes) { this.#stop(pending, 'output_limit'); return; }
         try { client.consume(wireDecoder.write(chunk)); }
         catch (failure) {
-          error = failure instanceof Error ? failure.message : 'Invalid measurement MCP response.';
+          error = failure instanceof Error ? failure.message : 'Invalid MCP response.';
           if (!client.finished) pending.terminate?.();
         }
       });
@@ -669,3 +698,7 @@ export class CsvJobRunner {
     });
   }
 }
+
+export { JobRunner as CsvJobRunner };
+export type { JobRunnerOptions as CsvJobRunnerOptions, JobEvent as CsvJobEvent,
+  JobAttempt as CsvAttempt, McpArtifact as CsvArtifact, McpGrant as CsvGrant };

@@ -11,7 +11,7 @@ export interface Task extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 
 export interface Agent extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; taskId: string; name: string; role: string; status: Status; model?: ModelReference }
 export interface Tool extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; taskId?: string | null; name: string; sdkToolName: string; status: Status; command?: string; cwd?: string; args?: unknown; logs: { at: number; text: string }[]; exitCode?: number | null }
 export interface Artifact extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; readonly processId?: string; readonly toolId?: string; readonly file?: ResultFile; readonly name?: string; readonly sha256?: string; readonly bytes?: number; version: string; taskId?: string; title: string; kind: string; status: string; documentId?: string; documentVersion?: string; text?: string; location?: { uri: string; label?: string }; review: { status: 'unreviewed' | 'in_review' | 'approved' | 'rejected'; version: string }; evidence: VersionRef[] }
-export interface ResultFile extends Scope { readonly id: string; readonly attemptId: string; readonly name: string; readonly versionId?: string; readonly mimeType: string; readonly bytes: number; readonly sha256: string }
+export interface ResultFile extends Scope { readonly id: string; readonly attemptId: string; readonly name: string; readonly versionId?: string; readonly mimeType: string; readonly bytes: number; readonly sha256: string; readonly mcpAlias?: string }
 export interface Attempt extends ExecutionScope { readonly id: string; readonly status: Status; readonly prompt?: string; readonly result?: string; readonly error?: string; readonly fileIds: readonly string[]; readonly model?: ModelReference; readonly kind?: 'reconciliation'; readonly retryOfAttemptId?: string }
 /** Reuse the request ID when the response is uncertain, including after reload. */
 export interface TaskRetryRequest { readonly requestId: string; readonly expectedAttemptId: string }
@@ -26,7 +26,15 @@ export interface ExecutionPolicy {
     readonly node: Interpreter; readonly python: Interpreter;
   };
 }
+/** v1 metadata is supplied by the registered host; optional fields preserve historical CSV records. */
+export interface ProcessMcp {
+  readonly registryVersion?: number; readonly server: string; readonly displayName?: string;
+  readonly version: string; readonly protocol: string; readonly tool: string;
+  readonly alias?: string; readonly resultKind?: string;
+  readonly phase: 'initialize' | 'tools/list' | 'tools/call';
+}
 export interface ProcessJob {
+  readonly mcp?: ProcessMcp;
   readonly program?: string; readonly args?: readonly string[]; readonly cwd?: string | null;
   readonly limits?: Readonly<Record<string, number>>; readonly policy?: Readonly<Record<string, unknown>>;
   readonly pid?: number | null; readonly startedAt?: number | null; readonly endedAt?: number | null;
