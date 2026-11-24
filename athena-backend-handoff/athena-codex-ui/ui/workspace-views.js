@@ -132,6 +132,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const artifactVersion = item => item?.version == null ? '' : String(item.version);
     const artifactKey = item => item.id + '\u241f' + artifactVersion(item);
     const artifact = () => artifactList().find(item => item.id === state.artifactId && (state.artifactVersion == null || artifactVersion(item) === String(state.artifactVersion))) || null;
+    const artifactProcess = item => (snapshot.processes || []).find(process => process.id === item?.processId);
+    const artifactDownload = item => window.AthenaResultFiles?.href(snapshot.sessionId, item, artifactProcess(item));
     const isAvailable = id => (snapshot.artifacts || []).some(item => item.id === id && (!live() || state.artifactVersion == null || artifactVersion(item) === String(state.artifactVersion)) && (live() ? item.status !== 'unavailable' : item.status === 'available'));
     const can = capability => !live() || snapshot.capabilities?.[capability] === true;
     const scopeKey = value => [value.mode, value.projectId, value.sessionId].join('\u241f');
@@ -278,7 +280,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function processButton(process) {
       const job = process.job || process;
       const ids = [process.id, process.processId, process.taskId, process.attemptId, process.agentSessionId];
-      const description = job.mcp ? 'MCP · ' + labels.text(job.mcp.tool, 'Calculation', ids) + ' · ' + labels.text(job.mcp.phase, 'Working', ids)
+      const registered = window.AthenaResultFiles?.mcp(job.mcp);
+      const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
+      const description = job.mcp ? [registered?.name || 'Engineering calculation', ['queued', 'running'].includes(process.status) && phase].filter(Boolean).join(' · ')
         : labels.text(job.program, 'Background process', ids);
       return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(description) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }
@@ -303,13 +307,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       press('[data-awv-action="workflow-mode"]', state.workflowMode);
       setText('[data-awv-task-count]', tasks().filter(t => t.status === 'succeeded').length + ' / ' + tasks().length + ' complete');
       setHTML('[data-awv-workflow-map]', workflowMap());
-      const measurements = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
-      setHTML('[data-awv-measurements]', measurements.map(p => {
+      const calculations = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
+      setHTML('[data-awv-measurements]', calculations.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
+        const registered = window.AthenaResultFiles?.mcp(p.job.mcp);
         return '<section class="awv-task-detail"><h3>' + esc(taskTitle(p.taskId)) + '</h3>'
           + processButton(p) + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
-          + (file ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
-            + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + 'View measurement results</button>' : '') + '</section>';
+          + (file && artifactDownload(file) ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
+            + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + esc(registered?.action || 'View saved result') + '</button>' : '') + '</section>';
       }).join(''));
       const item = task(state.taskId);
       if (!item) { setHTML('[data-awv-task-detail]', '<div class="awv-empty"><h3>' + (live() && !snapshot.taskManagerConnected ? 'TaskManager not connected' : 'No tasks in this run') + '</h3><p>' + (live() && !snapshot.taskManagerConnected ? 'The Pi session can report messages and tool activity. Task scheduling, agent assignments, and output links need the Athena TaskManager connection.' : live() ? 'Tasks will appear when the connected TaskManager reports them.' : 'Choose a development scenario to inspect sample tasks.') + '</p></div>'); return; }
@@ -442,8 +447,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function liveArtifactHTML(item) {
-      const body = typeof item.text === 'string' ? item.text : null, location = safeLocation(item);
-      const download = window.AthenaResultFiles?.href(snapshot.sessionId, item);
+      const body = typeof item.text === 'string' ? item.text : null;
+      const location = artifactProcess(item)?.job?.mcp || item.file?.mcpAlias !== undefined ? null : safeLocation(item);
+      const download = artifactDownload(item);
       const file = item.file || item;
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(value) + '</dd></div>';
       const provenance = field('Filename', file.name) + field('Media type', file.mimeType) + field('Bytes', file.bytes);
@@ -470,21 +476,46 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
     }
 
-    async function renderMeasurementTable(section, url) {
+    function mcpResultHTML(kind, data) {
+      const record = value => value && typeof value === 'object' && !Array.isArray(value);
+      const finite = value => typeof value === 'number' && Number.isFinite(value);
+      const count = value => Number.isSafeInteger(value) && value >= 0;
+      if (!record(data) || data.schemaVersion !== 1) return null;
+      if (kind === 'rc-step-response') {
+        if (!finite(data.timeConstantSeconds) || data.timeConstantSeconds <= 0 || !finite(data.cutoffHz) || data.cutoffHz <= 0
+          || !Array.isArray(data.samples) || !data.samples.length || data.samples.length > 512
+          || !data.samples.every(sample => record(sample) && finite(sample.timeSeconds) && sample.timeSeconds >= 0 && finite(sample.outputVolt))) return null;
+        return '<section data-awv-rc-response><h4>RC step response</h4><dl class="awv-metrics">'
+          + '<div><dt>Time constant</dt><dd>' + esc(data.timeConstantSeconds) + '<small> s</small></dd></div>'
+          + '<div><dt>Cutoff frequency</dt><dd>' + esc(data.cutoffHz) + '<small> Hz</small></dd></div></dl>'
+          + '<p class="awv-caption">Ideal first-order RC low-pass · initial capacitor voltage 0 V · input step at 0 s.</p>'
+          + '<p class="awv-caption">Input units: resistance Ω · capacitance F · step voltage V · sample time s.</p>'
+          + '<table class="awv-table"><caption>Saved response · ' + data.samples.length + ' samples</caption><thead><tr><th scope="col">Time (s)</th><th scope="col">Output (V)</th></tr></thead><tbody>'
+          + data.samples.map(sample => '<tr><td>' + esc(sample.timeSeconds) + '</td><td>' + esc(sample.outputVolt) + '</td></tr>').join('') + '</tbody></table></section>';
+      }
+      if (kind !== 'csv-statistics' || !count(data.rowCount) || !Array.isArray(data.columns) || !data.columns.every(column => typeof column === 'string')
+        || !Array.isArray(data.statistics) || !data.statistics.length || !data.statistics.every(stat => record(stat) && typeof stat.column === 'string' && data.columns.includes(stat.column)
+          && count(stat.count) && count(stat.missing) && count(stat.nonNumeric) && stat.count + stat.missing + stat.nonNumeric === data.rowCount
+          && [stat.min, stat.mean, stat.max].every(value => stat.count === 0 ? value === null : finite(value)))) return null;
+      const fields = ['column', 'count', 'missing', 'nonNumeric', 'min', 'mean', 'max'];
+      const headings = ['Column', 'Numeric', 'Missing', 'Nonnumeric', 'Min', 'Mean', 'Max'];
+      return '<table class="awv-table"><caption>Measurement statistics · ' + esc(data.rowCount)
+        + ' rows</caption><thead><tr>' + headings.map(h => '<th scope="col">' + h + '</th>').join('')
+        + '</tr></thead><tbody>' + data.statistics.map(stat => '<tr>' + fields.map((key, index) =>
+          index === 0 ? '<th scope="row">' + esc(stat[key]) + '</th>' : '<td>' + esc(stat[key] ?? '—') + '</td>'
+        ).join('') + '</tr>').join('') + '</tbody></table>';
+    }
+
+    async function renderMcpResult(section, url, resultKind) {
       try {
         const response = await window.fetch(url, { credentials: 'same-origin' });
         if (!response.ok) throw new Error();
         const data = await response.json();
-        if (data.schemaVersion !== 1 || !Array.isArray(data.statistics)) throw new Error();
-        const fields = ['column', 'count', 'missing', 'nonNumeric', 'min', 'mean', 'max'];
-        const headings = ['Column', 'Numeric', 'Missing', 'Nonnumeric', 'Min', 'Mean', 'Max'];
-        section.innerHTML = '<table class="awv-table"><caption>Measurement statistics · ' + esc(data.rowCount)
-          + ' rows</caption><thead><tr>' + headings.map(h => '<th scope="col">' + h + '</th>').join('')
-          + '</tr></thead><tbody>' + data.statistics.map(stat => '<tr>' + fields.map((key, index) =>
-            index === 0 ? '<th scope="row">' + esc(stat[key]) + '</th>' : '<td>' + esc(stat[key] ?? '—') + '</td>'
-          ).join('') + '</tr>').join('') + '</tbody></table>';
+        const html = mcpResultHTML(resultKind, data);
+        if (html === null) { section.textContent = 'The saved result format is not supported.'; return; }
+        section.innerHTML = html;
       } catch {
-        section.textContent = 'Could not load the saved measurement file.';
+        section.textContent = 'Could not load the saved result file.';
       }
     }
 
@@ -496,27 +527,31 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!item) values.unshift(['', state.artifactId ? 'Requested version unavailable' : 'No artifacts reported']);
       syncSelect('[data-awv-artifact-select]', values, item ? live() ? artifactKey(item) : item.id : '');
       const select = q('[data-awv-artifact-select]'); if (select) select.disabled = !items.length;
+      const holder = q('[data-awv-artifact-view]');
+      // Empty and populated views invalidate each other's render cache.
+      if (!item) delete holder.dataset.awvArtifact;
       if (!item) { setHTML('[data-awv-provenance]', '<span class="awv-provenance-label">' + icon('files') + 'Runtime artifacts</span><p>No example output is substituted for a missing runtime artifact.</p>'); setHTML('[data-awv-artifact-view]', '<div class="awv-empty"><h3>' + (state.artifactId ? 'Artifact version unavailable' : 'No artifacts reported') + '</h3><p>' + (state.artifactId ? 'The requested artifact version is not available in this conversation.' : snapshot.taskManagerConnected ? 'Outputs will appear when tasks produce results.' : 'Connect TaskManager to link output artifacts to tasks.') + '</p>' + (state.artifactId ? labels.diagnostics([['Artifact ID', state.artifactId], ['Version', state.artifactVersion]], 'unavailable-artifact') : '') + '</div>'); return; }
       const available = isAvailable(item.id);
       const canonical = canonicalDocument(item);
       setHTML('[data-awv-provenance]', live() ? '<span class="awv-provenance-label">' + icon('file-text') + 'Runtime artifact</span><p>' + esc(artifactTitle(item)) + ' · v' + esc(artifactVersion(item) || 'not reported') + '</p>' : canonical ? '<span class="awv-provenance-label">' + icon('file-text') + 'Document revision</span><p>' + esc(canonical.doc.documentId) + ' · v' + esc(canonical.version.version) + ' · ' + (canonical.version.persistence === 'host' ? 'Project storage confirmed' : 'Session revision') + '</p>' : '<span class="awv-provenance-label">' + icon(available ? 'circle-check' : 'book-open') + (available ? 'Local demo output' : 'Example library') + '</span><p>' + (available ? 'The matching demo task completed. This remains an authored, synthetic example.' : 'Preview available before the run. This is authored sample material, not a completed run output.') + '</p>');
-      const holder = q('[data-awv-artifact-view]');
-      const signature = JSON.stringify([live(), item, state.citation, state.documentVersion, state.referenceOpen, canonical?.doc, options.records?.getState().capabilities]);
+      const process = live() && artifactProcess(item);
+      const registered = process && window.AthenaResultFiles?.mcpOutput(process, item);
+      const signature = JSON.stringify([live(), item, process?.status, process?.job?.mcp, process?.job?.artifact, state.citation, state.documentVersion, state.referenceOpen, canonical?.doc, options.records?.getState().capabilities]);
       if (force || holder.dataset.awvArtifact !== signature) {
         const focusKey = holder.contains(document.activeElement) ? document.activeElement?.dataset?.awvFocus : null;
         rememberDiagnostics(holder);
+        delete holder._awvHTML;
         holder.innerHTML = canonical ? noteHTML() : live() ? liveArtifactHTML(item) : ({ plot: plotHTML, evidence: evidenceHTML, code: codeHTML, reference: referenceHTML, document: noteHTML }[item.kind] || (() => '<p class="awv-empty">No preview renderer is connected for this artifact.</p>'))();
-        const process = live() && (snapshot.processes || []).find(p => p.id === item.processId && p.status === 'succeeded'
-          && p.job?.mcp?.tool === 'calculate_csv' && p.job.artifact?.id === item.id);
-        const download = process && window.AthenaResultFiles?.href(snapshot.sessionId, item);
+        const download = process?.job?.mcp && artifactDownload(item);
         if (download) {
           const section = document.createElement('div');
           section.className = 'awv-table-scroll';
           section.setAttribute('aria-live', 'polite');
-          section.textContent = 'Loading saved measurements…';
+          section.setAttribute('data-awv-mcp-result', registered?.resultKind || 'unsupported');
+          section.textContent = registered ? 'Loading saved ' + (registered.resultKind === 'csv-statistics' ? 'measurements' : 'RC response') + '…' : 'A structured preview is not available for this tool version. Download the saved result to inspect it.';
           holder.querySelector('h3').parentElement.after(section);
           // The request owns this element. A late reply can only update its detached old view.
-          void renderMeasurementTable(section, download);
+          if (registered) void renderMcpResult(section, download, registered.resultKind);
         }
         restoreDiagnostics(holder);
         holder.dataset.awvArtifact = signature;

@@ -62,6 +62,26 @@ function retrySnapshot(revision = 1, patch = {}) {
   return { ...current, tasks: [{ ...current.tasks[0], parentTaskId: 'root-task', attemptId: 'attempt-1', status: 'paused', retryable: true }], attempts: [{ id: 'attempt-1', taskId: 'task-1', status: 'paused', error: 'Host restarted.' }], ...patch };
 }
 
+test('host snapshots retain registered MCP metadata and artifact receipts through hydration and process updates', async t => {
+  const { circuits } = await import(path.resolve(__dirname, '../../../runtime/mcp-contract.mjs'));
+  const { workspace } = create(t), scope = { projectId: 'project-1', sessionId: 'session-1', runId: 'run-1' };
+  const metadata = { ...circuits, phase: 'tools/list' };
+  const process = { ...scope, id: 'process-rc', processId: 'process-rc', taskId: 'task-1', attemptId: 'attempt-rc', toolId: 'tool-1', status: 'running', job: { mcp: metadata } };
+  const initial = snapshot(1, { processes: [process], artifacts: [] }), host = manager(initial);
+  await workspace.attach(host);
+  assert.deepEqual(plain(workspace.getState().processes[0].job.mcp), metadata);
+  metadata.displayName = 'Mutated outside the accepted snapshot';
+  assert.equal(workspace.getState().processes[0].job.mcp.displayName, circuits.displayName);
+  const file = { ...scope, id: 'rc-file', attemptId: 'process-rc', name: 'rc-response.json', mimeType: 'application/json', bytes: 150, sha256: 'a'.repeat(64), mcpAlias: circuits.alias };
+  const complete = { ...process, status: 'succeeded', job: { mcp: { ...circuits, phase: 'tools/call' }, artifact: file } };
+  const artifact = { ...scope, id: file.id, processId: process.id, taskId: process.taskId, version: 'file-v1', title: file.name, status: 'ready', file };
+  host.emit(snapshot(2, { processes: [complete], artifacts: [artifact] }));
+  assert.deepEqual(plain(workspace.getState().processes[0]), complete);
+  assert.deepEqual(plain(workspace.getState().artifacts[0]), artifact);
+  workspace.confirmSession({ sessionId: 'session-other', projectId: 'project-other' });
+  assert.deepEqual(plain(workspace.getState().processes), []); assert.deepEqual(plain(workspace.getState().artifacts), []);
+});
+
 test('manual retry deduplicates pending clicks and preserves reported history until the host updates it', async t => {
   const { workspace } = create(t), pending = deferred();
   const initial = retrySnapshot(), host = manager(initial, ['retry_task']);
