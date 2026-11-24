@@ -1048,6 +1048,8 @@ test('Pi inline tool rows preserve disclosure, focus and output identity while s
     assert.match(row.querySelector('.ap-tool-target').textContent, /<img onerror=bad\(\)>/);
     env.click(row.querySelector('summary'));
     assert.equal(row.open, true);
+    const rawDetails = row.querySelector('[data-aw-diagnostics]');
+    if (rawDetails) env.click(rawDetails.querySelector('summary'));
     const copy = row.querySelector('[data-ap-copy="output"]'); copy.focus();
     pi.receive({ type: 'tool_execution_update', toolCallId: 'read-live', toolName: 'read', partialResult: result('<b>literal output</b>') });
     assert.equal(slot.querySelector('[data-ap-tool="read-live"]'), row);
@@ -2067,7 +2069,7 @@ test('A TaskManager-only workspace never substitutes demonstration tasks or arti
   app.openWorkspace('artifacts', { artifactId: 'research-note' });
   assert.equal(env.q('[data-awv-artifact-select]').disabled, true);
   assert.equal([...env.q('[data-awv-artifact-select]').options].filter(option => option.value !== '').length, 0, 'The sole empty-state placeholder is not a substitute artifact.');
-  assert.match(env.q('[data-awv-artifact-view]').textContent, /not available.*snapshot/);
+  assert.match(env.q('[data-awv-artifact-view]').textContent, /requested artifact version is not available/);
   assert.equal(env.qa('#ac-workbench-slot [data-awv-action="original-reference"]').length, 0);
   assert.equal(app.startDemo(), false); assert.equal(env.state().workspace.mode, 'runtime');
 });

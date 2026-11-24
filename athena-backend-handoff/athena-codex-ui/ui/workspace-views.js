@@ -111,7 +111,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     if (!host || !options.store?.getState || !options.store?.subscribe) throw new Error('Workspace views require a host and a workspace store.');
     const store = options.store;
     const abort = new AbortController();
-    const urls = new Set(), timers = new Set();
+    const urls = new Set(), timers = new Set(), diagnosticState = new Map();
     const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
     let snapshot = store.getState(), destroyed = false, unsubscribe = null, recordUnsubscribe = null, resizeObserver = null;
     let history = { key: '', messages: [], status: '', error: '' };
@@ -121,6 +121,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const refreshIcons = () => options.icons ? options.icons() : window.lucide?.createIcons({ attrs: { 'aria-hidden': 'true' } });
     const tasks = () => snapshot.tasks || [];
     const task = id => tasks().find(item => item.id === id);
+    const labels = window.AthenaActivityLabels;
+    const taskTitle = (item, fallback) => labels.task(item, tasks(), fallback);
+    const agentTitle = agent => labels.agent(agent, tasks());
+    const attemptTitle = (id, item) => labels.attempt(id, { ...item, attempts: (snapshot.attempts || []).filter(attempt => attempt.taskId === item?.id) });
+    const artifactTitle = item => labels.text(item.title || item.filename || item.file?.name, 'Result file', [item.id, item.taskId, item.runId, item.agentSessionId, item.attemptId]);
     const live = () => snapshot.mode === 'runtime';
     const artifactList = () => live() ? (snapshot.artifacts || []) : ARTIFACTS;
     const artifactVersion = item => item?.version == null ? '' : String(item.version);
@@ -145,16 +150,22 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       try { const url = new URL(uri); return ['https:', 'http:', 'blob:'].includes(url.protocol) && !url.username && !url.password ? uri : null; } catch (_) { return null; }
     }
     const setText = (selector, value) => { const el = q(selector); if (el && el.textContent !== String(value)) el.textContent = String(value); };
+    const rememberDiagnostics = el => el.querySelectorAll('[data-aw-diagnostics]').forEach(detail => diagnosticState.set(detail.dataset.awDiagnostics, detail.open));
+    const restoreDiagnostics = el => el.querySelectorAll('[data-aw-diagnostics]').forEach(detail => { detail.open = diagnosticState.get(detail.dataset.awDiagnostics) === true; });
     const setHTML = (selector, html) => {
       const el = typeof selector === 'string' ? q(selector) : selector;
       if (!el || el._awvHTML === html) return false;
       const active = document.activeElement;
       const key = el.contains(active) ? active?.dataset?.awvFocus : null;
+      const diagnosticKey = el.contains(active) && active?.matches?.('summary') ? active.parentElement?.dataset.awDiagnostics : null;
       const scroll = el.scrollTop;
+      rememberDiagnostics(el);
       el.innerHTML = html;
       el._awvHTML = html;
+      restoreDiagnostics(el);
       el.scrollTop = scroll;
       if (key) Array.from(el.querySelectorAll('[data-awv-focus]')).find(item => item.dataset.awvFocus === key)?.focus({ preventScroll: true });
+      else if (diagnosticKey) Array.from(el.querySelectorAll('[data-aw-diagnostics]')).find(item => item.dataset.awDiagnostics === diagnosticKey)?.querySelector('summary')?.focus({ preventScroll: true });
       return true;
     };
     const press = (selector, selected) => qa(selector).forEach(el => el.setAttribute('aria-pressed', String(el.dataset.awvValue === selected)));
@@ -168,7 +179,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function headerHTML() {
       const view = VIEWS[state.view];
-      return '<header class="awv-heading"><div class="awv-heading-top"><h2 tabindex="-1" data-awv-heading>' + icon(view[2]) + esc(view[0]) + '</h2><span class="awv-run-status" data-awv-run-status></span></div><p data-awv-view-description>' + view[1] + '</p><div class="awv-heading-meta"><span data-awv-mode-label>UI preview</span><span data-awv-run-time>Not started</span></div></header>';
+      return '<header class="awv-heading"><div class="awv-heading-top"><h2 tabindex="-1" data-awv-heading>' + icon(view[2]) + esc(view[0]) + '</h2><span class="awv-run-status" data-awv-run-status></span></div><p data-awv-view-description>' + view[1] + '</p><div class="awv-heading-meta"><span data-awv-mode-label>UI preview</span><span data-awv-run-time>Not started</span></div><div data-awv-context-details></div></header>';
     }
 
     function segmented(name, values) {
@@ -180,7 +191,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function artifactShell() {
-      return '<div class="awv-scroll"><label class="awv-artifact-selector"><span>Artifact</span><select data-awv-artifact-select aria-label="Select artifact">' + artifactList().map(item => '<option value="' + esc(live() ? artifactKey(item) : item.id) + '">' + esc(item.title || item.id) + (live() ? ' · ' + esc(artifactVersion(item) || 'Version not reported') : '') + '</option>').join('') + '</select></label><div class="awv-artifact-provenance" data-awv-provenance></div><div data-awv-artifact-view></div></div>';
+      return '<div class="awv-scroll"><label class="awv-artifact-selector"><span>Artifact</span><select data-awv-artifact-select aria-label="Select artifact">' + artifactList().map(item => '<option value="' + esc(live() ? artifactKey(item) : item.id) + '">' + esc(artifactTitle(item)) + (live() ? ' · ' + esc(artifactVersion(item) || 'Version not reported') : '') + '</option>').join('') + '</select></label><div class="awv-artifact-provenance" data-awv-provenance></div><div data-awv-artifact-view></div></div>';
     }
 
     function timelineShell() {
@@ -188,6 +199,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function shell() {
+      rememberDiagnostics(host);
       host.dataset.workspaceView = state.view;
       host.innerHTML = headerHTML() + ({ workflow: workflowShell, artifacts: artifactShell, timeline: timelineShell }[state.view])();
       update(true);
@@ -195,7 +207,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function updateHeading() {
       const run = snapshot.run || {};
-      setText('[data-awv-mode-label]', live() ? 'Runtime · ' + (snapshot.sessionId || 'Session not reported') : snapshot.mode === 'demo' ? 'Local demo' : 'UI preview');
+      setText('[data-awv-mode-label]', live() ? 'Current conversation' : snapshot.mode === 'demo' ? 'Local demo' : 'UI preview');
+      setHTML('[data-awv-context-details]', live() ? labels.diagnostics([['Session ID', snapshot.sessionId], ['Run ID', run.id]], 'view-context') : '');
       setText('[data-awv-view-description]', live() && state.view === 'artifacts' ? 'Artifacts reported for this session, with exact source versions.' : VIEWS[state.view][1]);
       setHTML('[data-awv-run-status]', badge(run.status || 'ready'));
       const elapsed = Math.floor((run.elapsedMs || 0) / 1000);
@@ -232,26 +245,27 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function taskOwner(item) {
       const agent = (snapshot.agents || []).find(a => a.taskId === item.id && (!item.agentSessionId || item.agentSessionId === a.agentSessionId));
-      return item.agentName || agent?.name || item.role || (live() ? 'Agent not reported' : 'Agent not assigned');
+      return labels.text(item.agentName, '', [item.id, item.agentSessionId, agent?.id]) || (agent ? agentTitle(agent) : labels.text(item.role, live() ? 'Agent not reported' : 'Agent not assigned', [item.id, item.agentSessionId]));
     }
     function taskNode(item, graph = false) {
-      const counts = taskProgress(item), title = item.title || item.id;
-      const dependencies = (item.dependencies || []).map(id => task(id)?.title || id);
+      const counts = taskProgress(item), title = taskTitle(item);
+      const dependencies = (item.dependencies || []).map(id => taskTitle(id, 'Related task'));
       const progress = counts ? '<span class="awv-progress" role="progressbar" aria-label="' + esc(title) + ' progress" aria-valuemin="0" aria-valuemax="' + counts.total + '" aria-valuenow="' + counts.progress + '"><span style="width:' + (counts.progress / counts.total * 100).toFixed(2) + '%"></span></span>' : '<span class="awv-task-dependencies">Progress not reported</span>';
       return '<button type="button" class="awv-task-node' + (state.taskId === item.id ? ' awv-selected' : '') + (graph ? ' awv-graph-node' : '') + '" data-awv-task="' + esc(item.id) + '" data-awv-focus="task-' + esc(item.id) + '" aria-pressed="' + (state.taskId === item.id) + '"><span class="awv-task-avatar">' + ava(item) + '</span><span class="awv-task-copy"><strong>' + esc(title) + '</strong><span class="awv-task-meta">' + esc(taskOwner(item)) + ' · ' + esc(label(item.status)) + '</span>' + (!graph ? '<span class="awv-task-dependencies">' + (dependencies.length ? 'After ' + esc(dependencies.join(' + ')) : 'No dependencies') + '</span>' : '') + progress + '</span>' + (!graph && counts ? '<span class="awv-task-counter">' + counts.progress + '/' + counts.total + '</span>' : '') + '</button>';
     }
 
     function workflowMap() {
-      if (live() && state.workflowMode === 'graph') return '<div class="awv-live-graph" aria-label="Task dependencies">' + tasks().map(item => '<section class="awv-live-graph-row">' + taskNode(item, true) + '<p class="awv-caption">Depends on: ' + ((item.dependencies || []).map(id => esc(task(id)?.title || id)).join(' · ') || 'No dependencies') + '</p></section>').join('') + '</div><p class="awv-caption">Dependencies come from TaskManager. The UI does not schedule these tasks.</p>';
+      if (live() && state.workflowMode === 'graph') return '<div class="awv-live-graph" aria-label="Task dependencies">' + tasks().map(item => '<section class="awv-live-graph-row">' + taskNode(item, true) + '<p class="awv-caption">Depends on: ' + ((item.dependencies || []).map(id => esc(taskTitle(id, 'Related task'))).join(' · ') || 'No dependencies') + '</p></section>').join('') + '</div><p class="awv-caption">Dependencies come from TaskManager. The UI does not schedule these tasks.</p>';
       if (state.workflowMode === 'list') return '<div class="awv-task-list">' + tasks().map(item => taskNode(item)).join('') + '</div>';
       const first = tasks().filter(item => !item.dependencies?.length), rest = tasks().filter(item => item.dependencies?.length);
-      return '<div class="awv-graph" aria-label="Dependency graph"><div class="awv-graph-start">' + first.map(item => taskNode(item, true)).join('') + '</div>' + rest.map((item, index) => '<div class="awv-graph-connector' + (index === 0 && first.length > 1 ? ' awv-graph-join' : '') + '" aria-hidden="true"><span></span></div><div class="awv-graph-step"><span class="awv-sr-only">Depends on ' + esc(item.dependencies.map(id => task(id)?.title || id).join(' and ')) + '.</span>' + taskNode(item, true) + '</div>').join('') + '</div><p class="awv-caption awv-graph-caption">' + (first.length > 1 ? 'The first two tasks can run together. Both finish before analysis begins.' : 'Lines show which tasks must finish first.') + '</p>';
+      return '<div class="awv-graph" aria-label="Dependency graph"><div class="awv-graph-start">' + first.map(item => taskNode(item, true)).join('') + '</div>' + rest.map((item, index) => '<div class="awv-graph-connector' + (index === 0 && first.length > 1 ? ' awv-graph-join' : '') + '" aria-hidden="true"><span></span></div><div class="awv-graph-step"><span class="awv-sr-only">Depends on ' + esc(item.dependencies.map(id => taskTitle(id, 'Related task')).join(' and ')) + '.</span>' + taskNode(item, true) + '</div>').join('') + '</div><p class="awv-caption awv-graph-caption">' + (first.length > 1 ? 'The first two tasks can run together. Both finish before analysis begins.' : 'Lines show which tasks must finish first.') + '</p>';
     }
 
     function processButton(process) {
       const job = process.job || process;
-      const description = job.mcp ? 'MCP · ' + job.mcp.tool + ' · ' + job.mcp.phase
-        : (job.program || process.processId) + (Array.isArray(job.args) && job.args.length ? ' · ' + JSON.stringify(job.args) : '');
+      const ids = [process.id, process.processId, process.taskId, process.attemptId, process.agentSessionId];
+      const description = job.mcp ? 'MCP · ' + labels.text(job.mcp.tool, 'Calculation', ids) + ' · ' + labels.text(job.mcp.phase, 'Working', ids)
+        : labels.text(job.program, 'Background process', ids);
       return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(description) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }
 
@@ -261,11 +275,13 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const attempts = (snapshot.attempts || []).filter(attempt => attempt.taskId === item.id);
       const processes = (snapshot.processes || []).filter(process => process.taskId === item.id);
       const agentSessionId = item.agentSessionId || (snapshot.agents || []).find(agent => agent.taskId === item.id && (!item.attemptId || agent.attemptId === item.attemptId))?.agentSessionId;
-      return (item.parentTaskId ? row('Parent task', task(item.parentTaskId) ? '<button type="button" class="awv-link-chip" data-awv-task="' + esc(item.parentTaskId) + '" data-awv-focus="parent-' + esc(item.parentTaskId) + '">' + esc(task(item.parentTaskId).title) + '</button>' : esc(item.parentTaskId)) : '')
-        + (item.attemptId ? row('Current attempt', esc(item.attemptId)) : '')
-        + (agentSessionId ? row('Agent session', can('agentHistory') ? '<button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(agentSessionId) + '">' + esc(agentSessionId) + '</button>' : esc(agentSessionId)) : '')
-        + (attempts.length ? row('Attempts', attempts.map(attempt => '<p>' + esc(attempt.id) + ' · ' + esc(label(attempt.status)) + (attempt.agentSessionId && attempt.agentSessionId !== agentSessionId && can('agentHistory') ? ' <button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(attempt.agentSessionId) + '">Agent history</button>' : '') + '</p>').join('')) : '')
-        + (processes.length ? row('Processes', processes.map(processButton).join('')) : '');
+      const assigned = (snapshot.agents || []).find(agent => agent.agentSessionId === agentSessionId);
+      return (item.parentTaskId ? row('Parent task', task(item.parentTaskId) ? '<button type="button" class="awv-link-chip" data-awv-task="' + esc(item.parentTaskId) + '" data-awv-focus="parent-' + esc(item.parentTaskId) + '">' + esc(taskTitle(item.parentTaskId)) + '</button>' : 'Related task') : '')
+        + (item.attemptId ? row('Current attempt', esc(attemptTitle(item.attemptId, item))) : '')
+        + (agentSessionId ? row('Agent conversation', can('agentHistory') ? '<button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(agentSessionId) + '">' + esc(assigned ? agentTitle(assigned) : 'View agent conversation') + '</button>' : esc(assigned ? agentTitle(assigned) : 'Agent conversation')) : '')
+        + (attempts.length ? row('Attempts', attempts.map(attempt => '<p>' + esc(attemptTitle(attempt.id, item)) + ' · ' + esc(label(attempt.status)) + (attempt.agentSessionId && attempt.agentSessionId !== agentSessionId && can('agentHistory') ? ' <button type="button" class="awv-link-chip" data-awv-open-agent="' + esc(attempt.agentSessionId) + '">Agent history</button>' : '') + '</p>').join('')) : '')
+        + (processes.length ? row('Processes', processes.map(processButton).join('')) : '')
+        + row('Identifiers', labels.diagnostics([['Task ID', item.id], ['Parent task ID', item.parentTaskId], ['Dependency IDs', (item.dependencies || []).join(', ')], ['Current attempt ID', item.attemptId], ['Agent session ID', agentSessionId], ...attempts.map(attempt => [attemptTitle(attempt.id, item) + ' ID', attempt.id])], 'task-' + item.id));
     }
 
     function updateWorkflow() {
@@ -276,19 +292,19 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const measurements = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
       setHTML('[data-awv-measurements]', measurements.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
-        return '<section class="awv-task-detail"><h3>' + esc(task(p.taskId)?.title || p.taskId) + '</h3>'
-          + processButton(p) + (p.job.error ? '<p>' + esc(p.job.error) + '</p>' : '')
+        return '<section class="awv-task-detail"><h3>' + esc(taskTitle(p.taskId)) + '</h3>'
+          + processButton(p) + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
           + (file ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
             + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + 'View measurement results</button>' : '') + '</section>';
       }).join(''));
       const item = task(state.taskId);
       if (!item) { setHTML('[data-awv-task-detail]', '<div class="awv-empty"><h3>' + (live() && !snapshot.taskManagerConnected ? 'TaskManager not connected' : 'No tasks in this run') + '</h3><p>' + (live() && !snapshot.taskManagerConnected ? 'The Pi session can report messages and tool activity. Task scheduling, agent assignments, and output links need the Athena TaskManager connection.' : live() ? 'Tasks will appear when the connected TaskManager reports them.' : 'Choose a development scenario to inspect sample tasks.') + '</p></div>'); return; }
-      const deps = (item.dependencies || []).map(id => '<button type="button" class="awv-link-chip" data-awv-task="' + esc(id) + '" data-awv-focus="dependency-' + esc(id) + '">' + esc(task(id)?.title || id) + '</button>').join('');
+      const deps = (item.dependencies || []).map(id => '<button type="button" class="awv-link-chip" data-awv-task="' + esc(id) + '" data-awv-focus="dependency-' + esc(id) + '">' + esc(taskTitle(id, 'Related task')) + '</button>').join('');
       const tools = (snapshot.tools || []).filter(tool => tool.taskId === item.id);
       const outputs = artifactList().filter(a => a.taskId === item.id);
       const counts = taskProgress(item);
       const progressLabel = counts ? counts.progress + ' of ' + counts.total + ' steps' : 'Progress not reported';
-      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(item.title) + '</h3><p class="awv-caption">' + esc(taskOwner(item)) + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(tool.name) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(tool.name) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(a.title || a.id) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
+      setHTML('[data-awv-task-detail]', '<div class="awv-section-line"><span class="awv-kicker">Selected task</span>' + badge(item.status) + '</div><h3 tabindex="-1" data-awv-detail-heading>' + esc(taskTitle(item)) + '</h3><p class="awv-caption">' + esc(taskOwner(item)) + ' · ' + progressLabel + '</p><dl class="awv-detail-list"><div><dt>Depends on</dt><dd>' + (deps || '<span class="awv-caption">No dependencies</span>') + '</dd></div>' + orchestrationDetails(item) + '<div><dt>Tools</dt><dd>' + (tools.map(tool => '<button type="button" class="awv-link-row" data-awv-open-tool="' + esc(tool.id) + '" data-awv-focus="tool-' + esc(tool.id) + '" title="View tool activity in conversation" aria-label="View ' + esc(labels.text(tool.name, 'Tool', [tool.id, tool.taskId])) + ' activity in conversation">' + window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, tool.status).icon) + '<span>' + esc(labels.text(tool.name, 'Tool', [tool.id, tool.taskId])) + '</span><small>' + esc(label(tool.status)) + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No tool assigned</span>') + '</dd></div><div><dt>Artifacts</dt><dd>' + (outputs.map(a => '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(a.id) + '" data-awv-version="' + esc(artifactVersion(a)) + '" data-awv-focus="artifact-' + esc(artifactKey(a)) + '">' + icon(a.icon || 'file-text') + '<span>' + esc(artifactTitle(a)) + '</span><small>' + (live() ? esc(artifactVersion(a) || 'Version not reported') : isAvailable(a.id) ? 'Available' : 'Example') + '</small>' + icon('arrow-up-right') + '</button>').join('') || '<span class="awv-caption">No file output</span>') + '</dd></div></dl><div class="awv-action-row">' + taskActions(item) + '</div>');
     }
 
     function plotWidth() {
@@ -416,14 +432,28 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const download = window.AthenaResultFiles?.href(snapshot.sessionId, item);
       const file = item.file || item;
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(value) + '</dd></div>';
-      const provenance = field('Filename', file.name) + field('Media type', file.mimeType) + field('Bytes', file.bytes)
-        + field('SHA-256', file.sha256) + field('File version', file.versionId) + field('Project', item.projectId)
-        + field('Run', item.runId) + field('Agent session', item.agentSessionId) + field('Attempt', item.attemptId)
-        + field('Tool', item.toolId) + field('Process', item.processId);
+      const provenance = field('Filename', file.name) + field('Media type', file.mimeType) + field('Bytes', file.bytes);
+      const sourceTask = task(item.taskId);
+      const diagnostics = labels.diagnostics([
+        ['Artifact ID', item.id], ['Task ID', item.taskId], ['Project ID', item.projectId], ['Run ID', item.runId],
+        ['Agent session ID', item.agentSessionId], ['Attempt ID', item.attemptId], ['Tool ID', item.toolId], ['Process ID', item.processId],
+        ['Document ID', item.documentId], ['File version ID', file.versionId], ['SHA-256', file.sha256],
+        ['Original location', typeof item.location === 'string' ? item.location : item.location?.uri]
+      ], 'artifact-' + artifactKey(item));
       const reviewedVersion = item.documentVersion ?? item.version;
       const review = item.review && String(item.review.version) === String(reviewedVersion) ? item.review.status || 'unreviewed' : 'unreviewed';
       const evidence = Array.isArray(item.evidence) ? item.evidence : [];
-      return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(item.title || item.id) + '</h3>' + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button>' + (download ? '' : '<button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button>') + '</div>' : '') + '</div><dl class="awv-detail-list"><div><dt>Artifact</dt><dd>' + esc(item.id) + '</dd></div><div><dt>Version</dt><dd>' + esc(artifactVersion(item) || 'Not reported') + '</dd></div><div><dt>Task</dt><dd>' + esc(item.taskId || 'Not reported') + '</dd></div>' + provenance + (item.documentId ? '<div><dt>Document</dt><dd>' + esc(item.documentId) + ' · v' + esc(item.documentVersion ?? 'Not reported') + '</dd></div>' : '') + '<div><dt>Review</dt><dd>' + esc(String(review).replaceAll('_', ' ')) + '</dd></div><div><dt>Original</dt><dd>' + esc(typeof item.location === 'string' ? item.location : item.location?.uri || 'Not provided') + '</dd></div></dl>' + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : download ? '' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>') + (download ? '<a class="awv-button" href="' + esc(download) + '" download>Download result file' + icon('download') + '</a>' : '') + (location && !download ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '') + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '') + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
+      return '<section class="awv-artifact-content"><div class="awv-section-line"><h3>' + esc(artifactTitle(item)) + '</h3>'
+        + (body != null ? '<div class="awv-toolbar-actions"><button type="button" class="awv-icon-button" data-awv-action="copy-artifact" aria-label="Copy artifact text">' + icon('copy') + '</button>' + (download ? '' : '<button type="button" class="awv-icon-button" data-awv-action="download-artifact" aria-label="Download artifact text">' + icon('download') + '</button>') + '</div>' : '')
+        + '</div><dl class="awv-detail-list">' + field('Version', artifactVersion(item) || 'Not reported') + field('Task', item.taskId ? taskTitle(sourceTask || item.taskId) : 'Not reported')
+        + (item.attemptId ? field('Attempt', attemptTitle(item.attemptId, sourceTask)) : '') + provenance
+        + (item.documentId ? field('Document revision', 'v' + (item.documentVersion ?? 'Not reported')) : '')
+        + field('Review', String(review).replaceAll('_', ' ')) + '</dl>' + diagnostics
+        + (body != null ? '<pre class="awv-record-text" tabindex="0" aria-label="Reported artifact text">' + esc(body) + '</pre>' : download ? '' : '<p class="awv-empty">This artifact has no text preview. A file reader or renderer for ' + esc(item.kind || 'this type') + ' is not connected.</p>')
+        + (download ? '<a class="awv-button" href="' + esc(download) + '" download>Download result file' + icon('download') + '</a>' : '')
+        + (location && !download ? '<a class="awv-button" href="' + esc(location) + '" target="_blank" rel="noopener noreferrer">Open original' + icon('arrow-up-right') + '</a>' : '')
+        + (item.documentId && item.documentVersion != null ? '<button type="button" class="awv-button" data-awv-action="open-manuscript">Open this document version' + icon('file-pen-line') + '</button>' : '')
+        + (evidence.length ? '<section class="awv-record-evidence"><h4>Evidence versions</h4>' + evidence.map(ref => '<p>' + esc(ref.sourceId || ref.artifactId || ref.id || 'Source ID not reported') + ' · v' + esc(ref.version ?? 'Version not reported') + '</p>').join('') + '</section>' : '') + '</section>';
     }
 
     async function renderMeasurementTable(section, url) {
@@ -448,18 +478,19 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const items = artifactList();
       if (!state.artifactId && items.length) { state.artifactId = items[0].id; state.artifactVersion = live() ? artifactVersion(items[0]) : null; }
       const item = artifact();
-      const values = items.map(entry => [live() ? artifactKey(entry) : entry.id, (entry.title || entry.id) + (live() ? ' · ' + (artifactVersion(entry) || 'Version not reported') : '')]);
+      const values = items.map(entry => [live() ? artifactKey(entry) : entry.id, artifactTitle(entry) + (live() ? ' · ' + (artifactVersion(entry) || 'Version not reported') : '')]);
       if (!item) values.unshift(['', state.artifactId ? 'Requested version unavailable' : 'No artifacts reported']);
       syncSelect('[data-awv-artifact-select]', values, item ? live() ? artifactKey(item) : item.id : '');
       const select = q('[data-awv-artifact-select]'); if (select) select.disabled = !items.length;
-      if (!item) { setHTML('[data-awv-provenance]', '<span class="awv-provenance-label">' + icon('files') + 'Runtime artifacts</span><p>No example output is substituted for a missing runtime artifact.</p>'); setHTML('[data-awv-artifact-view]', '<div class="awv-empty"><h3>' + (state.artifactId ? 'Artifact version unavailable' : 'No artifacts reported') + '</h3><p>' + (state.artifactId ? esc(state.artifactId) + (state.artifactVersion != null ? ' · v' + esc(state.artifactVersion) : '') + ' is not available in this session snapshot.' : snapshot.taskManagerConnected ? 'Outputs will appear when TaskManager reports their identifiers and versions.' : 'Connect TaskManager to link output artifacts to tasks.') + '</p></div>'); return; }
+      if (!item) { setHTML('[data-awv-provenance]', '<span class="awv-provenance-label">' + icon('files') + 'Runtime artifacts</span><p>No example output is substituted for a missing runtime artifact.</p>'); setHTML('[data-awv-artifact-view]', '<div class="awv-empty"><h3>' + (state.artifactId ? 'Artifact version unavailable' : 'No artifacts reported') + '</h3><p>' + (state.artifactId ? 'The requested artifact version is not available in this conversation.' : snapshot.taskManagerConnected ? 'Outputs will appear when tasks produce results.' : 'Connect TaskManager to link output artifacts to tasks.') + '</p>' + (state.artifactId ? labels.diagnostics([['Artifact ID', state.artifactId], ['Version', state.artifactVersion]], 'unavailable-artifact') : '') + '</div>'); return; }
       const available = isAvailable(item.id);
       const canonical = canonicalDocument(item);
-      setHTML('[data-awv-provenance]', live() ? '<span class="awv-provenance-label">' + icon('file-text') + 'Runtime artifact</span><p>' + esc(snapshot.sessionId || 'Session not reported') + ' · ' + esc(item.id) + ' · v' + esc(artifactVersion(item) || 'not reported') + '</p>' : canonical ? '<span class="awv-provenance-label">' + icon('file-text') + 'Document revision</span><p>' + esc(canonical.doc.documentId) + ' · v' + esc(canonical.version.version) + ' · ' + (canonical.version.persistence === 'host' ? 'Project storage confirmed' : 'Session revision') + '</p>' : '<span class="awv-provenance-label">' + icon(available ? 'circle-check' : 'book-open') + (available ? 'Local demo output' : 'Example library') + '</span><p>' + (available ? 'The matching demo task completed. This remains an authored, synthetic example.' : 'Preview available before the run. This is authored sample material, not a completed run output.') + '</p>');
+      setHTML('[data-awv-provenance]', live() ? '<span class="awv-provenance-label">' + icon('file-text') + 'Runtime artifact</span><p>' + esc(artifactTitle(item)) + ' · v' + esc(artifactVersion(item) || 'not reported') + '</p>' : canonical ? '<span class="awv-provenance-label">' + icon('file-text') + 'Document revision</span><p>' + esc(canonical.doc.documentId) + ' · v' + esc(canonical.version.version) + ' · ' + (canonical.version.persistence === 'host' ? 'Project storage confirmed' : 'Session revision') + '</p>' : '<span class="awv-provenance-label">' + icon(available ? 'circle-check' : 'book-open') + (available ? 'Local demo output' : 'Example library') + '</span><p>' + (available ? 'The matching demo task completed. This remains an authored, synthetic example.' : 'Preview available before the run. This is authored sample material, not a completed run output.') + '</p>');
       const holder = q('[data-awv-artifact-view]');
       const signature = JSON.stringify([live(), item, state.citation, state.documentVersion, state.referenceOpen, canonical?.doc, options.records?.getState().capabilities]);
       if (force || holder.dataset.awvArtifact !== signature) {
         const focusKey = holder.contains(document.activeElement) ? document.activeElement?.dataset?.awvFocus : null;
+        rememberDiagnostics(holder);
         holder.innerHTML = canonical ? noteHTML() : live() ? liveArtifactHTML(item) : ({ plot: plotHTML, evidence: evidenceHTML, code: codeHTML, reference: referenceHTML, document: noteHTML }[item.kind] || (() => '<p class="awv-empty">No preview renderer is connected for this artifact.</p>'))();
         const process = live() && (snapshot.processes || []).find(p => p.id === item.processId && p.status === 'succeeded'
           && p.job?.mcp?.tool === 'calculate_csv' && p.job.artifact?.id === item.id);
@@ -473,6 +504,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
           // The request owns this element. A late reply can only update its detached old view.
           void renderMeasurementTable(section, download);
         }
+        restoreDiagnostics(holder);
         holder.dataset.awvArtifact = signature;
         if (focusKey) Array.from(holder.querySelectorAll('[data-awv-focus]')).find(element => element.dataset.awvFocus === focusKey && !element.disabled)?.focus({ preventScroll: true });
       }
@@ -497,15 +529,16 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function updateTimeline() {
       updateAgentHistory();
-      syncSelect('[data-awv-timeline-task]', [['all', 'All tasks'], ...tasks().map(t => [t.id, t.title])], state.timelineTask);
+      syncSelect('[data-awv-timeline-task]', [['all', 'All tasks'], ...tasks().map(t => [t.id, taskTitle(t)])], state.timelineTask);
       const typeSelect = q('[data-awv-timeline-type]'); if (typeSelect && typeSelect.value !== state.timelineType) typeSelect.value = state.timelineType;
       const events = filteredEvents();
       setText('[data-awv-event-count]', events.length + (events.length === 1 ? ' event' : ' events'));
       const html = events.map(event => {
         const group = eventGroup(event), item = task(event.taskId);
         const typeLabel = String(event.type || group).replace(/[._-]/g, ' ');
-        const content = '<span class="awv-event-mark">' + (group === 'agent' ? ava(item, event.agentId) : group === 'tool' ? window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation((snapshot.tools || []).find(tool => tool.id === event.toolId)?.sdkToolName || 'custom').icon) : icon(({ run: 'play', task: 'list-checks', tool: 'square-terminal', approval: 'shield-check', artifact: 'file-text' })[group] || 'circle')) + '</span><span class="awv-event-body"><span class="awv-event-meta"><time datetime="' + (event.at && Number.isFinite(new Date(event.at).getTime()) ? new Date(event.at).toISOString() : '') + '">' + time(event.at) + '</time><span>' + esc(typeLabel) + '</span></span><strong>' + esc(event.summary) + '</strong>' + (item ? '<small>' + esc(item.title) + '</small>' : '') + '</span>';
-        return '<li data-awv-event-id="' + esc(event.id) + '">' + (event.taskId || event.toolId || event.artifactId ? '<button type="button" class="awv-event" data-awv-event="' + esc(event.id) + '" data-awv-focus="event-' + esc(event.id) + '" title="' + (group === 'tool' ? 'View tool activity in conversation' : 'Inspect this event') + '">' + content + icon('chevron-right') + '</button>' : '<div class="awv-event">' + content + '</div>') + '</li>';
+        const summary = labels.text(event.summary, item ? taskTitle(item) + ' · ' + typeLabel : typeLabel, [event.id, event.taskId, event.agentId, event.toolId, event.runId, event.attemptId, event.agentSessionId, snapshot.sessionId, snapshot.run?.id]);
+        const content = '<span class="awv-event-mark">' + (group === 'agent' ? ava(item, event.agentId) : group === 'tool' ? window.AthenaPiActivity.iconHTML(window.AthenaPiActivity.toolPresentation((snapshot.tools || []).find(tool => tool.id === event.toolId)?.sdkToolName || 'custom').icon) : icon(({ run: 'play', task: 'list-checks', tool: 'square-terminal', approval: 'shield-check', artifact: 'file-text' })[group] || 'circle')) + '</span><span class="awv-event-body"><span class="awv-event-meta"><time datetime="' + (event.at && Number.isFinite(new Date(event.at).getTime()) ? new Date(event.at).toISOString() : '') + '">' + time(event.at) + '</time><span>' + esc(typeLabel) + '</span></span><strong>' + esc(summary) + '</strong>' + (item ? '<small>' + esc(taskTitle(item)) + '</small>' : '') + '</span>';
+        return '<li data-awv-event-id="' + esc(event.id) + '">' + (event.taskId || event.toolId || event.artifactId ? '<button type="button" class="awv-event" data-awv-event="' + esc(event.id) + '" data-awv-focus="event-' + esc(event.id) + '" title="' + (group === 'tool' ? 'View tool activity in conversation' : 'Inspect this event') + '">' + content + icon('chevron-right') + '</button>' : '<div class="awv-event">' + content + '</div>') + (summary !== event.summary && event.summary ? labels.diagnostics([['Original event summary', event.summary], ['Event ID', event.id], ['Task ID', event.taskId], ['Tool ID', event.toolId]], 'event-' + event.id) : '') + '</li>';
       }).join('');
       setHTML('[data-awv-events]', html || '<li class="awv-empty">' + icon('history') + '<h3>' + ((snapshot.events || []).length ? 'No matching events' : 'The timeline is ready') + '</h3><p>' + ((snapshot.events || []).length ? 'Change the task or event type to see more activity.' : live() ? 'The connected runtime has not reported events for this session.' : 'Start the local demo to record task, agent, and tool activity here.') + '</p>' + (state.timelineTask !== 'all' || state.timelineType !== 'all' ? '<button type="button" class="awv-button" data-awv-action="reset-filters">Reset filters</button>' : '') + '</li>');
       q('[data-awv-action="latest-event"]').disabled = !events.length;
@@ -519,10 +552,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       section.hidden = !live() || !snapshot.capabilities?.agentHistory;
       if (section.hidden) { history = { key: '', messages: [], status: '', error: '' }; return; }
       const selected = agents.find(agent => agent.agentSessionId === state.agentSessionId);
-      syncSelect('[data-awv-agent-select]', [['', 'Choose an agent'], ...agents.map(agent => [agent.agentSessionId, (agent.name || agent.role || agent.id) + ' · ' + (task(agent.taskId)?.title || agent.taskId)])], selected?.agentSessionId || '');
+      syncSelect('[data-awv-agent-select]', [['', 'Choose an agent'], ...agents.map(agent => [agent.agentSessionId, agentTitle(agent) + ' · ' + taskTitle(agent.taskId)])], selected?.agentSessionId || '');
       q('[data-awv-agent-select]').disabled = !agents.length;
       const work = selected && (snapshot.processes || []).filter(process => process.agentSessionId === selected.agentSessionId);
-      setHTML('[data-awv-agent-work]', selected ? '<p class="awv-caption awv-record-identity">' + [selected.role, selected.status && label(selected.status), selected.agentSessionId].filter(Boolean).map(esc).join(' · ') + '</p>' + (work || []).map(processButton).join('') : '');
+      setHTML('[data-awv-agent-work]', selected ? '<p class="awv-caption">' + [agentTitle(selected), selected.status && label(selected.status), taskTitle(selected.taskId)].filter(Boolean).map(esc).join(' · ') + '</p>' + (work || []).map(processButton).join('') + labels.diagnostics([['Agent ID', selected.id], ['Agent session ID', selected.agentSessionId], ['Task ID', selected.taskId], ['Attempt ID', selected.attemptId], ['History error', history.agentSessionId === selected.agentSessionId ? history.error : '']], 'agent-' + selected.agentSessionId) : '');
       if (!selected) { history = { key: '', messages: [], status: '', error: '' }; setText('[data-awv-agent-status]', agents.length ? 'Choose an agent to read its conversation.' : 'No agent sessions reported yet.'); setHTML('[data-awv-agent-messages]', ''); return; }
       const conversationId = snapshot.sessionId;
       const key = JSON.stringify([scopeKey(snapshot), selected.agentSessionId, snapshot.hydration, snapshot.revision]);
@@ -537,12 +570,17 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         };
         store.getAgentHistory(conversationId, selected.agentSessionId).then(messages => settle('ready', messages), error => settle('error', [], String(error?.message || error)));
       }
-      const messages = history.messages.flatMap(message => {
+      const messages = history.messages.flatMap((message, index) => {
         if (!['user', 'assistant', 'toolResult'].includes(message?.role)) return [];
         const body = typeof message.content === 'string' ? message.content : (Array.isArray(message.content) ? message.content : []).filter(block => block?.type === 'text').map(block => block.text || '').join('\n');
-        return body ? ['<li><strong>' + esc(message.role === 'toolResult' ? message.toolName || 'Tool result' : message.role === 'assistant' ? 'Agent' : 'Request') + '</strong><div class="awv-record-text">' + esc(body) + '</div></li>'] : [];
+        if (!body) return [];
+        if (message.role === 'toolResult') {
+          const presentation = window.AthenaPiActivity.toolPresentation(message.toolName, {}, message.isError ? 'failed' : 'succeeded', tasks());
+          return ['<li><strong>' + esc(presentation.label || 'Tool result') + '</strong>' + labels.diagnostics([['Tool', message.toolName], ['Tool call ID', message.toolCallId], ['Output', body]], 'agent-tool-' + selected.agentSessionId + '-' + (message.toolCallId || message.id || index)) + '</li>'];
+        }
+        return ['<li><strong>' + (message.role === 'assistant' ? 'Agent' : 'Request') + '</strong><div class="awv-record-text">' + esc(body) + '</div></li>'];
       });
-      setText('[data-awv-agent-status]', history.error || (history.status === 'loading' ? 'Loading agent history…' : messages.length ? selected.agentSessionId : 'No messages recorded for this agent.'));
+      setText('[data-awv-agent-status]', labels.text(history.error, '', [selected.id, selected.agentSessionId, selected.taskId, selected.attemptId, snapshot.sessionId]) || (history.error ? 'Could not load this agent conversation.' : history.status === 'loading' ? 'Loading agent history…' : messages.length ? messages.length + (messages.length === 1 ? ' message' : ' messages') + ' recorded' : 'No messages recorded for this agent.'));
       setHTML('[data-awv-agent-messages]', messages.join(''));
     }
 
@@ -725,7 +763,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       resizeObserver = new window.ResizeObserver(() => { if (!destroyed) redrawPlot(); });
       resizeObserver.observe(host);
     }
-    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { lastScope = scope; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
+    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { qa('[data-aw-diagnostics]').forEach(detail => { detail.open = false; }); diagnosticState.clear(); lastScope = scope; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
     recordUnsubscribe = options.records?.subscribe(() => { if (!destroyed && state.view === 'artifacts') { updateArtifacts(true); refreshIcons(); } });
     return {
       open,
@@ -740,7 +778,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         unsubscribe?.(); recordUnsubscribe?.(); abort.abort();
         resizeObserver?.disconnect();
         timers.forEach(clearTimeout); urls.forEach(url => URL.revokeObjectURL(url));
-        timers.clear(); urls.clear();
+        timers.clear(); urls.clear(); diagnosticState.clear();
         host.replaceChildren(); host.classList.remove('awv-host'); delete host.dataset.workspaceView;
       }
     };

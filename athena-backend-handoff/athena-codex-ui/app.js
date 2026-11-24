@@ -221,20 +221,20 @@
    if(live&&!snapshot.projects.length){const info=document.createElement('p');info.className='ac-project-empty';info.textContent=snapshot.taskManagerConnected?'No projects yet.':snapshot.taskManagerStatus==='connecting'?'Loading projects…':'Project storage is not connected.';list.appendChild(info);}
    for(const project of snapshot.projects||[]){
     const group=document.createElement('details');group.open=project.id===snapshot.projectId;group.className='ac-live-project';
-    const summary=document.createElement('summary');summary.className='ac-project-label cursor-interaction';summary.textContent=project.name||project.id;group.appendChild(summary);
-    for(const session of (snapshot.sessions||[]).filter(item=>item.projectId===project.id)){const button=document.createElement('button');button.type='button';button.className='ac-thread-item cursor-interaction';button.dataset.openSession=session.id;button.textContent=session.title||session.id;if(session.id===snapshot.sessionId)button.setAttribute('aria-current','page');button.disabled=!snapshot.capabilities?.openSession;group.appendChild(button);}
+    const summary=document.createElement('summary');summary.className='ac-project-label cursor-interaction';summary.textContent=window.AthenaActivityLabels.text(project.name,'Untitled project',[project.id]);group.appendChild(summary);
+    for(const session of (snapshot.sessions||[]).filter(item=>item.projectId===project.id)){const button=document.createElement('button');button.type='button';button.className='ac-thread-item cursor-interaction';button.dataset.openSession=session.id;button.textContent=window.AthenaActivityLabels.text(session.title,'New conversation',[session.id]);if(session.id===snapshot.sessionId)button.setAttribute('aria-current','page');button.disabled=!snapshot.capabilities?.openSession;group.appendChild(button);}
     list.appendChild(group);
    }
   }
   if(live){
    const current=(snapshot.sessions||[]).find(item=>item.id===snapshot.sessionId),project=(snapshot.projects||[]).find(item=>item.id===snapshot.projectId);
-   q('#ac-thread-title').textContent=current?.title||'New conversation';
-   q('.ac-header-title > span').textContent=project?.name||'Connected workspace';
-   q('.ac-composer-caption > span').lastChild.textContent=project?.name||'No project selected';
+   q('#ac-thread-title').textContent=window.AthenaActivityLabels.text(current?.title,'New conversation',[snapshot.sessionId]);
+   q('.ac-header-title > span').textContent=window.AthenaActivityLabels.text(project?.name,'Connected workspace',[snapshot.projectId]);
+   q('.ac-composer-caption > span').lastChild.textContent=window.AthenaActivityLabels.text(project?.name,'No project selected',[snapshot.projectId]);
    if(!piSession)q('#ac-pi-session-status').textContent=snapshot.taskManagerConnected?'TaskManager connected · model session not connected':'Workspace service is not connected';
    if(snapshot.sessionBound===false){q('#ac-pi-session-status').textContent='Connect the model to this conversation';preservePendingSubmission('The selected conversation is no longer bound to the model connection.');if(piEngaged)resetPiActivity();}
   }
-  settings?.refresh?.();icons();
+  piView?.refresh();piManualView?.refresh();settings?.refresh?.();icons();
  }
  function resolvedNewSessionModel(workspace,projectId){const projectModel=projectId===workspace.projectId?workspace.modelScopes?.projectDefault:workspace.projects.find(project=>project.id===projectId)?.defaultModel;return projectModel||connectionManager.getDefaultModel()||null;}
  function canCreateSession(){return !nativeSessionTransition&&Boolean(workspaceStore.getState().capabilities?.createSession||connectionManager.getState().capabilities.createSession||piRuntime.available('new_session'));}
@@ -482,7 +482,7 @@
    piTurnEpoch++;preservePendingSubmission('The model connection changed conversations.');resetPiActivity();q('#ac-live-user').hidden=true;q('#ac-pi-transcript').replaceChildren();piHistorySignature='';piManualTools.clear();piManualView?.reset();
   }
   if(currentId)piSessionIdentity=currentId;
-  if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=snapshot.session.sessionName;
+  if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=window.AthenaActivityLabels.text(snapshot.session.sessionName,'New conversation',[snapshot.session.sessionId,snapshot.session.id]);
   const percent=Number.isFinite(snapshot.context?.percent)?Math.round(snapshot.context.percent):null;
   q('#ac-pi-session-status').textContent=snapshot.connected?(snapshot.session.isCompacting?'Compacting context':snapshot.session.isStreaming?'Pi is working':snapshot.connectionLabel)+(percent===null?'':' · '+percent+'% context'):workspaceStore?.getState().mode==='runtime'?'Model session is not connected':'UI preview · sample data';
   const queued=snapshot.queues.steering.length+snapshot.queues.followUp.length;
@@ -660,8 +660,8 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  const resize=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{syncLeftUI();layout?.refresh();overlay();drawChart()}):null;resize?.observe(root);
  piActivity=window.AthenaPiActivity.create();
  piRuntime=window.AthenaPiRuntime.create();
- piView=window.AthenaPiSessionView.mount(reply.getActivityHost(),{icons,toast});
- piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast});
+ piView=window.AthenaPiSessionView.mount(reply.getActivityHost(),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
+ piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
  demoStore=window.AthenaWorkspaceStore.create();

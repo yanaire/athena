@@ -101,8 +101,11 @@ try {
   assert.equal(await query('#ac-knowledge-slot', "el.innerText.includes('RC low-pass')"), false);
 
   await page.evaluate("AthenaApp.openWorkspace('workflow', {taskId:'child'})");
-  await visibleText('[data-awv-task-detail]', 'earlier-attempt');
-  assert.match(await query('[data-awv-task-detail]', 'el.innerText'), general ? /Root research[\s\S]*child-attempt[\s\S]*python3/ : /Root research[\s\S]*child-attempt[\s\S]*csv-worker/);
+  await visibleText('[data-awv-task-detail]', 'Attempt 1');
+  const workflowText = await query('[data-awv-task-detail]', 'el.innerText');
+  assert.match(workflowText, general ? /Root research[\s\S]*Attempt 2[\s\S]*python3/ : /Root research[\s\S]*Attempt 2[\s\S]*csv-worker/);
+  for (const id of ['earlier-attempt', 'child-attempt', 'child-pi']) assert.equal(workflowText.includes(id), false, id + ' stays out of the default workflow');
+  assert.equal(await query('[data-awv-task-detail]', 'Array.from(el.querySelectorAll("[data-aw-diagnostics]")).some(node => !node.open && node.textContent.includes("earlier-attempt") && node.textContent.includes("child-attempt"))'), true);
   await screenshot('workflow');
   await click('[data-awv-open-process]');
   await visibleText('[data-aw-process][open]', 'Rows counted: 17');

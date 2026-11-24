@@ -4,7 +4,7 @@
   function mount(host, options = {}) {
     const rows = new Map();
     const controller = new AbortController();
-    let destroyed = false, runId = null;
+    let destroyed = false, runId = null, lastSnapshot = null;
     const error = document.createElement('p');
     error.className = 'ap-session-error'; error.hidden = true;
     error.setAttribute('role', 'alert');
@@ -12,8 +12,9 @@
     function createRow(id) {
       const element = document.createElement('details');
       element.className = 'ap-tool-event'; element.dataset.apTool = id;
-      element.innerHTML = '<summary class="cursor-interaction"><span class="ap-tool-icon"></span><span class="ap-tool-copy"><span class="ap-tool-label"></span><span class="ap-tool-target"></span></span><i data-lucide="chevron-down" aria-hidden="true"></i></summary><div class="ap-tool-body"><dl><div><dt>Tool</dt><dd data-ap-name></dd></div><div><dt>Status</dt><dd data-ap-state></dd></div></dl><pre data-ap-input aria-label="Tool input"></pre><pre data-ap-output aria-label="Tool output"></pre><div class="ap-tool-actions"><button type="button" class="cursor-interaction" data-ap-copy="input">Copy input</button><button type="button" class="cursor-interaction" data-ap-copy="output">Copy output</button></div><label class="ap-copy-label" hidden>Select and copy manually<textarea readonly aria-label="Copy tool text manually"></textarea></label></div>';
+      element.innerHTML = '<summary class="cursor-interaction"><span class="ap-tool-icon"></span><span class="ap-tool-copy"><span class="ap-tool-label"></span><span class="ap-tool-target"></span></span><i data-lucide="chevron-down" aria-hidden="true"></i></summary><div class="ap-tool-body"><dl><div><dt>Status</dt><dd data-ap-state></dd></div></dl><details class="aw-diagnostics" data-aw-diagnostics><summary class="cursor-interaction">Technical details</summary><dl><div><dt>Tool</dt><dd data-ap-name></dd></div><div><dt>Tool call ID</dt><dd data-ap-call-id></dd></div></dl><pre data-ap-input aria-label="Tool input"></pre><pre data-ap-output aria-label="Tool output"></pre><div class="ap-tool-actions"><button type="button" class="cursor-interaction" data-ap-copy="input">Copy input</button><button type="button" class="cursor-interaction" data-ap-copy="output">Copy output</button></div><label class="ap-copy-label" hidden>Select and copy manually<textarea readonly aria-label="Copy tool text manually"></textarea></label></details></div>';
       element.querySelector('summary').dataset.apToolSummary = id;
+      element.querySelector('[data-aw-diagnostics]').dataset.awDiagnostics = 'pi-tool-' + id;
       host.insertBefore(element, error);
       const row = { element, tool: null, iconKey: '' };
       rows.set(id, row); return row;
@@ -21,6 +22,8 @@
     function render(snapshot) {
       if (destroyed) return;
       if (runId !== snapshot.runId) { reset(); runId = snapshot.runId; }
+      lastSnapshot = snapshot;
+      const tasks = options.getWorkspace?.()?.tasks || [];
       const ids = new Set(snapshot.tools.map(tool => tool.id));
       for (const [id, row] of rows) if (!ids.has(id)) { row.element.remove(); rows.delete(id); }
       let iconsChanged = false;
@@ -29,21 +32,23 @@
         const row = rows.get(tool.id) || createRow(tool.id);
         row.tool = tool;
         const q = selector => row.element.querySelector(selector);
+        const presentation = window.AthenaPiActivity.toolPresentation(tool.toolName, tool.args, tool.status, tasks);
         row.element.dataset.piTool = tool.toolName;
         row.element.dataset.piStatus = tool.status;
         row.element.dataset.toolId = tool.toolCallId || tool.id;
-        if (tool.taskId) row.element.dataset.taskId = tool.taskId;
-        if (tool.sessionId) row.element.dataset.sessionId = tool.sessionId;
+        if (tool.taskId) row.element.dataset.taskId = tool.taskId; else delete row.element.dataset.taskId;
+        if (tool.sessionId) row.element.dataset.sessionId = tool.sessionId; else delete row.element.dataset.sessionId;
         row.element.dataset.piActive = String(tool.active);
-        const iconKey = tool.icon + ':' + tool.active;
+        const iconKey = presentation.icon + ':' + tool.active;
         if (row.iconKey !== iconKey) {
-          q('.ap-tool-icon').innerHTML = window.AthenaPiActivity.iconHTML(tool.icon, { active: tool.active });
+          q('.ap-tool-icon').innerHTML = window.AthenaPiActivity.iconHTML(presentation.icon, { active: tool.active });
           row.iconKey = iconKey; iconsChanged = true;
         }
-        q('.ap-tool-label').textContent = tool.label;
-        q('.ap-tool-target').textContent = tool.detail;
-        q('.ap-tool-target').hidden = !tool.detail;
+        q('.ap-tool-label').textContent = presentation.label;
+        q('.ap-tool-target').textContent = presentation.detail;
+        q('.ap-tool-target').hidden = !presentation.detail;
         q('[data-ap-name]').textContent = tool.toolName;
+        q('[data-ap-call-id]').textContent = tool.toolCallId || tool.id;
         q('[data-ap-state]').textContent = ({ running: 'Running', queued: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', stopped: 'Stopped' })[tool.status] || tool.status;
         const input = JSON.stringify(tool.args, null, 2);
         const inputNode = q('[data-ap-input]'), outputNode = q('[data-ap-output]');
@@ -80,10 +85,10 @@
     host.addEventListener('click', onClick, { signal: controller.signal });
     function reset() {
       for (const row of rows.values()) row.element.remove();
-      rows.clear(); error.textContent = ''; error.hidden = true; host.hidden = true;
+      rows.clear(); lastSnapshot = null; error.textContent = ''; error.hidden = true; host.hidden = true;
     }
     reset();
-    return Object.freeze({ render, reset, revealTool(id) { const row = [...rows.values()].find(item => item.tool?.toolCallId === id || item.tool?.id === id); if (!row) return false; row.element.open = true; row.element.querySelector('summary').focus({preventScroll:true}); row.element.scrollIntoView?.({block:'nearest'}); return true; }, destroy() { if (destroyed) return; destroyed = true; controller.abort(); reset(); error.remove(); } });
+    return Object.freeze({ render, refresh() { if (lastSnapshot) render(lastSnapshot); }, reset, revealTool(id) { const row = [...rows.values()].find(item => item.tool?.toolCallId === id || item.tool?.id === id); if (!row) return false; row.element.open = true; row.element.querySelector('summary').focus({preventScroll:true}); row.element.scrollIntoView?.({block:'nearest'}); return true; }, destroy() { if (destroyed) return; destroyed = true; controller.abort(); reset(); error.remove(); } });
   }
   window.AthenaPiSessionView = Object.freeze({ mount });
 })();
