@@ -1,0 +1,54 @@
+name: Assemble research candidate UI
+
+on:
+  push:
+    branches:
+      - integration/athena-research-ui-generation
+
+permissions:
+  contents: read
+
+jobs:
+  assemble:
+    if: github.repository == 'yanaire/athena' && github.ref == 'refs/heads/integration/athena-research-ui-generation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 0045385092757b800b865113c8fdae64b859abef
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Generate and store the exact reviewed HTML bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, subprocess, urllib.request
+          source = "0045385092757b800b865113c8fdae64b859abef"
+          expected = "7e8d932756b0e9bb318f23c4a8b96b4d5065267e"
+          relative = "athena-backend-handoff/athena-codex-ui/athena-preview.html"
+          actual = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if actual != source:
+              raise RuntimeError("Unexpected source revision")
+          subprocess.run(["python3", "athena-backend-handoff/athena-codex-ui/build.py"], check=True)
+          changed = subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines()
+          if changed != [relative]:
+              raise RuntimeError("Generation changed an unexpected file")
+          payload = pathlib.Path(relative).read_bytes()
+          sha = hashlib.sha1(b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload).hexdigest()
+          if sha != expected or len(payload) != 1548918:
+              raise RuntimeError("Generated HTML differs from locally verified bytes")
+          request = urllib.request.Request(
+              "https://api.github.com/repos/yanaire/athena/git/blobs",
+              data=json.dumps({"encoding":"base64","content":base64.b64encode(payload).decode("ascii")}).encode("utf-8"),
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","Content-Type":"application/json","X-GitHub-Api-Version":"2022-11-28"},
+              method="POST")
+          with urllib.request.urlopen(request, timeout=60) as response:
+              result = json.load(response)
+          if result.get("sha") != sha:
+              raise RuntimeError("Stored blob differs from generated output")
+          print("SAVED_BLOB", source, sha, len(payload), flush=True)
+          PY
