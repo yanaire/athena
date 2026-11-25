@@ -144,7 +144,11 @@ test('concurrent processes serialize rotation and release the lock after a kille
   t.signal.throwIfAborted();
   await second.exited;
   const temporary = '.credentials.v2.abcdabcd-abcd-abcd-abcd-abcdabcdabcd.tmp';
-  await writeFile(join(auth, temporary), 'incomplete fixture', { mode: 0o600 });
+  const temporaryPath = join(auth, temporary);
+  await writeFile(temporaryPath, 'incomplete fixture', { mode: 0o600 });
+  // Simulate the host's already-protected unpublished file, including its owner
+  // when an elevated Windows shell defaults new files to Administrators.
+  await restorePrivatePermissions(temporaryPath, 0o600);
   const reopened = await openLocalCredentials(auth);
   assert.deepEqual(await readFile(file), beforeCrash);
   assert.equal((await readdir(auth)).includes(temporary), false);

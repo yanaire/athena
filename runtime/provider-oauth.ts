@@ -141,7 +141,10 @@ export class ProviderOAuthController {
 
   constructor(options: ProviderOAuthControllerOptions) {
     const openAI = options.openAI ?? true;
-    if (openAI) registerOpenAIOAuth(options.runtime, options);
+    // A prepared account flow owns a separate, explicitly registered runtime.
+    // Registering again on the shared inventory runtime is unused and makes Pi
+    // launch a background availability scan over every provider's credentials.
+    if (openAI && !options.prepareOpenAI) registerOpenAIOAuth(options.runtime, options);
     this.#enabled = new Set([...(openAI ? ['openai'] : []), ...(options.openRouter ? ['openrouter'] : [])]);
     this.#runtime = options.runtime;
     this.#prepareOpenAI = options.prepareOpenAI;

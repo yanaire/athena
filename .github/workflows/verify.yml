@@ -35,4 +35,5 @@ jobs:
         run: node scripts/probe-windows-desktop-env.mjs
       - name: Verify account transitions and desktop startup
         timeout-minutes: 10
-        run: node --import ./scripts/trace-windows-credentials.mjs --test --test-reporter=tap --test-concurrency=1 tests/chatgpt-account.test.ts tests/desktop-host.test.ts
+        run: node --import ./scripts/trace-windows-credentials.mjs --test --test-reporter=tap --test-concurrency=1 tests/provider-startup.test.ts tests/chatgpt-account.test.ts tests/desktop-host.test.ts
+
