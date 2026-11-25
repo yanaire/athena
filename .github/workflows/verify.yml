@@ -98,13 +98,6 @@ jobs:
         run: cargo test --release --target aarch64-apple-darwin --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
       - name: Build the DMG and test Athena installed from it
         run: node scripts/check-macos-dmg.mjs
-      - name: Preserve the verified Apple Silicon DMG
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: athena-macos-arm64
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Athena-aarch64-apple-darwin.dmg
-          if-no-files-found: error
-          retention-days: 14
 
   browser-chat:
     runs-on: ubuntu-24.04
@@ -213,19 +206,3 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/check-windows-installer.ps1
-      - name: Preserve the verified Intel Mac DMG
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: athena-macos-intel
-          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Athena-x86_64-apple-darwin.dmg
-          if-no-files-found: error
-          retention-days: 14
-      - name: Preserve the verified Windows x64 installer
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: athena-windows-x64
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
-          retention-days: 14

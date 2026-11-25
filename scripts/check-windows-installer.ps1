@@ -70,4 +70,4 @@ if ($verificationFailure -and $cleanupFailure) {
 }
 if ($verificationFailure) { throw $verificationFailure }
 if ($cleanupFailure) { throw $cleanupFailure }
-Write-Host "Installed NSIS package and installed payload removal verified. SHA-256: $digest"
+Write-Host "Verified $($installers[0].Name) and installed payload removal. SHA-256: $digest"
