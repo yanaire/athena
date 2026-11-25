@@ -91,7 +91,7 @@ src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Athena.app
 
 `Athena.app` 전체를 원하는 응용 프로그램 폴더로 복사해 실행합니다. 앱 내부의 파일을 따로 옮기면 포함된 호스트와 분석 실행기를 찾을 수 없습니다. 이 로컬 빌드의 ad-hoc 서명은 Developer ID 서명·Apple 공증과 구분합니다.
 
-Apple Silicon 맥에서는 같은 준비 과정에서 Rust 대상을 `aarch64-apple-darwin`으로 선택하고 `npm run desktop:build`를 사용하면 됩니다.
+Apple Silicon 맥에서는 macOS **arm64용 Node 24.22.3**을 사용하고 Rust 대상을 `aarch64-apple-darwin`으로 선택한 뒤 `npm run desktop:build`를 실행합니다. Node 확인 결과는 `v24.22.3 darwin arm64`여야 합니다.
 
 ## 3. 처음 실행한 뒤 모델 연결
 

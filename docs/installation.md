@@ -55,10 +55,18 @@ The personal build reports `com.athena.desktop.local-chatgpt`. After sign-in, ch
 
 ## Browser development
 
-For browser development with a compatible local model server:
+For browser development with a compatible local model server, use this command on macOS or Linux:
 
 ```sh
 ATHENA_ENDPOINT=http://127.0.0.1:8080/v1 ATHENA_MODEL=athena-local npm start
+```
+
+In Windows PowerShell:
+
+```powershell
+$env:ATHENA_ENDPOINT = 'http://127.0.0.1:8080/v1'
+$env:ATHENA_MODEL = 'athena-local'
+npm start
 ```
 
 Use your model's actual slug, then open `http://127.0.0.1:4317` locally. Prepare the analysis runtime first if needed. Docker-free analysis is disabled by default for each project.
