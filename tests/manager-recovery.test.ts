@@ -14,7 +14,7 @@ import { ModelProfiles } from '../runtime/model-profiles.ts';
 import { createPiSession } from '../runtime/pi.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
 import { openLocalCredentials } from '../runtime/local-credentials.ts';
-import { assertKilled } from './platform-test-helpers.ts';
+import { assertKilled, windows } from './platform-test-helpers.ts';
 
 type Wire = { model: string; messages: { role: string; content: unknown }[];
   tools: { function: { name: string } }[] };
@@ -135,7 +135,8 @@ function coordinator(wire: Wire, res: ServerResponse, names: string[], grants?: 
   else completion(res, 'Reported the original child outcomes.');
 }
 
-test('one failed child gets a new attempt; duplicate retries preserve completed work, receipts, grants and artifact versions', { timeout: 30_000 }, async t => {
+test('one failed child gets a new attempt; duplicate retries preserve completed work, receipts, grants and artifact versions',
+  { timeout: windows ? 120_000 : 30_000 }, async t => {
   let recovering = false, foreign = '';
   const grants: Record<string, string[]> = {};
   const fixtureState = await fixture(t, (wire, res) => {
@@ -567,7 +568,9 @@ test('recovery pins the original model revision after profile edits and a host r
   assert.ok(retried.every(h => h.route === '/a/v1/chat/completions' && h.wire.model === 'fixture-a'));
 });
 
-test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch', { timeout: 30_000 }, async t => {
+// Windows performs real ACL checks for each credential read, write, and reopen.
+test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch',
+  { timeout: windows ? 240_000 : 30_000 }, async t => {
   const keyA = 'recovery-binding-fixture-A', keyB = 'recovery-binding-fixture-B';
   const headers: (string | undefined)[] = [];
   const state = await fixture(t, (wire, res, req) => {

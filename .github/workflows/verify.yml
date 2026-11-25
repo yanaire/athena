@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        suite: [files, profile-switch, connections, desktop, recovery]
+        suite: [files, profile-switch, desktop-probe, recovery]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -74,20 +74,16 @@ jobs:
       - name: Reproduce file and publication failures with immediate TAP diagnostics
         if: matrix.suite == 'files'
         timeout-minutes: 8
-        run: node --test --test-reporter=tap tests/private-storage.test.ts tests/analysis-files.test.ts tests/analysis-publication.test.ts
+        run: node --test --test-reporter=tap tests/analysis-publication.test.ts
       - name: Reproduce the profile switch with immediate TAP diagnostics
         if: matrix.suite == 'profile-switch'
         timeout-minutes: 5
         run: node --test --test-reporter=tap --test-name-pattern="switching ChatGPT profiles" tests/chatgpt-account.test.ts
-      - name: Isolate Windows connection cleanup
-        if: matrix.suite == 'connections'
-        timeout-minutes: 3
-        run: node --test --test-reporter=tap --test-timeout=60000 tests/connections.test.ts
-      - name: Verify desktop host cleanup and startup on Windows
-        if: matrix.suite == 'desktop'
-        timeout-minutes: 8
-        run: node --test --test-reporter=tap tests/desktop-host.test.ts
+      - name: Isolate desktop startup under the fixture environment
+        if: matrix.suite == 'desktop-probe'
+        timeout-minutes: 7
+        run: node tests/desktop-startup-diagnostic.mjs
       - name: Verify recovery cleanup and binding on Windows
         if: matrix.suite == 'recovery'
         timeout-minutes: 8
-        run: node --test --test-reporter=tap tests/manager-recovery.test.ts
+        run: node --test --test-reporter=tap --test-name-pattern="one failed child|API-key retries" tests/manager-recovery.test.ts

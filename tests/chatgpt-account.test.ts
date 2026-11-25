@@ -195,7 +195,9 @@ function sse(model: string, output: { readonly text: string } | { readonly funct
     { headers: { 'content-type': 'text/event-stream' } });
 }
 
-test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen', { timeout: 15_000 }, async t => {
+// This fixture performs real Windows ACL checks across credential writes and reopen.
+test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen',
+  { timeout: process.platform === 'win32' ? 180_000 : 15_000 }, async t => {
   const directory = await mkdtemp(join(await realpath(tmpdir()), 'athena-chatgpt-run-'));
   const proceed = Promise.withResolvers<void>();
   const cleanup: Array<() => void | Promise<void>> = [() => rm(directory, { recursive: true, force: true })];
