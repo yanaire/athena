@@ -100,6 +100,11 @@ for (const path of [application, binary, sandbox]) {
 }
 assert.equal(execFileSync(sandbox, ['--version'], { encoding: 'utf8', env: environment }).trim(), 'athena-sandbox/1 wasmtime/50.0.3');
 const analysis = join(host, 'analysis-runtime');
+for (const directory of [executables, analysis]) {
+  for (const name of ['athena-prepare-python', 'athena-prepare-python.exe']) {
+    assert.equal(existsSync(join(directory, name)), false, 'The build-only Python preparer must not ship.');
+  }
+}
 const { files: digests, helper } = JSON.parse(await readFile(join(analysis, 'provenance.json'), 'utf8'));
 assert.equal(helper.target, platform.target, 'Sandbox provenance must match the selected target.');
 const provenance = JSON.parse(await readFile(join(host, 'provenance.json'), 'utf8'));

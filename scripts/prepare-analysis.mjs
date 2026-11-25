@@ -2,7 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { WASI } from 'node:wasi';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildEnvironment } from './desktop-platform.mjs';
 
@@ -28,18 +27,11 @@ async function pinned(work, name, url, digest) {
 }
 
 // Compile only the pinned distribution's standard library during packaging.
-async function preparePythonBytecode(runtime) {
-  const wasi = new WASI({
-    version: 'preview1',
-    args: ['python', '-B', '-s', '-P', '-m', 'compileall', '-q',
-      '--invalidation-mode', 'checked-hash', '/runtime/lib/python3.15'],
-    env: { PYTHONHOME: '/runtime', PYTHONHASHSEED: '0' },
-    preopens: { '/runtime': join(runtime, 'python') },
-    returnOnExit: true,
-  });
-  const module = await WebAssembly.compile(await readFile(join(runtime, 'python.wasm')));
-  const instance = await WebAssembly.instantiate(module, wasi.getImportObject());
-  if (wasi.start(instance) !== 0) throw new Error('Could not prepare the offline Python standard library.');
+function preparePythonBytecode(runtime, preparer) {
+  // This separate build-only executable uses the same pinned Wasmtime engine
+  // on every platform. It is not copied into staged or distributed runtimes.
+  // Node's built-in uvwasi cannot iterate directories on Windows (ENOSYS).
+  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 300_000, windowsHide: true });
 }
 
 export async function prepareAnalysis(destination, binaryDestination) {
@@ -70,7 +62,7 @@ export async function prepareAnalysis(destination, binaryDestination) {
       execFileSync(join(systemRoot, 'System32', 'tar.exe'), ['-xf', python, '-C', join(out, 'python')]);
     } else execFileSync('unzip', ['-q', python, '-d', join(out, 'python')]);
     await rename(join(out, 'python/python.wasm'), join(out, 'python.wasm'));
-    await preparePythonBytecode(out);
+    preparePythonBytecode(out, join(root, 'sandbox', 'target', target, 'release', `athena-prepare-python${exe}`));
     await copyFile(javascript, join(out, 'qjs.wasm'));
     const helper = join(root, 'sandbox', 'target', target, 'release', `athena-sandbox${exe}`);
     const binary = binaryDestination ?? join(out, `athena-sandbox${exe}`);

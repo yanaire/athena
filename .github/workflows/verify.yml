@@ -94,7 +94,7 @@ jobs:
       - name: Build and verify the arm64 app bundle
         run: npm run desktop:build
       - name: Test desktop startup safeguards
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
+        run: cargo test --release --target aarch64-apple-darwin --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
 
   browser-chat:
     runs-on: ubuntu-24.04
@@ -180,16 +180,19 @@ jobs:
           npm run check
           python3 athena-backend-handoff/athena-codex-ui/build.py
           git diff --exit-code -- athena-backend-handoff/athena-codex-ui/athena-preview.html
+      - name: Check Windows credential permissions before the native build
+        if: runner.os == 'Windows'
+        run: node --test tests/local-credentials.test.ts
       - name: Prepare and test the native analysis runtime
         run: |
           npm run analysis:prepare
-          cargo test --manifest-path sandbox/Cargo.toml --locked
+          cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path sandbox/Cargo.toml --locked
       - name: Run host and controlled provider tests on this OS
         run: node --test --test-concurrency=2 tests/*.test.*
       - name: Build and verify the native application
         run: npm run desktop:build
       - name: Test desktop startup safeguards
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
+        run: cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
       - name: Install the Windows package in an isolated runner directory
         if: runner.os == 'Windows'
         shell: pwsh
