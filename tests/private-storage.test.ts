@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createPrivateDirectory, windowsPowerShellEnvironment, windowsStorageEnvironment, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
+import { createPrivateDirectory, windowsPowerShellEnvironment, windowsStorageEnvironment, windowsStorageRoot, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
 import { assertPrivatePermissions, assertPublicPermissions, makePublicPermissions } from './platform-test-helpers.ts';
 
 async function fixture(t: TestContext) {
@@ -42,6 +42,19 @@ test('the native storage helper receives only OS locations, with case-insensitiv
   });
   assert.deepEqual(inherited, before);
   assert.throws(() => windowsStorageEnvironment({ SystemRoot: 'relative' }), /system directory/);
+});
+
+test('Windows storage walks start after the complete drive or UNC share root', () => {
+  for (const [path, root] of [
+    [String.raw`C:\Users\fixture\private`, 'C:\\'],
+    [String.raw`\\?\C:\Users\fixture\private`, '\\\\?\\C:\\'],
+    [String.raw`\\server\share\fixture\private`, '\\\\server\\share\\'],
+    [String.raw`\\?\UNC\server\share\fixture\private`, '\\\\?\\UNC\\server\\share\\'],
+    [String.raw`\\?\unc\server\share`, '\\\\?\\unc\\server\\share\\'],
+  ] as const) {
+    assert.equal(windowsStorageRoot(path), root);
+    assert.equal(win32.isAbsolute(root), true);
+  }
 });
 
 test('private directory creation secures every new level on its first attempt', async t => {

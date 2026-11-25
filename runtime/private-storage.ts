@@ -94,13 +94,21 @@ export function hasPrivatePermissions(path: string, info: Stats, exactMode?: num
   return info.isDirectory() || exactMode === undefined || Boolean(info.mode & 0o200) === Boolean(exactMode & 0o200);
 }
 
+/** The complete root of an already-resolved Windows path, including an extended UNC share. */
+export function windowsStorageRoot(path: string): string {
+  // win32.parse stops at \\?\UNC\, before the required server/share. Walking
+  // from that prefix would attempt to inspect incomplete network roots.
+  const extendedUnc = /^(\\\\\?\\UNC\\[^\\]+\\[^\\]+)(?:\\|$)/iu.exec(path);
+  return extendedUnc ? `${extendedUnc[1]}\\` : win32.parse(path).root;
+}
+
 export function createPrivateDirectory(path: string): void {
   const absolute = resolve(path);
   if (process.platform === 'win32') {
     // An elevated token can default to an Administrators owner. Publishing a
     // mkdir result before changing that owner lets concurrent hosts observe an
     // invalid directory, so apply the owner/DACL in the creation syscall itself.
-    const root = win32.parse(absolute).root;
+    const root = windowsStorageRoot(absolute);
     let current = root;
     for (const part of absolute.slice(root.length).split(win32.sep).filter(Boolean)) {
       current = win32.join(current, part);

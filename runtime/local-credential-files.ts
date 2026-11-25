@@ -3,7 +3,7 @@ import { closeSync, constants, openSync } from 'node:fs';
 import { lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { dirname, join, parse, resolve, sep } from 'node:path';
 import { CredentialVaultError } from './provider-credentials.ts';
-import { createWindowsPrivateDirectory, createWindowsPrivateLock, hasPrivatePermissions, setWindowsPrivate } from './private-storage.ts';
+import { createWindowsPrivateDirectory, createWindowsPrivateLock, hasPrivatePermissions, setWindowsPrivate, windowsStorageRoot } from './private-storage.ts';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const NO_FOLLOW = constants.O_NOFOLLOW | constants.O_NONBLOCK;
@@ -35,7 +35,7 @@ export async function prepareCredentialDirectory(path: string): Promise<string> 
   const directory = resolve(path);
   // Walk existing components without following links. Callers canonicalize the home
   // directory first so macOS aliases such as /var are not mistaken for app directories.
-  const root = parse(directory).root;
+  const root = process.platform === 'win32' ? windowsStorageRoot(directory) : parse(directory).root;
   const parts = directory.slice(root.length).split(sep).filter(Boolean);
   let current: string = root;
   for (const part of parts) {

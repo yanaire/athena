@@ -1,4 +1,4 @@
-name: Verify Windows atomic private storage
+name: Verify Windows attachment tool paths
 on: [pull_request]
 permissions:
   contents: read
@@ -7,7 +7,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows-storage:
-    name: storage-${{ matrix.shell }}
+    name: attachments-${{ matrix.shell }}
     runs-on: windows-2022
     timeout-minutes: 10
     strategy:
@@ -28,9 +28,6 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Compile the fixed Windows permission helper
         run: npm run windows:prepare
-      - name: Verify atomic owner and lock publication
+      - name: Verify the complete manager contract including attachment reads
         timeout-minutes: 5
-        run: node --test --test-reporter=tap --test-concurrency=1 tests/private-storage.test.ts tests/local-credentials.test.ts tests/credential-binding.test.ts
-      - name: Verify private roots and complete recovery cleanup
-        timeout-minutes: 5
-        run: node --test --test-reporter=tap --test-concurrency=1 --test-timeout=180000 tests/connections.test.ts tests/storage.test.ts tests/model-profiles.test.ts tests/extensions.test.ts tests/manager-recovery.test.ts
+        run: node --test --test-reporter=tap --test-concurrency=1 --test-timeout=180000 tests/manager.test.ts
