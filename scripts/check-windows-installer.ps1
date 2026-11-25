@@ -28,6 +28,8 @@ try {
   }
   & node (Join-Path $repo 'scripts/check-desktop-bundle.mjs') --verify-only $destination
   if ($LASTEXITCODE -ne 0) { throw 'Installed application failed functional verification.' }
+  & node (Join-Path $repo 'scripts/smoke-installed-desktop.mjs') $destination
+  if ($LASTEXITCODE -ne 0) { throw 'Installed application failed native WebView verification.' }
   $digest = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 } catch {
   $verificationFailure = $_
