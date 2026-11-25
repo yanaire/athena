@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: bb9a81f2c16117f77345007c250d689dab90f6ba
+          ref: 5e5dd3cebf5c828a8268f15161e57b49707998bd
           fetch-depth: 1
           persist-credentials: false
       - name: Generate and store the exact reviewed HTML bytes
@@ -27,8 +27,8 @@ jobs:
         run: |
           python3 - <<'PY'
           import base64, hashlib, json, os, pathlib, subprocess, urllib.request
-          source = "bb9a81f2c16117f77345007c250d689dab90f6ba"
-          expected = "a60f936eb4e6abced34b14e5eb99784657d6e358"
+          source = "5e5dd3cebf5c828a8268f15161e57b49707998bd"
+          expected = "44a1b94f30774b587bd016418dcd443cedd9c4d0"
           relative = "athena-backend-handoff/athena-codex-ui/athena-preview.html"
           actual = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           if actual != source:
@@ -39,7 +39,7 @@ jobs:
               raise RuntimeError("Generation changed an unexpected file")
           payload = pathlib.Path(relative).read_bytes()
           sha = hashlib.sha1(b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload).hexdigest()
-          if sha != expected or len(payload) != 1577072:
+          if sha != expected or len(payload) != 1579581:
               raise RuntimeError("Generated HTML differs from locally verified bytes")
           request = urllib.request.Request(
               "https://api.github.com/repos/yanaire/athena/git/blobs",
