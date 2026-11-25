@@ -1,0 +1,30 @@
+name: Feature request
+description: Describe a research workflow Athena could support better.
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check existing issues and [CONTRIBUTING.md](https://github.com/yanaire/athena/blob/main/CONTRIBUTING.md) first.
+        Describe the workflow with synthetic examples; keep private research and credentials out of the issue.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What are you trying to do, and where does Athena get in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change and expected outcome
+      description: Describe the behavior you want and how you would tell that it works.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or current workaround
+      description: Optional. What have you tried, or what simpler change could help?
+    validations:
+      required: false
