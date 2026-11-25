@@ -1,7 +1,7 @@
 import { builtins, bindCall } from './mcp-registry.ts';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { Storage } from './storage.ts';
 import { createPrivateDirectory, hasPrivatePermissions, writeNewPrivateFileSync } from './private-storage.ts';
 import type { StoredSession } from './storage.ts';
@@ -579,9 +579,10 @@ export class TaskManager implements AthenaTaskManager {
   }
 
   #attachmentInstruction(file: StoredFile): string {
+    // This is the granted tool namespace, independent of host path separators.
     return `\n\nInput attachment (never a result): ${JSON.stringify({fileId:file.id,name:file.name})}. ` +
       `Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ` +
-      `Call read with these exact arguments: ${JSON.stringify({ path: relative(this.#projectDir(file.projectId), file.path) })}`;
+      `Call read with these exact arguments: ${JSON.stringify({ path: `uploads/${file.id}.txt` })}`;
   }
 
   #attachmentMessage(attempt: Attempt, runtime: ManagedPiSession): AttachmentMessage | undefined {
