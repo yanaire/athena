@@ -1,1 +1,5 @@
 *.pdf binary
+
+# The bundled catalog and skill bodies are verified against reviewed byte hashes.
+/skills/catalog.json text eol=lf
+/skills/**/SKILL.md text eol=lf

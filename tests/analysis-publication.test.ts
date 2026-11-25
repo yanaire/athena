@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { AnalysisFiles } from '../runtime/analysis-files.ts';
 
@@ -26,7 +26,7 @@ for (const failure of ['blob_write', 'index_commit'] as const) {
     const fault = new Error('Synthetic storage failure');
     let writes = 0;
     t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
-      if (failure === 'blob_write' && String(args[0]).startsWith(versions + '/') && ++writes === 2) {
+      if (failure === 'blob_write' && dirname(String(args[0])) === versions && ++writes === 2) {
         write(...args); // A failed write can leave a partially created file.
         throw fault;
       }

@@ -27,14 +27,33 @@ const prohibitKeychain = `import cp from 'node:child_process';
   syncBuiltinESMExports();`;
 const script = fileURLToPath(new URL('../runtime/server.ts', import.meta.url));
 const hex = () => randomBytes(32).toString('hex');
+const cleanups = new WeakMap<TestContext, (() => void | Promise<void>)[]>();
+
+function onCleanup(t: TestContext, action: () => void | Promise<void>) {
+  let owned = cleanups.get(t);
+  if (!owned) {
+    owned = [];
+    cleanups.set(t, owned);
+    const actions = owned;
+    t.after(async () => {
+      const errors: unknown[] = [];
+      for (const cleanup of actions.toReversed()) {
+        try { await cleanup(); } catch (error) { errors.push(error); }
+      }
+      if (errors.length) throw new AggregateError(errors, 'Desktop fixture cleanup failed.');
+    });
+  }
+  owned.push(action);
+}
 
 async function workspace(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-desktop-test-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  onCleanup(t, () => rm(directory, { recursive: true, force: true }));
   return directory;
 }
 
 function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, throughParent = false) {
+  t.signal.throwIfAborted();
   const relay = `const { spawn } = require('node:child_process');
     const host = spawn(process.execPath, [process.argv[1], '--desktop'], { stdio: ['pipe', 'inherit', 'inherit'] });
     process.stdin.pipe(host.stdin);
@@ -54,7 +73,7 @@ function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, 
     child.once('close', (code, signal) => resolve({ code, signal }));
     child.once('error', reject);
   });
-  t.after(async () => {
+  onCleanup(t, async () => {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     await exited;
   });
@@ -112,11 +131,13 @@ test('private migration pipe accepts explicit key replies and rejects malformed 
         } catch (error) { console.log('RESULT ' + error.code); }
         process.stdin.destroy();
       `;
+      const directory = await workspace(t);
+      t.signal.throwIfAborted();
       const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
-        env: { ...systemEnvironment(), HOME: await workspace(t) }, stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...systemEnvironment(), HOME: directory }, stdio: ['pipe', 'pipe', 'pipe'],
       });
       const exited = new Promise<number | null>(resolve => child.once('close', resolve));
-      t.after(async () => {
+      onCleanup(t, async () => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
         await exited;
       });

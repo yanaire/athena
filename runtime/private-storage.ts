@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdirSync, type Stats } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { isAbsolute, join, resolve, sep, win32 } from 'node:path';
 
 // Node's Windows mode bits do not express ownership or a DACL. This fixed,
 // host-owned script uses SIDs, not localized account names, and receives paths
@@ -83,7 +83,10 @@ export function createPrivateDirectory(path: string): void {
   if (process.platform === 'win32' && created) {
     setWindowsPrivate(created);
     let next = created;
-    for (const part of relative(created, absolute).split(sep).filter(Boolean)) {
+    // mkdir may return a \\?\-prefixed path. Compare both paths in the same
+    // namespace so the drive is never mistaken for a newly created child.
+    const descendants = win32.relative(win32.toNamespacedPath(created), win32.toNamespacedPath(absolute));
+    for (const part of descendants.split(sep).filter(Boolean)) {
       next = join(next, part);
       setWindowsPrivate(next);
     }
