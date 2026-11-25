@@ -1,22 +1,21 @@
-name: Diagnose Windows test process cleanup
-on: [pull_request]
+name: Windows packaging diagnostic
+
+on:
+  pull_request:
+
 permissions:
   contents: read
-concurrency:
-  group: windows-helper-probe-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+
 jobs:
-  windows-storage:
-    name: storage-${{ matrix.shell }}
+  windows-packaging:
+    name: Windows package and isolated installation
     runs-on: windows-2022
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shell: [bash, pwsh]
+    timeout-minutes: 60
     defaults:
       run:
-        shell: ${{ matrix.shell }}
+        shell: bash
+    env:
+      ATHENA_DESKTOP_TARGET: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -24,10 +23,28 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.22.3'
-      - name: Install locked dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Compile the fixed Windows permission helper
-        run: npm run windows:prepare
-      - name: Locate unfinished test resources
-        timeout-minutes: 5
-        run: node --import ./scripts/probe-test-resources.mjs --test --test-reporter=tap --test-concurrency=1 --test-timeout=45000 tests/chatgpt-responses.test.ts tests/connections.test.ts tests/credential-binding.test.ts
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Require native Windows x64
+        run: |
+          node --input-type=module -e 'import assert from "node:assert/strict"; assert.equal(process.platform, "win32"); assert.equal(process.arch, "x64"); console.log(process.version, process.platform, process.arch);'
+      - name: Install locked toolchain and dependencies
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target "$ATHENA_DESKTOP_TARGET"
+          rustup override set 1.99.1
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check types and assemble the exact source UI
+        run: |
+          npm run check
+          python3 athena-backend-handoff/athena-codex-ui/build.py
+          git diff --exit-code -- athena-backend-handoff/athena-codex-ui/athena-preview.html
+      # The normal Tauri beforeBuildCommand prepares the hash-verified Node
+      # runtime and native analysis helper. This diagnostic keeps all bundle
+      # verification; it is independent of, and does not replace, the host gate.
+      - name: Build and verify Windows NSIS package
+        run: npm run desktop:build:windows
+      - name: Compile the desktop test target
+        run: cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
+      - name: Install, verify and remove the package in a disposable directory
+        shell: pwsh
+        run: ./scripts/check-windows-installer.ps1
