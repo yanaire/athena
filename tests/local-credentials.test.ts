@@ -115,8 +115,12 @@ test('concurrent processes serialize rotation and release the lock after a kille
   // A read remains available but an independent process cannot start a conflicting update yet.
   assert.deepEqual(await store.read('chatgpt:first', { signal: t.signal }), firstToken);
   t.signal.throwIfAborted();
+  const lockAbort = AbortSignal.timeout(125);
+  // ACL inspection can outlast the deadline before lock waiting starts:
+  // throwIfAborted preserves the reason; timers/promises wraps it as a cause.
   await assert.rejects(store.modify('chatgpt:first', async () => assert.fail('Concurrent writer entered the transaction'),
-    { signal: AbortSignal.timeout(125) }), { name: 'AbortError' });
+    { signal: lockAbort }), error => lockAbort.aborted && (error === lockAbort.reason
+      || (error instanceof Error && error.name === 'AbortError' && error.cause === lockAbort.reason)));
   t.signal.throwIfAborted();
   const waiting = store.modify('chatgpt:first', async credential => {
     assert.deepEqual(credential, rotated);
