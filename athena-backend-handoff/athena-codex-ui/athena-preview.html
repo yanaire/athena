@@ -2500,6 +2500,91 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
 #athena-codex .aw-attempt-results { margin-top: 8px; }
 #athena-codex .aw-attempt-results:empty { display: none; }
 
+/* Extension and research records use Athena's existing warm, compact palette. */
+#athena-codex .aex-host { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .aex-heading, #athena-codex .aex-card-heading, #athena-codex .aex-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+#athena-codex .aex-heading h3, #athena-codex .aex-section-heading h3 { margin: 0; font-size: 14px; font-weight: 550; }
+#athena-codex .aex-heading p { margin: 3px 0 0; color: #6b7064; }
+#athena-codex .aex-section-heading { margin: 24px 0 8px; align-items: baseline; }
+#athena-codex .aex-section-heading > span { font-size: 11px; color: #6b7064; }
+#athena-codex .aex-card, #athena-codex .aex-use { min-width: 0; border: 1px solid #e2e1d7; border-radius: 10px; padding: 14px; margin-top: 10px; background: #fcfcf7; }
+#athena-codex .aex-card h4 { margin: 0; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+#athena-codex .aex-card p, #athena-codex .aex-use p { margin: 7px 0; overflow-wrap: anywhere; }
+#athena-codex .aex-card-heading > div { min-width: 0; }
+#athena-codex .aex-badge { flex: none; display: inline-block; padding: 2px 7px; border: 1px solid #dfded3; border-radius: 6px; font-size: 10px; color: #6b7064; background: #f4f3ec; }
+#athena-codex .aex-badge[data-state="enabled"], #athena-codex .aex-badge[data-state="checked"] { border-color: #cdd7c4; background: #eff3e9; color: #506143; }
+#athena-codex .aex-note, #athena-codex .aex-empty { color: #6b7064; font-size: 11px; line-height: 1.6; }
+#athena-codex .aex-empty { padding: 14px 0; }
+#athena-codex .aex-error { color: #9a483b; background: #fff2ec; border: 1px solid #ead1c9; border-radius: 8px; padding: 9px 11px; overflow-wrap: anywhere; }
+#athena-codex .aex-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin: 11px 0 0; }
+#athena-codex .aex-text-button { border: 0; background: transparent; color: #5b684d; padding: 4px 0; font: inherit; text-align: left; }
+#athena-codex .aex-text-button:hover { text-decoration: underline; }
+#athena-codex .aex-host button:disabled, #athena-codex .aex-host input:disabled { cursor: default; opacity: .5; }
+#athena-codex .aex-host .ast-button { min-height: 32px; white-space: normal; }
+#athena-codex .aex-host svg { height: 14px; width: 14px; flex: none; }
+#athena-codex .aex-server { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e6e5dc; }
+#athena-codex .aex-server > .aex-card-heading > strong { font-size: 12px; }
+#athena-codex .aex-endpoint { font-size: 11px; color: #6b7064; overflow-wrap: anywhere; }
+#athena-codex .aex-toggle { display: flex; align-items: center; gap: 5px; flex: none; font-size: 11px; }
+#athena-codex .aex-toggle input { accent-color: #6f7d5b; }
+#athena-codex .aex-details { margin-top: 9px; color: #6b7064; font-size: 11px; }
+#athena-codex .aex-details > summary, #athena-codex .aex-import > summary { cursor: pointer; }
+#athena-codex .aex-details dl { margin: 8px 0 0; border-left: 2px solid #deded3; padding-left: 9px; }
+#athena-codex .aex-details dl > div { margin: 7px 0; }
+#athena-codex .aex-details dt { font-weight: 550; }
+#athena-codex .aex-details dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+#athena-codex .aex-import { margin: 16px 0; border: 1px dashed #cdcec1; border-radius: 9px; padding: 12px; }
+#athena-codex .aex-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; margin: 11px 0; }
+#athena-codex .aex-field input:not([type="file"]), #athena-codex .aex-field textarea { width: 100%; min-width: 0; border: 1px solid #dcdacf; border-radius: 7px; background: #fffefa; color: #35372f; padding: 8px 9px; font: inherit; box-sizing: border-box; }
+#athena-codex .aex-field textarea { resize: vertical; min-height: 100px; font-family: ui-monospace, SFMono-Regular, monospace; }
+#athena-codex .aex-host :is(button,input,textarea,summary):focus-visible { outline: 2px solid #808977; outline-offset: 3px; }
+@media (max-width: 600px) { #athena-codex .aex-card-heading { flex-wrap: wrap; } #athena-codex .aex-heading { align-items: center; } }
+
+#athena-codex .arb-host { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .arb-panel { border: 1px solid #dedfd3; border-radius: 10px; background: #fafbf6; margin-bottom: 18px; padding: 14px; }
+#athena-codex .arb-heading, #athena-codex .arb-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+#athena-codex .arb-heading h3 { margin: 0; font-size: 14px; font-weight: 550; }
+#athena-codex .arb-heading p, #athena-codex .arb-caption, #athena-codex .arb-empty { color: #6b7064; font-size: 11px; }
+#athena-codex .arb-heading p { margin: 3px 0 0; }
+#athena-codex .arb-empty { padding: 9px 0 0; }
+#athena-codex .arb-mission { border-top: 1px solid #e3e5d9; padding-top: 12px; margin-top: 13px; }
+#athena-codex .arb-objective { margin: 0 0 7px; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+#athena-codex .arb-counts { display: flex; flex-wrap: wrap; gap: 12px; color: #6b7064; font-size: 11px; }
+#athena-codex .arb-panel details { margin-top: 10px; }
+#athena-codex .arb-panel summary { cursor: pointer; font-size: 12px; }
+#athena-codex .arb-panel h5 { margin: 11px 0 4px; color: #6b7064; font-size: 11px; font-weight: 550; }
+#athena-codex .arb-panel ul, #athena-codex .arb-panel ol { margin: 6px 0; padding-left: 18px; }
+#athena-codex .arb-panel li { margin: 5px 0; overflow-wrap: anywhere; }
+#athena-codex .arb-panel p { overflow-wrap: anywhere; }
+#athena-codex .arb-card { padding: 11px; margin-top: 9px; background: #fffefa; border: 1px solid #e4e4d9; border-radius: 8px; }
+#athena-codex .arb-card h4 { font-size: 12px; font-weight: 550; margin: 0; overflow-wrap: anywhere; }
+#athena-codex .arb-card p { margin: 6px 0; }
+#athena-codex .arb-badge { flex: none; font-size: 10px; padding: 2px 6px; border: 1px solid #dedfd3; border-radius: 5px; color: #6b7064; background: #f5f5ed; }
+#athena-codex .arb-badge[data-state="completed"] { color: #506143; border-color: #cbd6c2; background: #eff3e9; }
+#athena-codex .arb-badge[data-state="failed"], #athena-codex .arb-badge[data-state="revoked"] { color: #954b40; background: #fff2ed; border-color: #e9cfc8; }
+#athena-codex .arb-verdict { font-weight: 550; }
+#athena-codex .arb-targets { list-style: none; padding-left: 0 !important; }
+#athena-codex .arb-targets > li { border-left: 2px solid #d9ddcd; padding-left: 9px; }
+#athena-codex .arb-targets .arb-caption { display: block; }
+#athena-codex .arb-button { padding: 6px 9px; border: 1px solid #dadccd; border-radius: 6px; color: #4f5b43; background: #f5f6ee; font: inherit; font-size: 11px; }
+#athena-codex .arb-button:hover { background: #e9eddf; }
+#athena-codex .arb-link { border: 0; color: #526242; background: none; text-align: left; padding: 0; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+#athena-codex .arb-panel :is(button,input,textarea,select):disabled { opacity: .5; cursor: default; }
+#athena-codex .arb-details { font-size: 10px; color: #6b7064; }
+#athena-codex .arb-details > summary { font-size: 10px; }
+#athena-codex .arb-details dl { margin: 7px 0 0; }
+#athena-codex .arb-details dl > div { margin: 5px 0; }
+#athena-codex .arb-details dt { font-weight: 550; }
+#athena-codex .arb-details dd { margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 150px; overflow-y: auto; }
+#athena-codex .arb-decision { border-top: 1px solid #e9e9de; padding-top: 8px; }
+#athena-codex .arb-decision label { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; font-size: 11px; }
+#athena-codex .arb-decision :is(textarea,select) { border: 1px solid #dadccd; border-radius: 6px; background: #fffefa; color: #35372f; padding: 6px 8px; font: inherit; max-width: 100%; }
+#athena-codex .arb-decision textarea { resize: vertical; }
+#athena-codex .arb-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+#athena-codex .arb-error { color: #954b40; background: #fff2ed; border: 1px solid #e9cfc8; border-radius: 6px; padding: 8px; }
+#athena-codex .arb-panel :is(button,input,textarea,select,summary):focus-visible { outline: 2px solid #808977; outline-offset: 3px; }
+@media (max-width: 600px) { #athena-codex .arb-card-heading { flex-wrap: wrap; } }
+
 </style>
 </head>
 <body>
@@ -2749,6 +2834,16 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     read_file: ['file-text', 'Reading result file', 'Read result file', 'Result file read', 'Result file read failed'],
     write_file: ['file-plus-2', 'Writing analysis file', 'Write analysis file', 'Analysis file written', 'Analysis file write failed'],
     run_command: ['square-terminal', 'Running analysis', 'Run analysis', 'Analysis finished', 'Analysis failed'],
+    list_skills: ['book-open', 'Checking available skills', 'Check available skills', 'Available skills checked', 'Skills unavailable'],
+    load_skill: ['book-open', 'Loading research procedure', 'Load research procedure', 'Research procedure loaded', 'Procedure could not load'],
+    get_research_board: ['notebook-text', 'Reading research records', 'Read research records', 'Research records read', 'Research records unavailable'],
+    plan_research: ['clipboard-list', 'Recording research plan', 'Record research plan', 'Research plan recorded', 'Research plan could not save'],
+    add_research_evidence: ['file-check-2', 'Verifying research evidence', 'Verify research evidence', 'Research evidence recorded', 'Evidence could not be recorded'],
+    request_review: ['users-round', 'Starting independent review', 'Start independent review', 'Independent review requested', 'Review could not start'],
+    submit_review: ['clipboard-check', 'Recording review findings', 'Record review findings', 'Review findings recorded', 'Review findings could not save'],
+    remember_research: ['notebook-pen', 'Saving working notes', 'Save working notes', 'Working notes saved', 'Working notes could not save'],
+    propose_knowledge: ['library', 'Recording reusable method', 'Record reusable method', 'Reusable method recorded', 'Method could not be recorded'],
+    call_external_mcp: ['plug', 'Running connected MCP tool', 'Run connected MCP tool', 'Connected tool returned a result', 'Connected tool failed'],
     custom: ['plug', 'Running tool', 'Run tool', 'Tool finished', 'Tool failed']
   });
   const ICONS = new Set([...Object.values(PHASES).map(item => item[0]), ...Object.values(TOOL_KINDS).map(item => item[0])]);
@@ -2799,6 +2894,16 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     if (kind === 'calculate_rc_response') detail = 'Assigned circuit JSON';
     if (['read_file', 'write_file'].includes(kind)) detail = textValue(value.name, 240) || 'Assigned file';
     if (kind === 'run_command') detail = textValue(value.script, 240) || 'Assigned analysis';
+    if (kind === 'list_skills') detail = 'Available procedures';
+    if (kind === 'load_skill') detail = 'Selected procedure';
+    if (kind === 'get_research_board') detail = 'Current research records';
+    if (kind === 'plan_research') detail = textValue(value.objective, 240) || 'Study objective and acceptance criteria';
+    if (['add_research_evidence', 'propose_knowledge'].includes(kind)) detail = textValue(value.title, 240) || 'Saved research evidence';
+    if (kind === 'request_review') detail = textValue(value.question, 240) || 'Independent evidence check';
+    if (kind === 'submit_review') detail = 'Checks, findings and limitations';
+    if (kind === 'remember_research') detail = value.scope === 'project' ? 'Project working notes' : 'Agent working notes';
+    if (kind === 'call_external_mcp') detail = textValue(value.tool, 240) || textValue(value.toolName, 240) || 'Approved server tool';
+    if (labels && ['plan_research', 'add_research_evidence', 'propose_knowledge', 'request_review', 'call_external_mcp'].includes(kind)) detail = labels.text(detail, 'Research action', [value.taskId, value.missionId, value.reviewId, value.evidenceId, value.runId, value.attemptId, value.requestId]);
     if (labels && ['spawn_agent', 'send_to_agent', 'wait_for_agents', 'get_task', 'list_tasks', 'cancel_task'].includes(kind)) detail = labels.text(detail, 'Assigned task', [value.taskId, value.agentSessionId, value.sessionId, value.runId, value.attemptId, value.requestId]);
     const label = state === 'succeeded' ? info[3] : state === 'failed' ? info[4] : state === 'queued' ? info[2] : state === 'stopped' ? info[2] + ' · stopped' : info[1];
     return Object.freeze({ kind, icon: info[0], label, detail, status: state, active: state === 'running', motion: state === 'running' ? 'pulse' : 'none' });
@@ -6349,6 +6454,176 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
 
 </script>
 <script>
+/* A view of durable host research records. Planned stages, executed evidence,
+ * independent review and human conventions remain distinct. */
+(() => {
+  'use strict';
+  const rows = value => Array.isArray(value) ? value : [];
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  const verdicts = { supported: 'Supported by checked evidence', changes_required: 'Changes required', insufficient_evidence: 'Insufficient evidence' };
+  const states = { awaiting_reviewer: 'Awaiting reviewer', pending: 'Review in progress', completed: 'Review submitted', failed: 'Review failed', cancelled: 'Review cancelled', paused: 'Review paused' };
+  const phases = { planned: 'Plan recorded', evidence_recorded: 'Evidence recorded', review_pending: 'Review pending', review_interrupted: 'Review interrupted', reviewed: 'Review recorded', knowledge_recorded: 'Knowledge recorded' };
+  const levels = { observation: 'Observation', verified: 'Independently checked', convention: 'Team convention' };
+  const when = value => Number.isFinite(Number(value)) ? new Date(Number(value)).toLocaleString() : 'Time not reported';
+
+  function mount(host, options = {}) {
+    if (!host) throw new TypeError('AthenaResearchBoard.mount requires a host element.');
+    const controller = new AbortController();
+    let service = options.service || null, snapshot = null, destroyed = false, busy = false, request = 0, generation = 0;
+    let projectId = null, sessionId = null, revision = null, refreshTimer = null, failure = '';
+    const opened = new Map();
+    const workspace = () => options.getWorkspace?.() || {};
+    const q = selector => host.querySelector(selector);
+    const hiddenIds = () => [projectId, sessionId, ...['tasks', 'agents', 'attempts', 'processes'].flatMap(key => rows(workspace()[key]).flatMap(item => [item.id, item.taskId, item.attemptId, item.agentSessionId]))];
+    const publicText = value => window.AthenaActivityLabels ? window.AthenaActivityLabels.text(value, '', hiddenIds()) : String(value ?? '');
+    const details = (fields, key) => '<details class="arb-details" data-arb-detail="' + esc(key) + '"><summary>Technical details</summary><dl>' + fields.filter(([, value]) => value !== undefined && value !== null && value !== '').map(([name, value]) => '<div><dt>' + esc(name) + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value, null, 2) : value) + '</dd></div>').join('') + '</dl></details>';
+    const provenance = record => details([['Record ID', record.id], ['Mission ID', record.missionId], ['Project ID', record.projectId || record.createdBy?.projectId], ['Conversation ID', record.sessionId || record.createdBy?.sessionId], ['Run ID', record.runId || record.createdBy?.runId], ['Task ID', record.createdBy?.taskId], ['Attempt ID', record.createdBy?.attemptId], ['Agent session ID', record.createdBy?.agentSessionId], ['Created', when(record.createdAt)]], 'record-' + record.id);
+    const list = values => '<ul>' + rows(values).map(value => '<li>' + esc(publicText(value)) + '</li>').join('') + '</ul>';
+    host.classList.add('arb-host');
+    host.innerHTML = '<section class="arb-panel" aria-label="Research board"><header class="arb-heading"><div><h3>Research board</h3><p>Plans, execution evidence and reviews</p></div><button type="button" class="arb-button cursor-interaction" data-arb-action="refresh">Refresh</button></header><p class="arb-error" role="alert" data-arb-error hidden></p><div data-arb-records></div></section>';
+
+    function evidenceHTML(evidence) {
+      return '<article class="arb-card"><h4>' + esc(publicText(evidence.title) || 'Saved evidence') + '</h4>' + (evidence.summary ? '<p>' + esc(publicText(evidence.summary)) + '</p>' : '')
+        + '<ul class="arb-targets">' + rows(evidence.targets).map(target => {
+          const artifact = rows(workspace().artifacts).find(item => item.id === target.id && String(item.version ?? item.file?.versionId ?? item.file?.sha256) === String(target.version) && (item.file?.sha256 || item.sha256) === target.sha256);
+          const title = artifact?.title || artifact?.file?.name || (target.kind === 'artifact' ? 'Saved result version' : 'Original input version');
+          return '<li>' + (artifact ? '<button type="button" class="arb-link cursor-interaction" data-arb-action="artifact" data-artifact="' + esc(target.id) + '" data-version="' + esc(target.version) + '">' + esc(publicText(title)) + '</button>' : '<span>' + esc(title) + '</span>')
+            + '<span class="arb-caption">' + (target.kind === 'artifact' ? 'Result' : 'Input') + ' · ' + esc(target.bytes) + ' bytes</span>'
+            + details([['Type', target.kind], ['ID', target.id], ['Version', target.version], ['SHA-256', target.sha256], ['Producer task ID', target.taskId], ['Producer attempt ID', target.attemptId], ['Producer session ID', target.agentSessionId]], 'target-' + evidence.id + '-' + target.id) + '</li>';
+        }).join('') + '</ul>' + provenance(evidence) + '</article>';
+    }
+
+    function reviewHTML(review) {
+      const completed = review.state === 'completed';
+      const task = rows(workspace().tasks).find(item => item.id === review.reviewer?.taskId);
+      const reviewerName = task ? window.AthenaActivityLabels?.task(task, rows(workspace().tasks), 'Review worker') || 'Review worker' : 'Review worker';
+      return '<article class="arb-card"><div class="arb-card-heading"><h4>' + esc(publicText(review.question) || 'Independent review') + '</h4><span class="arb-badge" data-state="' + esc(review.state) + '">' + (states[review.state] || 'Status unavailable') + '</span></div>'
+        + (completed && Object.hasOwn(verdicts, review.verdict) ? '<p class="arb-verdict">' + verdicts[review.verdict] + '</p>' : '<p class="arb-caption">No completed review verdict is recorded.</p>')
+        + (review.reviewer ? '<p class="arb-caption">' + esc(reviewerName) + ' · separate worker session</p>' : '')
+        + (rows(review.checks).length ? '<h5>Checks performed</h5>' + list(review.checks) : '')
+        + (rows(review.findings).length ? '<h5>Findings and limitations</h5>' + list(review.findings) : '')
+        + details([['Review ID', review.id], ['Evidence IDs', review.evidenceIds], ['Reviewer task ID', review.reviewer?.taskId], ['Reviewer attempt ID', review.reviewer?.attemptId], ['Reviewer agent session ID', review.reviewer?.agentSessionId], ['Reproduction evidence IDs', review.reproductionEvidenceIds], ['Submitted', review.submittedAt ? when(review.submittedAt) : undefined]], 'review-' + review.id) + '</article>';
+    }
+
+    function bookHTML(book) {
+      const active = book.state === 'active';
+      const replacements = rows(snapshot?.books).filter(item => item.id !== book.id && item.state === 'active');
+      return '<article class="arb-card"><div class="arb-card-heading"><h4>' + esc(publicText(book.title) || 'Reusable method') + '</h4><span class="arb-badge" data-state="' + esc(book.state) + '">' + (active ? levels[book.level] || 'Unclassified' : book.state === 'revoked' ? 'Revoked' : 'Superseded') + '</span></div>'
+        + '<h5>Method</h5><p>' + esc(publicText(book.method)) + '</p><h5>Rationale</h5><p>' + esc(publicText(book.rationale)) + '</p>'
+        + '<h5>When it applies</h5>' + list(book.applicability)
+        + details([['Knowledge ID', book.id], ['Evidence IDs', book.evidenceIds], ['Review IDs', book.reviewIds], ['History', book.history], ['Created', when(book.createdAt)]], 'book-' + book.id)
+        + (active && service?.decideKnowledge ? '<details class="arb-decision" data-arb-detail="decision-' + esc(book.id) + '"><summary class="cursor-interaction">Manage this knowledge record</summary><label>Reason<textarea rows="2" maxlength="4096" data-arb-reason="' + esc(book.id) + '" placeholder="Explain this decision"></textarea></label><div class="arb-actions">'
+          + (book.level === 'verified' ? '<button type="button" class="arb-button cursor-interaction" data-arb-action="convention" data-book="' + esc(book.id) + '">Confirm team convention</button>' : '')
+          + '<button type="button" class="arb-button cursor-interaction" data-arb-action="revoke" data-book="' + esc(book.id) + '">Revoke</button></div>'
+          + (replacements.length ? '<label>Replacement<select data-arb-replacement="' + esc(book.id) + '"><option value="">Choose a saved record</option>' + replacements.map(item => '<option value="' + esc(item.id) + '">' + esc(publicText(item.title)) + '</option>').join('') + '</select></label><button type="button" class="arb-button cursor-interaction" data-arb-action="supersede" data-book="' + esc(book.id) + '">Replace with selected record</button>' : '') + '</details>' : '') + '</article>';
+    }
+
+    function memoryHTML(memory) {
+      const task = rows(workspace().tasks).find(item => item.id === memory.createdBy?.taskId);
+      const author = window.AthenaActivityLabels?.task(task, rows(workspace().tasks), 'Research worker') || 'Research worker';
+      return '<article class="arb-card"><p>' + esc(publicText(memory.text)) + '</p><p class="arb-caption">' + esc(author) + ' · ' + esc(when(memory.createdAt)) + '</p>' + provenance(memory) + '</article>';
+    }
+
+    function recordsHTML() {
+      if (!service?.getResearch) return '<p class="arb-empty">Research records are available when a supporting Athena host is connected.</p>';
+      if (!projectId || !sessionId) return '<p class="arb-empty">Open a project conversation to view its research records.</p>';
+      if (!snapshot) return '<p class="arb-empty">Loading saved research records…</p>';
+      const missions = rows(snapshot.missions);
+      const content = missions.map(mission => {
+        const evidence = rows(snapshot.evidence).filter(item => item.missionId === mission.id);
+        const reviews = rows(snapshot.reviews).filter(item => item.missionId === mission.id);
+        return '<section class="arb-mission"><h4 class="arb-objective">' + esc(publicText(mission.objective)) + '</h4><div class="arb-counts">' + (Object.hasOwn(phases, mission.phase) ? '<span class="arb-badge" data-state="' + esc(mission.phase) + '">' + phases[mission.phase] + '</span>' : '') + '<span>' + evidence.length + ' evidence records</span><span>' + reviews.filter(item => item.state === 'completed').length + ' completed reviews</span></div>'
+          + '<details class="arb-plan" data-arb-detail="mission-' + esc(mission.id) + '"><summary>Plan &amp; acceptance criteria</summary><h5>Acceptance criteria</h5>' + list(mission.acceptanceCriteria) + '<h5>Planned stages</h5><ol>' + rows(mission.stages).map(stage => '<li>' + esc(publicText(stage)) + '</li>').join('') + '</ol><p class="arb-caption">These stages describe the plan. Completion is established by the execution and review records below.</p>' + provenance(mission) + '</details>'
+          + (evidence.length ? '<details data-arb-detail="evidence-' + esc(mission.id) + '"><summary>Execution evidence · ' + evidence.length + '</summary>' + evidence.map(evidenceHTML).join('') + '</details>' : '<p class="arb-caption">No execution evidence has been recorded yet.</p>')
+          + (reviews.length ? '<details data-arb-detail="reviews-' + esc(mission.id) + '"><summary>Independent reviews · ' + reviews.length + '</summary>' + reviews.map(reviewHTML).join('') + '</details>' : '') + '</section>';
+      }).join('');
+      const books = rows(snapshot.books);
+      const projectNotes = rows(snapshot.memories?.project), workerNotes = rows(snapshot.memories?.agents);
+      return content + (!missions.length ? '<p class="arb-empty">No research plan has been recorded in this conversation. Ask Athena to plan the study, preserve its evidence and request an independent review.</p>' : '')
+        + (books.length ? '<details class="arb-books" data-arb-detail="books"><summary>Reusable knowledge · ' + books.length + '</summary><p class="arb-caption">Observations, independently checked methods and human-confirmed conventions remain separate.</p>' + books.map(bookHTML).join('') + '</details>' : '')
+        + (projectNotes.length || workerNotes.length ? '<details data-arb-detail="working-notes"><summary>Working notes · ' + (projectNotes.length + workerNotes.length) + '</summary><p class="arb-caption">Working notes preserve research context. They are not independently verified knowledge.</p>' + (projectNotes.length ? '<h5>Project notes</h5>' + projectNotes.map(memoryHTML).join('') : '') + (workerNotes.length ? '<h5>Worker notes in this conversation</h5>' + workerNotes.map(memoryHTML).join('') : '') + '</details>' : '');
+    }
+
+    function render() {
+      if (destroyed) return;
+      host.hidden = workspace().mode !== 'runtime';
+      q('[data-arb-error]').textContent = failure; q('[data-arb-error]').hidden = !failure;
+      const target = q('[data-arb-records]'), html = recordsHTML();
+      if (target._arbHTML !== html) {
+        for (const detail of target.querySelectorAll('[data-arb-detail]')) opened.set(detail.dataset.arbDetail, detail.open);
+        const drafts = new Map([...target.querySelectorAll('[data-arb-reason]')].map(field => [field.dataset.arbReason, field.value]));
+        target.innerHTML = html; target._arbHTML = html;
+        for (const detail of target.querySelectorAll('[data-arb-detail]')) detail.open = opened.get(detail.dataset.arbDetail) === true;
+        for (const field of target.querySelectorAll('[data-arb-reason]')) field.value = drafts.get(field.dataset.arbReason) || '';
+      }
+      for (const button of host.querySelectorAll('button')) button.disabled = busy || !service?.getResearch || !projectId || !sessionId;
+      for (const field of host.querySelectorAll('input,textarea,select')) field.disabled = busy;
+      options.icons?.();
+    }
+
+    async function refresh() {
+      clearTimeout(refreshTimer); refreshTimer = null;
+      if (destroyed || busy || !service?.getResearch || !projectId || !sessionId) return;
+      const token = ++request, owner = generation, project = projectId, session = sessionId;
+      try {
+        const next = await service.getResearch(project, session);
+        if (destroyed || owner !== generation || token !== request || project !== projectId || session !== sessionId) return;
+        if (!next || next.schemaVersion !== 1 || next.projectId !== project || !['missions', 'evidence', 'reviews', 'books'].every(key => Array.isArray(next[key]))) throw new Error('The host returned invalid research records.');
+        snapshot = next; failure = ''; render();
+      } catch (error) {
+        if (destroyed || owner !== generation || token !== request || project !== projectId || session !== sessionId) return;
+        failure = String(error?.message || error); render();
+      }
+    }
+
+    function update() {
+      const next = workspace();
+      if (next.projectId !== projectId || next.sessionId !== sessionId) {
+        ++generation; ++request; busy = false; snapshot = null; failure = ''; opened.clear();
+        projectId = next.projectId || null; sessionId = next.sessionId || null; revision = next.revision;
+        delete q('[data-arb-records]')._arbHTML; q('[data-arb-records]').replaceChildren(); render(); void refresh(); return;
+      }
+      if (revision !== next.revision) { revision = next.revision; clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 150); }
+      render();
+    }
+
+    host.addEventListener('click', event => {
+      const button = event.target.closest('[data-arb-action]');
+      if (!button || !host.contains(button) || button.disabled) return;
+      const action = button.dataset.arbAction;
+      if (action === 'refresh') { void refresh(); return; }
+      if (action === 'artifact') { options.onNavigate?.('artifacts', { artifactId: button.dataset.artifact, version: button.dataset.version }); return; }
+      if (!['convention', 'revoke', 'supersede'].includes(action) || !service?.decideKnowledge || !snapshot) return;
+      const book = rows(snapshot.books).find(item => item.id === button.dataset.book);
+      if (!book || book.state !== 'active' || action === 'convention' && book.level !== 'verified') return;
+      const reason = [...host.querySelectorAll('[data-arb-reason]')].find(field => field.dataset.arbReason === book.id)?.value.trim();
+      const replacementId = [...host.querySelectorAll('[data-arb-replacement]')].find(field => field.dataset.arbReplacement === book.id)?.value;
+      if (!reason || action === 'supersede' && !replacementId) { failure = !reason ? 'Explain the decision before saving it.' : 'Choose a saved replacement record.'; render(); return; }
+      const owner = generation, project = projectId;
+      busy = true; failure = ''; ++request; render();
+      void (async () => {
+        try { await service.decideKnowledge(project, book.id, { decision: action, reason, ...(action === 'supersede' ? { replacementId } : {}) }); }
+        catch (error) { if (!destroyed && owner === generation) failure = String(error?.message || error); }
+        finally {
+          if (!destroyed && owner === generation) { busy = false; const savedFailure = failure; render(); await refresh(); if (savedFailure && owner === generation) { failure = savedFailure; render(); } }
+        }
+      })();
+    }, { signal: controller.signal });
+
+    update();
+    return {
+      setService(value) { ++generation; ++request; busy = false; service = value || null; snapshot = null; failure = ''; opened.clear(); q('[data-arb-records]').replaceChildren(); delete q('[data-arb-records]')._arbHTML; render(); void refresh(); },
+      update,
+      refresh,
+      getState: () => ({ connected: Boolean(service), projectId, sessionId, snapshot, busy, error: failure }),
+      destroy() { if (destroyed) return; destroyed = true; ++generation; ++request; clearTimeout(refreshTimer); controller.abort(); host.replaceChildren(); host.classList.remove('arb-host'); }
+    };
+  }
+  window.AthenaResearchBoard = Object.freeze({ mount });
+})();
+
+</script>
+<script>
 /* Download paths are derived from host-issued scoped IDs, never local file paths. */
 (() => {
   'use strict';
@@ -6362,6 +6637,15 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
   const phases = Object.freeze({ initialize: 'Connecting', 'tools/list': 'Discovering tools', 'tools/call': 'Calculating' });
   function mcp(metadata) {
     if (!metadata || typeof metadata !== 'object') return null;
+    if (metadata.resultKind === 'mcp-result') {
+      if (metadata.registryVersion !== 1 || metadata.protocol !== '2025-06-18'
+        || typeof metadata.server !== 'string' || !metadata.server || typeof metadata.version !== 'string' || !metadata.version
+        || typeof metadata.tool !== 'string' || !metadata.tool || typeof metadata.alias !== 'string'
+        || !/^external:[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*:[a-zA-Z0-9_.:-]+$/.test(metadata.alias)
+        || !metadata.alias.endsWith(':' + metadata.tool)) return null;
+      return { server: metadata.server, tool: metadata.tool, alias: metadata.alias, resultKind: 'mcp-result', filename: 'mcp-result.json',
+        name: window.AthenaActivityLabels?.text(metadata.displayName, 'External MCP tool', [metadata.alias]) || 'External MCP tool', action: 'View saved tool result' };
+    }
     const entry = builtins.find(item => item.server === metadata.server && item.tool === metadata.tool);
     if (!entry || metadata.version !== '1.0.0' || metadata.protocol !== '2025-06-18') return null;
     const legacy = metadata.registryVersion === undefined && entry.alias === 'calculate_csv';
@@ -6371,7 +6655,8 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     const name = window.AthenaActivityLabels?.text(metadata.displayName, entry.name, [entry.server, entry.tool]) || entry.name;
     return { ...entry, name };
   }
-  const mcpPhase = metadata => Object.hasOwn(phases, metadata?.phase) ? phases[metadata.phase] : null;
+  const mcpPhase = metadata => metadata?.resultKind === 'mcp-result' && metadata.phase === 'tools/call' ? 'Running tool' : Object.hasOwn(phases, metadata?.phase) ? phases[metadata.phase] : null;
+  const mcpCancellation = process => process?.job?.mcp?.resultKind === 'mcp-result' && process.job.cancellation === 'unknown' && ['failed', 'cancelled', 'timed_out', 'interrupted', 'paused'].includes(process.status) ? 'Stopped locally; remote completion is unknown.' : null;
   function publishedMcp(process, artifact) {
     return Boolean(process && artifact && process.status === 'succeeded' && process.id === artifact.processId && process.job?.artifact?.id === artifact.id);
   }
@@ -6379,6 +6664,14 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     const entry = mcp(process?.job?.mcp), receipt = process?.job?.artifact;
     if (!entry || !publishedMcp(process, artifact) || artifact.status === 'unavailable' || receipt.name !== entry.filename
       || receipt.mimeType !== 'application/json') return null;
+    if (entry.resultKind === 'mcp-result') {
+      if (receipt.receiptKind !== 'external-mcp-v1' || artifact.file?.receiptKind !== 'external-mcp-v1'
+        || receipt.mcpAlias !== entry.alias || artifact.file.mcpAlias !== entry.alias
+        || !Number.isSafeInteger(receipt.bytes) || receipt.bytes < 1 || !/^[a-f0-9]{64}$/.test(receipt.sha256)
+        || artifact.file.id !== receipt.id || artifact.file.attemptId !== receipt.attemptId
+        || artifact.file.projectId !== receipt.projectId || artifact.file.sessionId !== receipt.sessionId
+        || artifact.file.bytes !== receipt.bytes || artifact.file.sha256 !== receipt.sha256) return null;
+    }
     for (const file of [receipt, artifact.file].filter(Boolean)) {
       if (file.name !== entry.filename || file.mimeType !== 'application/json'
         || file.mcpAlias !== undefined && file.mcpAlias !== entry.alias) return null;
@@ -6389,6 +6682,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
   function href(conversationId, artifact, process) {
     if (!validId(conversationId) || !validId(artifact?.id) || artifact.status === 'unavailable' || (artifact.sessionId && artifact.sessionId !== conversationId)) return null;
     if ((process?.job?.mcp || artifact.file?.mcpAlias !== undefined) && !publishedMcp(process, artifact)) return null;
+    if ((process?.job?.mcp?.resultKind === 'mcp-result' || artifact.file?.receiptKind === 'external-mcp-v1') && !mcpOutput(process, artifact)) return null;
     if (artifact.file && (artifact.file.id !== artifact.id || (artifact.file.sessionId && artifact.file.sessionId !== conversationId)
       || (artifact.projectId && artifact.file.projectId && artifact.projectId !== artifact.file.projectId))) return null;
     const path = '/api/artifacts/' + encodeURIComponent(conversationId) + '/' + encodeURIComponent(artifact.id);
@@ -6397,7 +6691,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     return location === path || artifact.file?.id === artifact.id || hasFileMetadata ? path : null;
   }
 
-  window.AthenaResultFiles = Object.freeze({ href, mcp, mcpPhase, mcpOutput });
+  window.AthenaResultFiles = Object.freeze({ href, mcp, mcpPhase, mcpCancellation, mcpOutput });
 })();
 
 </script>
@@ -6519,6 +6813,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
     let snapshot = store.getState(), destroyed = false, unsubscribe = null, recordUnsubscribe = null, resizeObserver = null;
     let history = { key: '', messages: [], status: '', error: '' };
+    let researchService = options.researchService || null, researchBoard = null;
     const q = selector => host.querySelector(selector);
     const qa = selector => Array.from(host.querySelectorAll(selector));
     const notify = message => options.toast?.(message);
@@ -6594,7 +6889,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowShell() {
-      return '<div class="awv-scroll"><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
+      return '<div class="awv-scroll"><div data-awv-research-board></div><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
     }
 
     function artifactShell() {
@@ -6606,9 +6901,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function shell() {
+      researchBoard?.destroy(); researchBoard = null;
       rememberDiagnostics(host);
       host.dataset.workspaceView = state.view;
       host.innerHTML = headerHTML() + ({ workflow: workflowShell, artifacts: artifactShell, timeline: timelineShell }[state.view])();
+      if (state.view === 'workflow' && window.AthenaResearchBoard) researchBoard = window.AthenaResearchBoard.mount(q('[data-awv-research-board]'), { service: researchService, getWorkspace: () => snapshot, icons: refreshIcons, onNavigate: navigate });
       update(true);
     }
 
@@ -6715,8 +7012,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       setHTML('[data-awv-measurements]', calculations.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
         const registered = window.AthenaResultFiles?.mcp(p.job.mcp);
+        const cancellation = window.AthenaResultFiles?.mcpCancellation(p);
         return '<section class="awv-task-detail"><h3>' + esc(taskTitle(p.taskId)) + '</h3>'
-          + processButton(p) + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
+          + processButton(p) + (cancellation ? '<p class="awv-caption">' + esc(cancellation) + '</p>' : '') + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
           + (file && artifactDownload(file) ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
             + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + esc(registered?.action || 'View saved result') + '</button>' : '') + '</section>';
       }).join(''));
@@ -6885,6 +7183,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const finite = value => typeof value === 'number' && Number.isFinite(value);
       const count = value => Number.isSafeInteger(value) && value >= 0;
       if (!record(data) || data.schemaVersion !== 1) return null;
+      if (kind === 'mcp-result') {
+        if (data.kind !== 'external-mcp-result' || !record(data.server) || typeof data.server.name !== 'string'
+          || typeof data.tool !== 'string' || !record(data.result) || data.result.isError !== false
+          || !Array.isArray(data.result.content) || !data.result.content.every(block => record(block) && block.type === 'text' && typeof block.text === 'string')
+          || data.result.structuredContent !== undefined && !record(data.result.structuredContent)) return null;
+        const text = data.result.content.map(block => block.text).join('\n\n');
+        return '<section data-awv-external-result><h4>Saved MCP result</h4><p class="awv-caption">' + esc(data.server.name) + ' · ' + esc(data.tool) + '</p>'
+          + '<p class="awv-caption">This is the saved server response. Links and instructions in the response are shown as text.</p>'
+          + (text ? '<pre class="awv-record-text" tabindex="0" aria-label="Saved MCP text">' + esc(text) + '</pre>' : '')
+          + (data.result.structuredContent !== undefined ? '<h5>Structured output</h5><pre class="awv-record-text" tabindex="0" aria-label="Saved MCP structured output">' + esc(JSON.stringify(data.result.structuredContent, null, 2)) + '</pre>' : '')
+          + (!text && data.result.structuredContent === undefined ? '<p class="awv-caption">The server returned no text or structured output.</p>' : '') + '</section>';
+      }
       if (kind === 'rc-step-response') {
         if (!finite(data.timeConstantSeconds) || data.timeConstantSeconds <= 0 || !finite(data.cutoffHz) || data.cutoffHz <= 0
           || !Array.isArray(data.samples) || !data.samples.length || data.samples.length > 512
@@ -6952,7 +7262,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
           section.className = 'awv-table-scroll';
           section.setAttribute('aria-live', 'polite');
           section.setAttribute('data-awv-mcp-result', registered?.resultKind || 'unsupported');
-          section.textContent = registered ? 'Loading saved ' + (registered.resultKind === 'csv-statistics' ? 'measurements' : 'RC response') + '…' : 'A structured preview is not available for this tool version. Download the saved result to inspect it.';
+          section.textContent = registered ? 'Loading saved ' + ({ 'csv-statistics': 'measurements', 'rc-step-response': 'RC response', 'mcp-result': 'tool result' }[registered.resultKind] || 'result') + '…' : 'A structured preview is not available for this tool version. Download the saved result to inspect it.';
           holder.querySelector('h3').parentElement.after(section);
           // The request owns this element. A late reply can only update its detached old view.
           if (registered) void renderMcpResult(section, download, registered.resultKind);
@@ -7039,6 +7349,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function update(force = false) {
       if (destroyed) return;
+      researchBoard?.update();
       updateHeading();
       if (state.view === 'workflow') updateWorkflow();
       if (state.view === 'artifacts') updateArtifacts(force);
@@ -7220,6 +7531,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     recordUnsubscribe = options.records?.subscribe(() => { if (!destroyed && state.view === 'artifacts') { updateArtifacts(true); refreshIcons(); } });
     return {
       open,
+      setResearchService(service) { researchService = service || null; researchBoard?.setService(researchService); },
       focus: () => {
         if (destroyed || !host.isConnected || host.hidden || host.closest('[hidden],[inert],[aria-hidden="true"]')) return;
         q('[data-awv-heading]')?.focus({ preventScroll: true });
@@ -7228,7 +7540,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       destroy() {
         if (destroyed) return;
         destroyed = true;
-        unsubscribe?.(); recordUnsubscribe?.(); abort.abort();
+        unsubscribe?.(); recordUnsubscribe?.(); researchBoard?.destroy(); abort.abort();
         resizeObserver?.disconnect();
         timers.forEach(clearTimeout); urls.forEach(url => URL.revokeObjectURL(url));
         timers.clear(); urls.clear(); diagnosticState.clear();
@@ -8708,6 +9020,238 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
 </script>
 <script>
+/* Project-owned declarative packages and selected skills. All mutations belong
+ * to the host; this panel never installs executable code or runs a server. */
+(() => {
+  'use strict';
+  const rows = value => Array.isArray(value) ? value : [];
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  const MAX_PACKAGE_BYTES = 512 * 1024;
+  const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
+  const when = value => Number.isFinite(Number(value)) ? new Date(Number(value)).toLocaleString() : 'Time not reported';
+
+  function mount(host, options = {}) {
+    if (!host) throw new TypeError('AthenaExtensions.mount requires a host element.');
+    const controller = new AbortController();
+    let service = null, snapshot = null, projectId = null, sessionId = null;
+    let destroyed = false, busy = false, request = 0, attachment = 0, refreshTimer = null, workspaceRevision = null;
+    let failure = '', status = '';
+    const details = new Map();
+    const q = selector => host.querySelector(selector);
+    const workspace = () => options.getWorkspace?.() || {};
+    const supported = () => Boolean(service?.getExtensions && projectId);
+    const safe = value => window.AthenaActivityLabels ? window.AthenaActivityLabels.text(value, '', [projectId, sessionId, ...rows(workspace().tasks).map(item => item.id), ...rows(workspace().attempts).map(item => item.id)]) : String(value ?? '');
+    const diagnostics = (fields, key) => '<details class="aex-details" data-aex-detail="' + esc(key) + '"><summary>Technical details</summary><dl>' + fields.filter(([, value]) => value !== undefined && value !== null && value !== '').map(([label, value]) => '<div><dt>' + esc(label) + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value, null, 2) : value) + '</dd></div>').join('') + '</dl></details>';
+    host.classList.add('aex-host');
+    host.innerHTML = '<div class="aex-heading"><div><h3>Project tools &amp; skills</h3><p data-aex-project></p></div><button type="button" class="ast-button cursor-interaction" data-aex-action="refresh">' + icon('refresh-cw') + 'Refresh</button></div>'
+      + '<p class="aex-note" data-aex-availability></p><p class="aex-error" role="alert" data-aex-error hidden></p><p class="aex-note" role="status" data-aex-status hidden></p>'
+      + '<div data-aex-content hidden><details class="aex-import" data-aex-detail="import"><summary class="cursor-interaction">Import or update a plugin</summary>'
+      + '<p class="aex-note">Import a declarative JSON package containing skills and MCP server settings. New and updated packages start disabled. No package scripts are executed.</p>'
+      + '<label class="aex-field">Package file<input type="file" accept=".json,application/json" data-aex-file></label>'
+      + '<label class="aex-field">Package JSON<textarea rows="7" spellcheck="false" autocomplete="off" data-aex-manifest placeholder="Paste the plugin manifest"></textarea></label>'
+      + '<button type="button" class="ast-button cursor-interaction" data-aex-action="install">Import package</button></details>'
+      + '<section aria-label="Installed plugins"><div class="aex-section-heading"><h3>Installed plugins</h3><span data-aex-plugin-count></span></div><p class="aex-note">Enabling, disabling or removing a package affects new research runs. Ongoing work keeps its original package versions and permissions.</p><div data-aex-plugins></div></section>'
+      + '<section aria-label="Available skills"><div class="aex-section-heading"><h3>Skills</h3><span data-aex-skill-count></span></div><p class="aex-note">Skills provide procedures. File, tool and network permissions remain controlled by the host.</p><div data-aex-skills></div></section>'
+      + '<section aria-label="Skill loading history"><div class="aex-section-heading"><h3>Skill use</h3><span data-aex-use-count></span></div><div data-aex-uses></div></section></div>';
+
+    function replace(selector, html) {
+      const node = q(selector);
+      if (!node || node._aexHTML === html) return;
+      for (const detail of node.querySelectorAll('[data-aex-detail]')) details.set(detail.dataset.aexDetail, detail.open);
+      const focusKey = node.contains(document.activeElement) ? document.activeElement?.dataset.aexFocus : null;
+      node.innerHTML = html; node._aexHTML = html;
+      for (const detail of node.querySelectorAll('[data-aex-detail]')) detail.open = details.get(detail.dataset.aexDetail) === true;
+      if (focusKey) [...node.querySelectorAll('[data-aex-focus]')].find(element => element.dataset.aexFocus === focusKey && !element.disabled)?.focus({ preventScroll: true });
+    }
+
+    function serverHTML(plugin, server) {
+      const checked = server.status === 'verified';
+      const credential = server.auth === 'bearer' ? '<label class="aex-field">Bearer token <span class="aex-note">(leave blank to use the saved connection)</span><input type="password" autocomplete="off" maxlength="8192" data-aex-token data-plugin="' + esc(plugin.id) + '" data-server="' + esc(server.id) + '" aria-label="Bearer token for ' + esc(server.name) + '"></label>' : '';
+      const toolNames = rows(server.verification?.tools).map(tool => tool.name);
+      return '<div class="aex-server"><div class="aex-card-heading"><strong>' + esc(server.name) + '</strong><span class="aex-badge" data-state="' + (checked ? 'checked' : 'idle') + '">' + (checked ? 'Connection checked' : server.status === 'failed' ? 'Connection failed' : 'Not checked') + '</span></div>'
+        + '<p class="aex-endpoint">' + esc(server.url) + '</p><p class="aex-note">Calls are restricted to the tools listed below. Local project files are not transferred automatically.</p>'
+        + (rows(server.allowedTools).length ? '<p class="aex-note">Approved tools: ' + rows(server.allowedTools).map(esc).join(', ') + '</p>' : '')
+        + (server.lastError ? '<p class="aex-error">' + esc(server.lastError) + '</p>' : '')
+        + (server.auth === 'bearer' ? '<p class="aex-note">' + (server.credentialConfigured ? 'A dedicated connection token is saved by the host.' : 'This server requires a dedicated connection token.') + '</p>' : '') + credential
+        + '<button type="button" class="ast-button cursor-interaction" data-aex-action="check" data-plugin="' + esc(plugin.id) + '" data-server="' + esc(server.id) + '" data-aex-focus="check-' + esc(plugin.id + '-' + server.id) + '">' + icon('plug-zap') + (checked ? 'Check connection again' : 'Check connection') + '</button>'
+        + (checked ? '<p class="aex-note">Discovery completed ' + esc(when(server.verification?.checkedAt)) + '. A connection check does not execute a research calculation.</p>' : '')
+        + diagnostics([['Transport', server.transport], ['Server ID', server.id], ['Server identity', server.verification?.serverInfo], ['MCP protocol', server.verification?.protocolVersion], ['Schema digest', server.verification?.digest], ['Discovered tools', toolNames]], 'server-' + plugin.id + '-' + server.id) + '</div>';
+    }
+
+    function pluginHTML(plugin) {
+      const ready = rows(plugin.servers).every(server => server.status === 'verified');
+      const disabled = !plugin.enabled && !ready;
+      return '<article class="aex-card" data-aex-plugin="' + esc(plugin.id) + '"><div class="aex-card-heading"><div><h4>' + esc(plugin.name) + '</h4><span class="aex-note">Version ' + esc(plugin.version) + (plugin.builtin ? ' · Built in' : '') + '</span></div><span class="aex-badge" data-state="' + (plugin.enabled ? 'enabled' : 'idle') + '">' + (plugin.enabled ? 'Enabled' : 'Installed · Disabled') + '</span></div>'
+        + '<p>' + esc(plugin.description) + '</p>' + (rows(plugin.servers).length ? '<p class="aex-note">Enabling permits calls to the approved endpoints below. Each call sends its tool arguments from this device to that endpoint.</p>' : '') + '<div class="aex-actions"><button type="button" class="ast-button cursor-interaction" data-aex-action="toggle-plugin" data-plugin="' + esc(plugin.id) + '" data-aex-focus="plugin-' + esc(plugin.id) + '"' + (disabled ? ' disabled title="Check each MCP connection before enabling this package"' : '') + '>' + (plugin.enabled ? 'Disable' : 'Enable') + '</button>'
+        + (!plugin.builtin ? '<button type="button" class="aex-text-button cursor-interaction" data-aex-action="remove" data-plugin="' + esc(plugin.id) + '">Remove</button>' : '') + '</div>'
+        + (disabled ? '<p class="aex-note">Check each MCP connection before enabling this package.</p>' : '')
+        + rows(plugin.servers).map(server => serverHTML(plugin, server)).join('')
+        + diagnostics([['Package ID', plugin.id], ['Revision', plugin.revision], ['Installed', when(plugin.installedAt)], ['Updated', when(plugin.updatedAt)], ['Skills', rows(plugin.skills).map(skill => skill.name)]], 'plugin-' + plugin.id) + '</article>';
+    }
+
+    function skillHTML(skill) {
+      const configured = skill.configuredEnabled ?? skill.enabled;
+      const plugin = rows(snapshot?.plugins).find(item => item.id === skill.pluginId);
+      return '<article class="aex-card aex-skill" data-aex-skill="' + esc(skill.id) + '"><div class="aex-card-heading"><div><h4>' + esc(skill.name) + '</h4><span class="aex-note">Version ' + esc(skill.version) + ' · ' + (skill.automaticEligible ? 'Guided or explicit selection' : 'Explicit selection') + '</span></div>'
+        + '<label class="aex-toggle"><input type="checkbox" data-aex-skill-enabled="' + esc(skill.id) + '" data-aex-focus="skill-' + esc(skill.id) + '"' + (configured ? ' checked' : '') + '><span>Use</span></label></div><p>' + esc(skill.description) + '</p>'
+        + '<p class="aex-note">' + (skill.enabled ? 'Available to ' + rows(skill.roles).map(role => role === 'parent' ? 'coordinator' : 'worker').join(' and ') : plugin?.enabled === false ? 'The package is disabled for this project.' : 'Disabled for this project.') + '</p>'
+        + (rows(skill.requiredCapabilities).length ? '<p class="aex-note">Requires: ' + rows(skill.requiredCapabilities).map(esc).join(', ') + '</p>' : '')
+        + '<button type="button" class="aex-text-button cursor-interaction" data-aex-action="use-skill" data-skill="' + esc(skill.id) + '"' + (!skill.enabled || !options.onUseSkill ? ' disabled' : '') + '>Add to request</button>'
+        + diagnostics([['Skill ID', skill.id], ['Package', plugin?.name || skill.pluginId], ['SHA-256', skill.sha256], ['Package revision', skill.pluginRevision]], 'skill-' + skill.id) + '</article>';
+    }
+
+    function useHTML(use) {
+      const skill = rows(snapshot?.skills).find(item => item.id === use.skillId);
+      const task = rows(workspace().tasks).find(item => item.id === use.taskId);
+      const name = skill?.name || 'Saved skill version';
+      const taskName = window.AthenaActivityLabels?.task(task, rows(workspace().tasks), use.role === 'parent' ? 'Coordinator' : 'Worker') || (use.role === 'parent' ? 'Coordinator' : 'Worker');
+      return '<article class="aex-use"><div class="aex-card-heading"><strong>' + esc(name) + '</strong><span class="aex-badge">' + (use.status === 'limited' ? 'Limited capabilities' : 'Loaded') + '</span></div><p class="aex-note">' + esc(taskName) + ' · Version ' + esc(use.skillVersion) + ' · ' + esc(when(use.loadedAt)) + '</p><p>' + esc(safe(use.reason)) + '</p>'
+        + (rows(use.missingCapabilities).length ? '<p class="aex-note">Unavailable: ' + rows(use.missingCapabilities).map(esc).join(', ') + '. These operations were not enabled by loading the skill.</p>' : '')
+        + diagnostics([['Skill ID', use.skillId], ['SHA-256', use.sha256], ['Selection', use.mode], ['Effective capabilities', use.effectiveCapabilities], ['Project ID', use.projectId], ['Conversation ID', use.sessionId], ['Run ID', use.runId], ['Task ID', use.taskId], ['Attempt ID', use.attemptId], ['Agent session ID', use.agentSessionId], ['Package revision', use.pluginRevision]], 'use-' + use.id) + '</article>';
+    }
+
+    function render() {
+      if (destroyed) return;
+      const project = rows(workspace().projects).find(item => item.id === projectId);
+      q('[data-aex-project]').textContent = project?.name || (projectId ? 'Current project' : 'Select a project');
+      q('[data-aex-availability]').textContent = !service ? 'Connect an Athena host with extension support to manage real packages and skills.' : !projectId ? 'Open a project conversation to manage its tools and skills.' : '';
+      q('[data-aex-availability]').hidden = Boolean(service && projectId);
+      q('[data-aex-error]').textContent = failure; q('[data-aex-error]').hidden = !failure;
+      q('[data-aex-status]').textContent = status; q('[data-aex-status]').hidden = !status;
+      q('[data-aex-content]').hidden = !snapshot || !supported();
+      if (snapshot) {
+        q('[data-aex-plugin-count]').textContent = rows(snapshot.plugins).length + ' installed';
+        q('[data-aex-skill-count]').textContent = rows(snapshot.skills).filter(skill => skill.enabled).length + ' available';
+        const uses = rows(snapshot.skillUses).filter(use => !sessionId || use.sessionId === sessionId);
+        q('[data-aex-use-count]').textContent = uses.length + ' in this conversation';
+        replace('[data-aex-plugins]', rows(snapshot.plugins).map(pluginHTML).join('') || '<p class="aex-empty">No plugins are installed for this project.</p>');
+        replace('[data-aex-skills]', rows(snapshot.skills).map(skillHTML).join('') || '<p class="aex-empty">No enabled package provides skills.</p>');
+        replace('[data-aex-uses]', uses.slice().reverse().map(useHTML).join('') || '<p class="aex-empty">No skill body has been loaded in this conversation yet.</p>');
+      }
+      for (const button of host.querySelectorAll('button')) {
+        if (button.dataset.aexAction === 'refresh') button.disabled = !supported() || busy;
+        else if (button.dataset.aexAction === 'install') button.disabled = !supported() || !snapshot || busy;
+        else if (busy || !supported()) button.disabled = true;
+      }
+      for (const input of host.querySelectorAll('input,textarea')) input.disabled = busy || !supported();
+      options.icons?.();
+    }
+
+    async function refresh() {
+      clearTimeout(refreshTimer); refreshTimer = null;
+      if (destroyed || !supported() || busy) return;
+      const token = ++request, owner = attachment, scope = projectId;
+      try {
+        const next = await service.getExtensions(scope);
+        if (destroyed || token !== request || owner !== attachment || scope !== projectId) return;
+        if (!next || next.schemaVersion !== 1 || next.projectId !== scope || !Number.isSafeInteger(next.revision) || !Array.isArray(next.plugins) || !Array.isArray(next.skills) || !Array.isArray(next.skillUses)) throw new Error('The host returned an invalid extension snapshot.');
+        if (snapshot && next.revision < snapshot.revision) return;
+        snapshot = next; failure = ''; render();
+      } catch (error) {
+        if (destroyed || token !== request || owner !== attachment || scope !== projectId) return;
+        failure = String(error?.message || error); render();
+      }
+    }
+
+    async function mutate(action, message) {
+      if (destroyed || busy || !supported() || !snapshot) return;
+      const owner = attachment, scope = projectId, revision = snapshot.revision;
+      ++request; busy = true; failure = ''; status = 'Saving…'; render();
+      try {
+        await action(scope, revision);
+        if (destroyed || owner !== attachment || scope !== projectId) return;
+        status = message;
+      } catch (error) {
+        if (destroyed || owner !== attachment || scope !== projectId) return;
+        failure = String(error?.message || error); status = '';
+      } finally {
+        if (!destroyed && owner === attachment && scope === projectId) {
+          busy = false;
+          // Rebuild controls from the authoritative snapshot, then refresh it.
+          for (const node of host.querySelectorAll('[data-aex-plugins],[data-aex-skills]')) delete node._aexHTML;
+          render();
+          const savedFailure = failure;
+          await refresh();
+          if (savedFailure && owner === attachment && scope === projectId) { failure = savedFailure; render(); }
+        }
+      }
+    }
+
+    function setWorkspace() {
+      if (destroyed) return;
+      const next = workspace();
+      if (next.projectId !== projectId || next.sessionId !== sessionId) {
+        ++attachment; ++request; busy = false; snapshot = null; failure = ''; status = ''; details.clear();
+        projectId = next.projectId || null; sessionId = next.sessionId || null;
+        q('[data-aex-manifest]').value = ''; q('[data-aex-file]').value = '';
+        for (const input of host.querySelectorAll('[data-aex-token]')) input.value = '';
+        workspaceRevision = next.revision; render(); void refresh(); return;
+      }
+      if (workspaceRevision !== next.revision) {
+        workspaceRevision = next.revision;
+        clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 150);
+      }
+    }
+
+    host.addEventListener('change', event => {
+      const input = event.target;
+      if (input.matches('[data-aex-skill-enabled]')) {
+        const id = input.dataset.aexSkillEnabled, value = input.checked;
+        void mutate((scope, revision) => service.setSkillEnabled(scope, id, value, revision), 'Skill preference saved. New runs use the updated selection.');
+      }
+      if (input.matches('[data-aex-file]')) {
+        const file = input.files?.[0]; if (!file) return;
+        const owner = attachment;
+        if (file.size > MAX_PACKAGE_BYTES) { failure = 'The package exceeds the 512 KiB import limit.'; input.value = ''; render(); return; }
+        void file.text().then(value => { if (!destroyed && owner === attachment) { q('[data-aex-manifest]').value = value; failure = ''; render(); } }, () => { if (!destroyed && owner === attachment) { failure = 'Could not read the selected package.'; render(); } });
+      }
+    }, { signal: controller.signal });
+
+    host.addEventListener('click', event => {
+      const button = event.target.closest('[data-aex-action]');
+      if (!button || !host.contains(button) || button.disabled) return;
+      const action = button.dataset.aexAction;
+      if (action === 'refresh') { void refresh(); return; }
+      if (action === 'install') {
+        const value = q('[data-aex-manifest]').value;
+        let manifest;
+        try {
+          if (new TextEncoder().encode(value).length > MAX_PACKAGE_BYTES) throw new Error('The package exceeds the 512 KiB import limit.');
+          manifest = JSON.parse(value);
+        } catch (error) { failure = error instanceof SyntaxError ? 'Enter a valid JSON plugin package.' : String(error.message || error); render(); return; }
+        void mutate((scope, revision) => service.installPlugin(scope, manifest, revision), 'Package imported and disabled. Review its connections and skills before enabling it.'); return;
+      }
+      if (action === 'use-skill') {
+        const skill = rows(snapshot?.skills).find(item => item.id === button.dataset.skill);
+        if (skill?.enabled) options.onUseSkill?.(skill); return;
+      }
+      const plugin = rows(snapshot?.plugins).find(item => item.id === button.dataset.plugin);
+      if (!plugin) return;
+      if (action === 'toggle-plugin') void mutate((scope, revision) => service.setPluginEnabled(scope, plugin.id, !plugin.enabled, revision), plugin.enabled ? 'Package disabled for new runs.' : 'Package enabled for new runs.');
+      if (action === 'remove' && !plugin.builtin) void mutate((scope, revision) => service.removePlugin(scope, plugin.id, revision), 'Package removed from future selection. Existing research keeps its saved versions.');
+      if (action === 'check') {
+        const server = rows(plugin.servers).find(item => item.id === button.dataset.server); if (!server) return;
+        const field = [...host.querySelectorAll('[data-aex-token]')].find(item => item.dataset.plugin === plugin.id && item.dataset.server === server.id);
+        const token = field?.value || ''; if (field) field.value = '';
+        void mutate((scope, revision) => service.checkMcpServer(scope, plugin.id, server.id, revision, token ? { token } : {}), 'MCP connection and approved tool schemas checked.');
+      }
+    }, { signal: controller.signal });
+
+    render();
+    return {
+      setService(value) { service = value || null; ++attachment; ++request; busy = false; snapshot = null; failure = ''; status = ''; for (const input of host.querySelectorAll('[data-aex-token]')) input.value = ''; render(); void refresh(); },
+      setWorkspace,
+      refresh,
+      getState: () => ({ connected: Boolean(service), projectId, sessionId, snapshot, busy, error: failure }),
+      destroy() { if (destroyed) return; destroyed = true; ++attachment; ++request; clearTimeout(refreshTimer); controller.abort(); for (const input of host.querySelectorAll('[data-aex-token]')) input.value = ''; host.replaceChildren(); host.classList.remove('aex-host'); }
+    };
+  }
+
+  window.AthenaExtensions = Object.freeze({ mount });
+})();
+
+</script>
+<script>
 /* Project-scoped references. Original bytes stay in memory unless an attached service confirms storage. */
 (() => {
   'use strict';
@@ -9498,6 +10042,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const registered = window.AthenaResultFiles?.mcp(job.mcp);
       const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
       const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
+      const cancellation = window.AthenaResultFiles?.mcpCancellation(process);
       const status = LABELS[process.status] || displayText(String(process.status || '').replaceAll('_', ' '), 'Working');
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
       const recorded = field('Working directory', job.cwd)
@@ -9508,10 +10053,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const files = snapshot.artifacts.filter(item => process.processId && item.processId === process.processId || !item.processId && (item.id === job.artifact?.id || job.artifacts?.some(file => file.id === item.id)));
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
-        ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase]], 'process:' + process.id);
+        ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase],
+        ['Plugin ID', job.externalMcp?.pluginId], ['Plugin revision', job.externalMcp?.pluginRevision], ['Verified schema digest', job.externalMcp?.verificationDigest], ['Endpoint', job.externalMcp?.url]], 'process:' + process.id);
       const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
-        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p>' + (cancellation ? '<p class="aw-tool-task">' + esc(cancellation) + '</p>' : '') + '<dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }
 
@@ -10646,12 +11192,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
               <div class="ast-section-heading"><h2>Connections</h2><p>Tools and skills available in the composer.</p></div>
               <div class="ast-connection-notice">${icon('unplug')}<p>This preview is not connected to an execution engine.</p></div>
               <button type="button" class="ast-button" data-action="pi-resources">${icon('orbit')}<span>Manage tools &amp; skills</span></button>
-              <h3 class="ast-group-title">Plugins</h3>
-              <div class="ast-connection-row"><span class="ast-connection-icon">${icon('code-2')}</span><span><strong>Python</strong><small>Data processing and charts</small></span><span class="ast-badge">Preview</span></div>
-              <div class="ast-connection-row"><span class="ast-connection-icon">${icon('cpu')}</span><span><strong>ngspice</strong><small>Circuit simulation</small></span><span class="ast-badge">Preview</span></div>
-              <h3 class="ast-group-title">Skills</h3>
-              <div class="ast-skill-list"><span>${icon('book-open')}Literature review</span><span>${icon('chart-no-axes-combined')}Data analysis</span><span>${icon('file-pen-line')}Manuscript writing</span></div>
-              <p class="ast-connection-footnote">Choosing an item adds context to your request. Model, terminal, and device connections are not configured in this interface.</p>
+              <div id="ast-extensions-slot"></div>
+              <p class="ast-connection-footnote">Installed packages, available skills and connection checks come from the connected host.</p>
             </section>
             <section class="ast-panel" tabindex="0" id="ast-panel-about" role="tabpanel" aria-labelledby="ast-tab-about" hidden>
               <div class="ast-section-heading"><h2>About</h2><p>Your research workspace.</p></div>
@@ -10685,7 +11227,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     categoryPanels.get('execution').innerHTML = '<div class="ast-section-heading"><h2>Agents &amp; execution</h2><p>Execution settings and controls for the current session.</p></div><div class="ast-connection-notice">' + icon('workflow') + '<p>Athena TaskManager owns scheduling. This interface subscribes to task state and sends explicit supported commands.</p></div><div id="ast-agent-model-settings-slot"></div>';
     categoryPanels.get('tools').appendChild(oldSections.get('connections'));
     oldSections.get('connections').querySelector('h2').textContent = 'Tools & plugins';
-    oldSections.get('connections').querySelector('.ast-connection-footnote').textContent = 'Preview items are examples. Installed tools and skills come from the connected host below.';
+    oldSections.get('connections').querySelector('.ast-connection-footnote').textContent = 'Installed packages, available skills and connection checks come from the connected host.';
     categoryPanels.get('files').innerHTML = '<div class="ast-section-heading"><h2>Files &amp; history</h2><p>Project sources, document versions and conversation history.</p></div><div class="ast-connection-notice">' + icon('database') + '<p>Durable file storage, extraction and version history require the project host. A PDF preview does not mean its content has been extracted or understood.</p></div><div id="ast-files-contract-slot"></div>';
     for (const id of ['general', 'appearance', 'workspace']) categoryPanels.get('appearance').appendChild(oldSections.get(id));
     oldSections.get('general').querySelector('h2').textContent = 'Conversation';
@@ -10755,7 +11297,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const messages = {
         models: 'Model changes require Save settings. Connection checks are separate.',
         execution: window.AthenaHosted ? 'The host controls execution policy for this project.' : 'Role preferences require Save settings. Runtime controls apply to the current session.',
-        tools: 'Changes apply to the current runtime. Installation requires host support.',
+        tools: 'Package changes apply to new runs. Tool controls reflect the current runtime.',
         files: 'Files and history are stored only when the project host confirms the write.',
         appearance: sessionOnly ? 'UI changes apply to this session. Device storage is unavailable.' : 'UI changes save automatically on this device.',
         about: 'Connection status and diagnostics are reported by the attached host.'
@@ -12206,7 +12748,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  function savedLeftOpen(){try{return window.localStorage.getItem(LEFT_VISIBILITY_KEY)!=='false'}catch(_){return true}}
  const state={panelOpen:false,panelTab:'results',sideView:'surface',artifact:'response',leftOpen:savedLeftOpen(),leftDrawer:false,documentEditing:false,busy:false,taskState:'needs-confirmation',newAssignments:true,lastSubmission:null};
  let surfaces=null,layout=null,settings=null,workspaceStore=null,workspaceViews=null,workspaceChrome=null,knowledge=null,modelSettings=null,chatModelPicker=null,demoStore=null,connectionManager=null,records=null,recordToolbar=null,workspaceOff=null,connectionOff=null,recordsOff=null;
- let providerProfiles=null,modelProfilesAdapter=null;
+ let providerProfiles=null,modelProfilesAdapter=null,extensions=null,extensionService=null;
  let piActivity=null,piView=null,piSubscription=null,piSession=null,piSessionUnsubscribe=null,piSessionEpoch=0,piRunId=null,piText='',piEngaged=false,piPreviewActive=false,appDestroyed=false;
  let piHistoryAfterSettle=-1;
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
@@ -12434,7 +12976,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    if(!piSession)q('#ac-pi-session-status').textContent=snapshot.taskManagerConnected?'TaskManager connected · model session not connected':'Workspace service is not connected';
    if(snapshot.sessionBound===false){q('#ac-pi-session-status').textContent='Connect the model to this conversation';preservePendingSubmission('The selected conversation is no longer bound to the model connection.');if(piEngaged)resetPiActivity();}
   }
-  piView?.refresh();piManualView?.refresh();settings?.refresh?.();icons();
+  piView?.refresh();piManualView?.refresh();settings?.refresh?.();extensions?.setWorkspace();icons();
  }
  function resolvedNewSessionModel(workspace,projectId){const projectModel=projectId===workspace.projectId?workspace.modelScopes?.projectDefault:workspace.projects.find(project=>project.id===projectId)?.defaultModel;return projectModel||connectionManager.getDefaultModel()||null;}
  function canCreateSession(){return !nativeSessionTransition&&Boolean(workspaceStore.getState().capabilities?.createSession||connectionManager.getState().capabilities.createSession||piRuntime.available('new_session'));}
@@ -12886,9 +13428,14 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   onResetLayout:()=>layout?.reset(),
   getDemoMode:()=>workspaceStore.getState().mode==='demo',onDemoModeChange:enabled=>workspaceStore.setDevelopment(enabled),isRuntimeConnected:()=>workspaceStore.getState().mode==='runtime',onRuntimeSection:section=>piWorkbench?.open(section),
   onChange(preferences){composer.setSendKey?.(preferences.sendKey);drawChart()},
-  onOpen(){overlay();announce('Settings opened.')},
+  onOpen(){overlay();extensions?.refresh();announce('Settings opened.')},
   onClose(){overlay();announce('Settings closed.')}
  });
+ extensions=window.AthenaExtensions?.mount(q('#ast-extensions-slot'),{icons,getWorkspace:()=>workspaceStore.getState(),onUseSkill(skill){
+  const request='Use the "'+skill.name+'" skill ('+skill.id+') for this task.';
+  composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+request);
+  settings?.close(false);overlay();composer.focus();toast('Skill added to your draft. Send the request to use it.');
+ }});
  modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,hosted,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onSetProjectExecution:(id,enabled)=>workspaceStore.setProjectExecution(id,enabled),onChange(config){
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
@@ -12919,9 +13466,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
   openPi,executePi:(action,params)=>piRuntime.execute(action,params),refreshPi:()=>piRuntime.refresh(),respondPiUI:(id,response)=>piRuntime.respondUI(id,response),
   attachModelProfiles:adapter=>{modelProfilesAdapter=adapter||null;providerProfiles?.setModelProfiles(adapter);chatModelPicker?.setModelProfiles(adapter);if(adapter)renderWorkspace(workspaceStore.getState());},
+  attachExtensions:adapter=>{extensionService=adapter||null;extensions?.setService(extensionService);extensions?.setWorkspace();workspaceViews?.setResearchService(extensionService);},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
-  getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),extensions:extensions?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();
