@@ -49,26 +49,35 @@ const source = `
   process.stdin.destroy();
 `;
 
-const variants = ['inherited', 'inherited-fixture-home', 'isolated', 'isolated-keychain-mock', 'isolated-windows-cache'];
-for (const variant of variants) {
+const programs = ['ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432'];
+const discovery = ['PSModulePath', 'PATHEXT', 'SystemDrive', 'ProgramData', 'ALLUSERSPROFILE', 'PUBLIC'];
+const identity = ['USERNAME', 'USERDOMAIN', 'USERDOMAIN_ROAMINGPROFILE', 'COMPUTERNAME', 'LOGONSERVER', 'HOMEDRIVE', 'HOMEPATH'];
+const processor = ['NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'OS'];
+const variants = {
+  'program-directories': programs,
+  'powershell-discovery': discovery,
+  'windows-os-candidates': [...programs, ...discovery, ...identity, ...processor,
+    'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'APPDATA', 'LOCALAPPDATA'],
+};
+const inheritedKeys = new Set([...Object.keys(systemEnvironment()), 'HOME', 'USERPROFILE'].map(key => key.toUpperCase()));
+console.log(JSON.stringify({phase: 'environment-key-inventory',
+  omittedKeys: Object.keys(process.env).filter(key => !inheritedKeys.has(key.toUpperCase())).sort(),
+  availableCandidateKeys: Object.fromEntries(Object.entries(variants).map(([name, keys]) =>
+    [name, keys.filter(key => process.env[key] !== undefined)])),
+}));
+for (const [variant, extraKeys] of Object.entries(variants)) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-desktop-diagnostic-'));
   try {
     // Establish the same private-root precondition independently before testing
     // the launch environment. No existing user directory is repaired.
     await restorePrivatePermissions(directory, 0o700);
     await assertPrivatePermissions(directory, 0o700);
-    const isolated = variant.startsWith('isolated');
-    const env = isolated ? systemEnvironment() : { ...process.env };
-    if (variant !== 'inherited') { env.HOME = directory; env.USERPROFILE = directory; }
+    const env = {...systemEnvironment(), HOME: directory, USERPROFILE: directory};
     env.ATHENA_DATA_DIR = directory;
     env.ATHENA_PORT = 'not-a-port';
-    if (variant === 'isolated-keychain-mock' || variant === 'isolated-windows-cache') {
-      env.NODE_OPTIONS = '--import=data:text/javascript,' + encodeURIComponent(prohibitKeychain);
-    }
-    if (variant === 'isolated-windows-cache') {
-      for (const key of ['APPDATA', 'LOCALAPPDATA']) {
-        if (process.env[key] !== undefined) env[key] = process.env[key];
-      }
+    env.NODE_OPTIONS = '--import=data:text/javascript,' + encodeURIComponent(prohibitKeychain);
+    for (const key of extraKeys) {
+      if (process.env[key] !== undefined) env[key] = process.env[key];
     }
     console.log(JSON.stringify({case: variant, phase: 'starting', protectedSyntheticRoot: true}));
     const started = performance.now();

@@ -298,8 +298,20 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
     }
   });
   await manager.initialize();
-  const { accountRef } = await providers.catalog('openai');
-  assert.ok(accountRef);
+  const originalRead = store.read.bind(store);
+  t.mock.method(store, 'read', async (id, options) => {
+    const began = performance.now();
+    let failure;
+    try { return await originalRead(id, options); }
+    catch (error) { failure = error instanceof Error ? { name: error.name, code: 'code' in error ? error.code : undefined } : { name: 'non_error' }; throw error; }
+    finally { t.diagnostic(JSON.stringify({ phase: 'catalog-credential-read', kind: id === 'openai' ? 'legacy' : id.startsWith('chatgpt:') ? 'account' : 'other', ms: performance.now() - began, aborted: options?.signal?.aborted, failure })); }
+  });
+  const catalogBegan = performance.now();
+  const catalog = await providers.catalog('openai');
+  t.diagnostic(JSON.stringify({ phase: 'catalog-result', ms: performance.now() - catalogBegan, source: catalog.source, auth: catalog.provider.auth, error: catalog.error, errorReason: catalog.errorReason, hasAccount: Boolean(catalog.accountRef) }));
+  const { accountRef } = catalog;
+  assert.ok(accountRef, JSON.stringify({ source: catalog.source, auth: catalog.provider.auth,
+    error: catalog.error, errorReason: catalog.errorReason }));
   const profile = profiles.save({ name: 'Fixture', provider: 'openai', modelId: slug, authMode: 'chatgpt', accountRef },
     await providers.authorChatGPTProfile(slug, accountRef));
   const otherProfile = profiles.save({ name: 'Other', provider: 'openai', modelId: otherSlug, authMode: 'chatgpt', accountRef: otherRef },
