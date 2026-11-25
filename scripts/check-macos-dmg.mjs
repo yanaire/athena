@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detachMacOSImage, resolveDesktopPlatform } from './desktop-platform.mjs';
+import { detachMacOSImage, macOSImageAttachment, resolveDesktopPlatform } from './desktop-platform.mjs';
 
 const { platform, target } = resolveDesktopPlatform();
 assert.equal(platform, 'darwin', 'DMG verification requires a native Mac build.');
@@ -38,20 +38,40 @@ function attach(path, readOnly = false) {
   image('attach', readOnly ? '-readonly' : '-readwrite', '-nobrowse', '-noautoopen', '-mountpoint', mount, path);
 }
 
+function readPlist(command, args) {
+  const input = execFileSync(command, args, { timeout: 30_000 });
+  return JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'],
+    { input, encoding: 'utf8', timeout: 30_000 }));
+}
+
+function readAttachment() {
+  const { images } = readPlist('/usr/bin/hdiutil', ['info', '-plist']);
+  assert.ok(Array.isArray(images), 'Missing disk image attachment state.');
+  return macOSImageAttachment(images, attachedImage, mount, statSync(mount).dev !== mountDevice);
+}
+
 function detach() {
   detachMacOSImage(() => {
-    // DiskArbitration can time out even when the requested ejection eventually succeeds.
-    const input = execFileSync('/usr/bin/hdiutil', ['info', '-plist'], { timeout: 30_000 });
-    const report = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'],
-      { input, encoding: 'utf8', timeout: 30_000 });
-    const { images } = JSON.parse(report);
-    assert.ok(Array.isArray(images), 'Missing disk image attachment state.');
-    const entry = images.find(item => item['image-path'] === attachedImage);
-    const mountedHere = statSync(mount).dev !== mountDevice;
-    if (!entry && !mountedHere) return 'detached';
-    if (mountedHere && entry?.['system-entities']?.some(entity => entity['mount-point'] === mount)) return 'mounted';
-    return 'attached';
-  }, force => image('detach', ...(force ? ['-force'] : []), mount));
+    const attachment = readAttachment();
+    if (!attachment.partition) return attachment;
+    // Eject by the private image's persistent media UUID. BSD disk numbers can be reused.
+    let partition;
+    try { partition = readPlist('/usr/sbin/diskutil', ['info', '-plist', attachment.partition]); }
+    catch (error) {
+      const current = readAttachment();
+      if (current.state === 'detached') return current;
+      throw error;
+    }
+    const current = readAttachment();
+    if (current.state === 'detached') return current;
+    if (current.device === attachment.device && current.partition === attachment.partition
+      && partition.BusProtocol === 'Disk Image' && partition.WholeDisk === false
+      && partition.ParentWholeDisk === basename(current.device) && partition.DeviceNode === current.partition
+      && typeof partition.DiskUUID === 'string' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(partition.DiskUUID)) {
+      return { ...current, target: partition.DiskUUID };
+    }
+    return { state: 'ambiguous' };
+  }, target => run('/usr/sbin/diskutil', ['eject', target]));
   attachedImage = undefined;
 }
 
