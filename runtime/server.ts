@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { writeSync } from 'node:fs';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Connections, object } from './connections.ts';
@@ -19,6 +18,10 @@ import { ProviderOAuthError } from './provider-oauth.ts';
 import { ChatGPTRegistrationError } from './chatgpt-registrations.ts';
 import { ModelProfiles } from './model-profiles.ts';
 import { ManagerError } from './orchestration.ts';
+import { ExtensionError } from './extensions.ts';
+import { ExternalMcpError } from './external-mcp-client.ts';
+import { createPrivateDirectory } from './private-storage.ts';
+import { nativeBrowserAvailable, openAccountBrowser } from './native-browser.ts';
 
 const desktopMode = process.argv.includes('--desktop', 2);
 async function initialize() {
@@ -28,7 +31,7 @@ async function initialize() {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new RangeError('Invalid ATHENA_PORT.');
   const modelId = process.env.ATHENA_MODEL?.trim();
   process.umask(0o077);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  createPrivateDirectory(directory);
   const lock = lockWorkspace(directory, desktopMode);
   if (desktopMode) writeSync(1, 'ATHENA_DESKTOP_BOOTSTRAP\n');
   const desktop = desktopMode ? await readDesktopStartup() : undefined;
@@ -45,13 +48,13 @@ async function initialize() {
   });
   const migration = new CredentialMigration({ workspace: realWorkspace, store: credentials,
     requestKey: process.platform === 'darwin' ? desktop?.requestMigrationKey : undefined });
-  const nativeBrowser = Boolean(desktop && process.platform === 'darwin');
+  const nativeBrowser = Boolean(desktop && nativeBrowserAvailable());
   const providers = await ProviderManager.create(credentials, directory, {
     nativeBrowser, chatGPTEnabled: nativeBrowser && localChatGPTPlanUsage,
   });
   const profiles = new ModelProfiles(directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
   for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
-  const manager = new TaskManager({ dataDir: directory, models: {
+  const manager = new TaskManager({ dataDir: directory, externalCredentials: credentials, models: {
     resolve: (conversation, project) => profiles.resolve(conversation, project),
     pin: model => providers.pin(model), requireProfile: id => { profiles.get(id); },
   } });
@@ -89,6 +92,15 @@ function model(value: unknown) {
   return hostModel;
 }
 const idOrNull = (value: unknown) => value === null ? null : string(value);
+function booleanArg(value:unknown):boolean {
+  if (typeof value!=='boolean') throw new TypeError('Expected a boolean setting.');
+  return value;
+}
+function revisionArg(value:unknown):number|undefined {
+  if (value===undefined) return;
+  if (typeof value!=='number' || !Number.isSafeInteger(value) || value<0) throw new TypeError('Expected the current settings revision.');
+  return value;
+}
 const profileList = async () => ({ profiles: profiles.list(), appDefaultProfileId: profiles.appDefaultProfileId,
   credentialMode: 'local_file', credentialMigration: await migration.status(), hostModel });
 const connectionState = () => connections?.getState() ?? { status: hostModel ? 'configured' : 'disconnected', defaultModel: hostModel, verification: { status: 'not_checked' } };
@@ -111,6 +123,21 @@ async function changeCredentials<T>(action: () => Promise<T>): Promise<T> {
 async function rpc(method: string, args: unknown[]) {
   const [input, second] = args;
   switch (method) {
+    case 'getSnapshot': return manager.getSnapshot();
+    case 'getExtensions': return manager.getExtensions(string(input));
+    case 'installPlugin': return manager.installPlugin(string(input),second,revisionArg(args[2]));
+    case 'setPluginEnabled': return manager.setPluginEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));
+    case 'removePlugin': return manager.removePlugin(string(input),string(second),revisionArg(args[2]));
+    case 'setSkillEnabled': return manager.setSkillEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));
+    case 'checkMcpServer': {
+      if (args[4] !== undefined && !object(args[4])) throw new TypeError('Expected optional connection credentials.');
+      return manager.checkMcpServer(string(input),string(second),string(args[2]),revisionArg(args[3]),args[4] as {token?:string}|undefined);
+    }
+    case 'getResearch': return manager.getResearch(string(input),second == null ? undefined : string(second));
+    case 'decideKnowledge': {
+      if (!object(args[2])) throw new TypeError('Expected a human knowledge decision.');
+      return manager.decideKnowledge(string(input),string(second),args[2]);
+    }
     case 'createProject':
       if (!object(input)) throw new TypeError('Expected project.');
       return manager.createProject({ name: string(input.name), defaultModel: model(input.defaultModel) });
@@ -122,6 +149,10 @@ async function rpc(method: string, args: unknown[]) {
     case 'openSession': return manager.openSession(string(input));
     case 'getAgentHistory': return manager.getAgentHistory(string(input), string(second));
     case 'cancelTask': return manager.cancelTask(string(input));
+    case 'retryTask':
+      if (credentialWrite || oauthPending()) throw new ManagerError('CREDENTIAL_BUSY', 'Finish or cancel the credential operation before retrying research.');
+      if (!object(second)) throw new TypeError('Expected retry request and attempt IDs.');
+      return manager.retryTask(string(input), {requestId:string(second.requestId),expectedAttemptId:string(second.expectedAttemptId)});
     case 'cancelRun': return manager.cancelRun(string(input));
     case 'setProjectDefaultModel': return manager.setProjectDefaultModel(string(input), model(second));
     case 'setProjectExecution':
@@ -166,20 +197,12 @@ async function rpc(method: string, args: unknown[]) {
     }
     case 'openProviderOAuthBrowser':
     case 'openChatGPTUsage': {
-      if (!desktop || process.platform !== 'darwin' || !providers.oauth) {
+      if (!desktop || !nativeBrowserAvailable() || !providers.oauth) {
         throw new ProviderError('UNSUPPORTED_AUTH', 'The native browser launcher is unavailable.');
       }
       const url = method === 'openChatGPTUsage' ? 'https://chatgpt.com/settings/usage' : providers.oauth.authorizeUrl(string(input));
-      // The official returning flow may include an ID-token hint. Pass it via
-      // stdin to LaunchServices, never the process list or the renderer.
-      const opened = await new Promise<boolean>(resolve => {
-        const browser = spawn('/usr/bin/osascript', ['-l', 'JavaScript', '-'], { timeout: 5000, stdio: ['pipe', 'ignore', 'ignore'] });
-        browser.once('error', () => resolve(false));
-        browser.once('close', code => resolve(code === 0));
-        browser.stdin.on('error', () => resolve(false));
-        browser.stdin.end(`ObjC.import('AppKit'); if (!$.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(${JSON.stringify(url)}))) throw Error('Browser unavailable');\n`);
-      });
-      if (!opened) throw new ProviderOAuthError('BROWSER_FAILED', 'macOS could not open the ChatGPT page. Try again.');
+      const opened = await openAccountBrowser(url);
+      if (!opened) throw new ProviderOAuthError('BROWSER_FAILED', 'The system browser could not open the account page. Try again.');
       return { opened: true };
     }
     case 'cancelProviderOAuth': {
@@ -291,7 +314,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
         case '/favicon.ico': res.writeHead(204).end(); return;
         case '/api/bootstrap': {
           const snapshot = manager.getSnapshot();
-          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && process.platform === 'darwin' && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && nativeBrowserAvailable() && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
         }
         case '/api/events': {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
@@ -320,7 +343,8 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
     if (res.destroyed) return;
     if (res.headersSent) { res.destroy(); return; }
     const known = error instanceof ProviderError || error instanceof ProviderOAuthError || error instanceof ManagerError
-      || error instanceof ChatGPTRegistrationError || error instanceof CredentialVaultError;
+      || error instanceof ChatGPTRegistrationError || error instanceof CredentialVaultError
+      || error instanceof ExtensionError || error instanceof ExternalMcpError;
     json(error instanceof RangeError ? 413 : 400, { error: known || error instanceof TypeError || error instanceof RangeError ? error.message : 'Request failed.',
       ...(known ? { code: error.code } : {}) });
   }

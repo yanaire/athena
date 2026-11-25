@@ -67,6 +67,8 @@
 }
 #athena-codex .acs-surface-option > svg { width: 19px; height: 19px; color: #747268; }
 #athena-codex .acs-surface-option > span { min-width: 0; overflow-wrap: anywhere; }
+#athena-codex .acs-surface-copy { display: grid; gap: 1px; }
+#athena-codex .acs-surface-copy > small { font-size: 10px; line-height: 1.5; color: #716d63; }
 #athena-codex .acs-surface-option kbd {
   margin-left: auto;
   width: 25px;
@@ -112,6 +114,8 @@
 #athena-codex .acs-view-caption { margin-left: auto; flex: none; color: #979184; font-size: 10px; }
 #athena-codex .acs-icon-button { width: 29px; height: 29px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 29px; color: #77736b; border-radius: 6px; padding: 0; }
 #athena-codex .acs-icon-button > svg { width: 15px; height: 15px; }
+#athena-codex .acs-icon-button:disabled { opacity: .4; }
+#athena-codex .acs-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; margin-top: 10px; }
 #athena-codex .acs-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 35px; background: #f7f6f1; border: 1px solid #e6e3d9; border-radius: 7px; }
 #athena-codex .acs-search:focus-within { border-color: #aaa79a; }
 #athena-codex .acs-search > svg { width: 14px; height: 14px; color: #8d887b; }

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, openSync } from 'node:fs';
 import { lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, parse, resolve, sep } from 'node:path';
 import { CredentialVaultError } from './provider-credentials.ts';
+import { hasPrivatePermissions, setWindowsPrivate } from './private-storage.ts';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const NO_FOLLOW = constants.O_NOFOLLOW | constants.O_NONBLOCK;
@@ -23,7 +24,7 @@ export function localWriteFailed(): CredentialVaultError {
 export async function requirePrivateDirectory(path: string): Promise<void> {
   try {
     const info = await lstat(path);
-    if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o7777) !== 0o700) throw invalidLocalStore();
+    if (!info.isDirectory() || !hasPrivatePermissions(path, info, 0o700)) throw invalidLocalStore();
   } catch (error) {
     if (error instanceof CredentialVaultError) throw error;
     throw invalidLocalStore();
@@ -34,12 +35,15 @@ export async function prepareCredentialDirectory(path: string): Promise<string> 
   const directory = resolve(path);
   // Walk existing components without following links. Callers canonicalize the home
   // directory first so macOS aliases such as /var are not mistaken for app directories.
-  const root = sep;
-  const parts = directory.slice(root.length).split(sep);
+  const root = parse(directory).root;
+  const parts = directory.slice(root.length).split(sep).filter(Boolean);
   let current: string = root;
   for (const part of parts) {
     current = join(current, part);
-    try { await mkdir(current, { mode: 0o700 }); }
+    try {
+      await mkdir(current, { mode: 0o700 });
+      if (process.platform === 'win32') setWindowsPrivate(current);
+    }
     catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw localWriteFailed();
     }
@@ -51,13 +55,17 @@ export async function prepareCredentialDirectory(path: string): Promise<string> 
 }
 
 export async function readPrivateCredentialFile(path: string, mode: 'text' | 'probe'): Promise<string | undefined> {
-  let handle;
-  try { handle = await open(path, constants.O_RDONLY | NO_FOLLOW); }
+  let handle, before;
+  try {
+    before = await lstat(path);
+    if (!before.isFile()) throw invalidLocalStore();
+    handle = await open(path, constants.O_RDONLY | NO_FOLLOW);
+  }
   catch (error) { if (isMissing(error)) return undefined; throw invalidLocalStore(); }
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.uid !== process.getuid?.() || info.nlink !== 1
-      || (info.mode & 0o7777) !== 0o600 || info.size > MAX_BYTES) throw invalidLocalStore();
+    if (!info.isFile() || info.nlink !== 1 || info.dev !== before.dev || info.ino !== before.ino
+      || info.size > MAX_BYTES || !hasPrivatePermissions(path, info, 0o600)) throw invalidLocalStore();
     return mode === 'text' ? await handle.readFile('utf8') : '';
   } catch { throw invalidLocalStore(); }
   finally { await handle.close(); }
@@ -68,6 +76,7 @@ export async function ensureCredentialLockFile(path: string): Promise<void> {
     // Do not open/close an existing SQLite lock inode through a separate FD:
     // POSIX would release this process's advisory locks on that inode.
     closeSync(openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | NO_FOLLOW, 0o600));
+    if (process.platform === 'win32') setWindowsPrivate(path);
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw localWriteFailed();
   }
@@ -77,8 +86,7 @@ export async function ensureCredentialLockFile(path: string): Promise<void> {
 export async function requireCredentialLockFile(path: string): Promise<void> {
   try {
     const info = await lstat(path);
-    if (!info.isFile() || info.uid !== process.getuid?.() || info.nlink !== 1
-      || (info.mode & 0o7777) !== 0o600 || info.size !== 0) throw invalidLocalStore();
+    if (!info.isFile() || info.nlink !== 1 || !hasPrivatePermissions(path, info, 0o600) || info.size !== 0) throw invalidLocalStore();
   } catch { throw invalidLocalStore(); }
 }
 
@@ -98,11 +106,18 @@ export async function writePrivateCredentialFile(path: string, text: string): Pr
     await requirePrivateDirectory(directory);
     await readPrivateCredentialFile(path, 'probe');
     const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | NO_FOLLOW, 0o600);
-    try { await handle.writeFile(text, 'utf8'); await handle.sync(); }
+    try {
+      if (process.platform === 'win32') setWindowsPrivate(temporary);
+      await handle.writeFile(text, 'utf8'); await handle.sync();
+    }
     finally { await handle.close(); }
     await rename(temporary, path);
-    const parent = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | NO_FOLLOW);
-    try { await parent.sync(); } finally { await parent.close(); }
+    // Windows does not expose directory fsync through Node. The completed file
+    // is flushed before the same-directory atomic replacement on both systems.
+    if (process.platform !== 'win32') {
+      const parent = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | NO_FOLLOW);
+      try { await parent.sync(); } finally { await parent.close(); }
+    }
   } catch (error) {
     if (error instanceof CredentialVaultError) throw error;
     throw localWriteFailed();

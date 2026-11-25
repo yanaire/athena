@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -8,6 +8,7 @@ import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
 import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { ProviderError, ProviderManager } from '../runtime/provider-manager.ts';
+import { assertPrivatePermissions } from './platform-test-helpers.ts';
 
 test('the Athena catalog exposes each Pi factory, without claiming unverified access or exposing Claude subscription login', async t => {
   t.mock.method(process, 'loadEnvFile', () => undefined);
@@ -58,7 +59,7 @@ test('SDK key setup and logout survive reopening the encrypted vault without dis
   await manager.saveApiKey('anthropic', anthropicKey);
   await assert.rejects(manager.saveApiKey('anthropic', ''), (error: unknown) => error instanceof ProviderError && error.code === 'INVALID_KEY');
   const path = join(directory, 'provider-secrets.v1');
-  assert.equal((await stat(path)).mode & 0o777, 0o600);
+  await assertPrivatePermissions(path, 0o600);
   const bytes = await readFile(path);
   process.env.ATHENA_CREDENTIAL_KEY = randomBytes(32).toString('hex');
   await assert.rejects(openProviderCredentials(directory), /could not be decrypted/);
@@ -121,7 +122,8 @@ test('Pi uses the selected official API key and reports stream, tool and access 
         { headers: { 'content-type': 'text/event-stream' } });
     });
 
-    const result = await manager.verify(api);
+    // Saved editable API profiles carry the provider ID, not a previous run binding.
+    const result = await manager.verify({ ...api, authRef: api.provider });
     assert.deepEqual([result.streaming, result.tools, result.error], ['passed', 'passed', undefined]);
     assert.equal(new Date(result.checkedAt).toISOString(), result.checkedAt);
     const key = `fixture-key-${api.provider}`;
@@ -140,4 +142,27 @@ test('Pi uses the selected official API key and reports stream, tool and access 
       assert.equal(JSON.stringify(failure).includes(key), false);
     }
   });
+});
+
+test('API credential bindings include provider-scoped account env and reject unverifiable legacy references', async t => {
+  const credentials = new InMemoryCredentialStore();
+  const provider = 'cloudflare-workers-ai';
+  const key = 'binding-env-fixture-secret';
+  await credentials.modify(provider, async () => ({ type: 'api_key', key,
+    env: { CLOUDFLARE_ACCOUNT_ID: 'fixture-account-a', EXTRA: 'fixed' } }));
+  const manager = await ProviderManager.create(credentials); t.after(() => manager.close());
+  const model = (await manager.catalog(provider)).models[0]; assert.ok(model);
+  const reference = { provider, modelId: model.id };
+  const original = await manager.pin(reference);
+  assert.match(original.authRef!, /^credential:v1:[a-f0-9]{64}$/u);
+  assert.equal(original.authRef!.includes(key), false);
+  await credentials.modify(provider, async () => ({ type: 'api_key', key,
+    env: { EXTRA: 'fixed', CLOUDFLARE_ACCOUNT_ID: 'fixture-account-a' } }));
+  assert.equal((await manager.pin({ ...reference, authRef: original.authRef })).authRef, original.authRef);
+  await credentials.modify(provider, async () => ({ type: 'api_key', key,
+    env: { CLOUDFLARE_ACCOUNT_ID: 'fixture-account-b', EXTRA: 'fixed' } }));
+  await assert.rejects(manager.pin({ ...reference, authRef: original.authRef }), { code: 'MODEL_UNAVAILABLE' });
+  const replacement = await manager.pin(reference); assert.notEqual(replacement.authRef, original.authRef);
+  await assert.rejects(manager.pin({ ...reference, authRef: provider + ':api_key' }), { code: 'MODEL_UNAVAILABLE' });
+  await assert.rejects(manager.pin({ ...reference, authRef: provider }), { code: 'MODEL_UNAVAILABLE' });
 });

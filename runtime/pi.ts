@@ -48,9 +48,13 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 
 /** Remove credential-bearing fields and accidental provider echoes at the public boundary. */
+function publicText(text: string, redact: (text: string) => string): string {
+  return redact(text).replace(/Bearer\s+[^\s"',]+/gi, "Bearer [redacted]");
+}
+
 function publicValue(value: unknown, redact: (text: string) => string): unknown {
   if (typeof value === "string") {
-    return redact(value).replace(/Bearer\s+[^\s"',]+/gi, "Bearer [redacted]");
+    return publicText(value, redact);
   }
   if (Array.isArray(value)) return value.map(item => publicValue(item, redact));
   if (!object(value)) return value;
@@ -152,7 +156,9 @@ function hostAdapter(value: unknown): value is HostAdapter {
     && typeof value.subscribe === "function" && typeof value.destroy === "function";
 }
 
-/** No discovery: extensions, MCP, skills, context files, and packages never load. */
+/** No automatic discovery. Athena mounts tools from its pinned registry and
+ * loads selected skill text through load_skill; arbitrary SDK extensions,
+ * project context files and executable packages remain unavailable. */
 function fixedResources(systemPrompt: string): ResourceLoader {
   const extensions = { extensions: [], errors: [], runtime: createExtensionRuntime() };
   return {
@@ -278,7 +284,7 @@ export async function createPiSession(options: PiSessionOptions) {
       return {
         sessionId: session.sessionId, sessionFile, isStreaming: session.isStreaming,
         isIdle: session.isIdle, messageCount: session.messages.length,
-        model: session.model ? { provider: session.model.provider, id: session.model.id, name: session.model.name } : null,
+        model: session.model ? { provider: session.model.provider, id: session.model.id, name: session.model.name, baseUrl: session.model.baseUrl } : null,
         thinkingLevel: session.thinkingLevel,
       };
     },
@@ -286,6 +292,7 @@ export async function createPiSession(options: PiSessionOptions) {
       ensureOpen();
       return session.messages.map(message => publicValue(message, redact));
     },
+    publicText: (text: string) => publicText(text, redact),
     subscribe(listener: (event: PiEvent) => void): () => void {
       ensureOpen();
       return adapter.subscribe((value: unknown) => {
@@ -294,10 +301,12 @@ export async function createPiSession(options: PiSessionOptions) {
       });
     },
     /** Completion promise, unlike command(prompt)'s early acceptance response. */
-    async prompt(message: string): Promise<void> {
+    async prompt(message: string, options?: { readonly kind?: 'reconciliation' }): Promise<void> {
       await assertPromptReady();
       try {
-        await session.prompt(message, { expandPromptTemplates: false, source: "rpc" });
+        if (options?.kind === 'reconciliation') {
+          await session.sendCustomMessage({ customType: 'athena-reconciliation', content: message, display: false, details: undefined }, { triggerTurn: true });
+        } else await session.prompt(message, { expandPromptTemplates: false, source: "rpc" });
       } catch (error) {
         if (error instanceof Error) throw new PiRuntimeError(String(publicValue(error.message, redact)));
         throw error;

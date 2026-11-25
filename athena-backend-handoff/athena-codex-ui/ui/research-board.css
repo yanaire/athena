@@ -1,0 +1,44 @@
+#athena-codex .arb-host { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .arb-panel { border: 1px solid #dedfd3; border-radius: 10px; background: #fafbf6; margin-bottom: 18px; padding: 14px; }
+#athena-codex .arb-heading, #athena-codex .arb-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+#athena-codex .arb-heading h3 { margin: 0; font-size: 14px; font-weight: 550; }
+#athena-codex .arb-heading p, #athena-codex .arb-caption, #athena-codex .arb-empty { color: #6b7064; font-size: 11px; }
+#athena-codex .arb-heading p { margin: 3px 0 0; }
+#athena-codex .arb-empty { padding: 9px 0 0; }
+#athena-codex .arb-mission { border-top: 1px solid #e3e5d9; padding-top: 12px; margin-top: 13px; }
+#athena-codex .arb-objective { margin: 0 0 7px; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+#athena-codex .arb-counts { display: flex; flex-wrap: wrap; gap: 12px; color: #6b7064; font-size: 11px; }
+#athena-codex .arb-panel details { margin-top: 10px; }
+#athena-codex .arb-panel summary { cursor: pointer; font-size: 12px; }
+#athena-codex .arb-panel h5 { margin: 11px 0 4px; color: #6b7064; font-size: 11px; font-weight: 550; }
+#athena-codex .arb-panel ul, #athena-codex .arb-panel ol { margin: 6px 0; padding-left: 18px; }
+#athena-codex .arb-panel li { margin: 5px 0; overflow-wrap: anywhere; }
+#athena-codex .arb-panel p { overflow-wrap: anywhere; }
+#athena-codex .arb-card { padding: 11px; margin-top: 9px; background: #fffefa; border: 1px solid #e4e4d9; border-radius: 8px; }
+#athena-codex .arb-card h4 { font-size: 12px; font-weight: 550; margin: 0; overflow-wrap: anywhere; }
+#athena-codex .arb-card p { margin: 6px 0; }
+#athena-codex .arb-badge { flex: none; font-size: 10px; padding: 2px 6px; border: 1px solid #dedfd3; border-radius: 5px; color: #6b7064; background: #f5f5ed; }
+#athena-codex .arb-badge[data-state="completed"] { color: #506143; border-color: #cbd6c2; background: #eff3e9; }
+#athena-codex .arb-badge[data-state="failed"], #athena-codex .arb-badge[data-state="revoked"] { color: #954b40; background: #fff2ed; border-color: #e9cfc8; }
+#athena-codex .arb-verdict { font-weight: 550; }
+#athena-codex .arb-targets { list-style: none; padding-left: 0 !important; }
+#athena-codex .arb-targets > li { border-left: 2px solid #d9ddcd; padding-left: 9px; }
+#athena-codex .arb-targets .arb-caption { display: block; }
+#athena-codex .arb-button { padding: 6px 9px; border: 1px solid #dadccd; border-radius: 6px; color: #4f5b43; background: #f5f6ee; font: inherit; font-size: 11px; }
+#athena-codex .arb-button:hover { background: #e9eddf; }
+#athena-codex .arb-link { border: 0; color: #526242; background: none; text-align: left; padding: 0; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+#athena-codex .arb-panel :is(button,input,textarea,select):disabled { opacity: .5; cursor: default; }
+#athena-codex .arb-details { font-size: 10px; color: #6b7064; }
+#athena-codex .arb-details > summary { font-size: 10px; }
+#athena-codex .arb-details dl { margin: 7px 0 0; }
+#athena-codex .arb-details dl > div { margin: 5px 0; }
+#athena-codex .arb-details dt { font-weight: 550; }
+#athena-codex .arb-details dd { margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 150px; overflow-y: auto; }
+#athena-codex .arb-decision { border-top: 1px solid #e9e9de; padding-top: 8px; }
+#athena-codex .arb-decision label { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; font-size: 11px; }
+#athena-codex .arb-decision :is(textarea,select) { border: 1px solid #dadccd; border-radius: 6px; background: #fffefa; color: #35372f; padding: 6px 8px; font: inherit; max-width: 100%; }
+#athena-codex .arb-decision textarea { resize: vertical; }
+#athena-codex .arb-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+#athena-codex .arb-error { color: #954b40; background: #fff2ed; border: 1px solid #e9cfc8; border-radius: 6px; padding: 8px; }
+#athena-codex .arb-panel :is(button,input,textarea,select,summary):focus-visible { outline: 2px solid #808977; outline-offset: 3px; }
+@media (max-width: 600px) { #athena-codex .arb-card-heading { flex-wrap: wrap; } }

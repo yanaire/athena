@@ -16,7 +16,7 @@ const bundled = fileURLToPath(new URL('../analysis-runtime', import.meta.url));
 const staged = fileURLToPath(new URL('../.analysis-runtime/staged', import.meta.url));
 const packaged = process.argv.includes('--desktop', 2);
 const runtime = packaged ? bundled : staged;
-const executable = join(packaged ? dirname(process.execPath) : staged, 'athena-sandbox');
+const executable = join(packaged ? dirname(process.execPath) : staged, process.platform === 'win32' ? 'athena-sandbox.exe' : 'athena-sandbox');
 
 const programs = Object.freeze({ node: { path: 'qjs.wasm', version: 'QuickJS-ng 0.18.0' },
   python: { path: 'python.wasm', version: 'CPython 3.15.2' } });
@@ -57,7 +57,7 @@ export async function runSandbox(run: SandboxRun): Promise<{ started: boolean; e
     // No inherited environment, shell, workspace credentials, or app descriptors.
     // Keep stdin open until child exit; the helper stops when it observes EOF.
     const child = spawn(executable, [runtime, job.language, String(timeoutMs), job.script.name, ...job.outputs, '--', ...(job.args ?? [])], {
-      cwd, env: analysisEnv, shell: false, stdio: ['pipe', 'pipe', 'pipe'],
+      cwd, env: analysisEnv, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     const id = randomUUID();
     let started = false;

@@ -1,14 +1,17 @@
 use anyhow::{Context, Result, bail, ensure};
+#[cfg(unix)]
 use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
 use std::{
+    collections::BTreeSet,
     env,
     io::{self, Read, Write},
     path::Path,
     process, thread,
     time::Duration,
 };
-use wasmtime::{Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
+use wasmtime::{AsContextMut, Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{I32Exit, WasiCtxBuilder, filesystem::FsPerms, p1::{self, WasiP1Ctx, wasi_snapshot_preview1}};
+use wasmtime_wasi::p1::{types, wasi_snapshot_preview1::WasiSnapshotPreview1};
 
 mod memory;
 
@@ -20,19 +23,72 @@ const MAX_BYTES: u64 = 1_048_576;
 const MEMORY_BYTES: usize = 192 * 1_048_576;
 const MAX_NAME: usize = 96;
 const MAX_OUTPUTS: usize = 8;
+const MAX_DESCRIPTORS: usize = 96;
 
 struct Guest {
     wasi: WasiP1Ctx,
     limits: StoreLimits,
     outputs: Vec<String>,
+    descriptors: BTreeSet<i32>,
+    stdio: BTreeSet<i32>,
 }
 
+#[cfg(unix)]
 fn restrict(resource: Resource, cap: u64) -> Result<()> {
     let prior = getrlimit(resource);
     let bound = prior.maximum.map_or(cap, |maximum| maximum.min(cap));
     let current = prior.current.map_or(bound, |current| current.min(bound));
     setrlimit(resource, Rlimit { current: Some(current), maximum: Some(bound) })?;
     Ok(())
+}
+
+fn native_limits(hard_deadline_ms: u64) -> Result<()> {
+    #[cfg(unix)]
+    {
+        restrict(Resource::Core, 0)?;
+        restrict(Resource::Fsize, MAX_BYTES)?;
+        restrict(Resource::Nofile, MAX_DESCRIPTORS as u64)?;
+        restrict(Resource::Cpu, hard_deadline_ms.div_ceil(1000))?;
+    }
+    // Windows has no rlimit. Guest writes/growth and descriptor allocation are
+    // bounded in the WASI ABI below, and the independent wall/epoch and process
+    // memory watchdogs cover compilation, host calls and guest execution.
+    #[cfg(not(unix))]
+    let _ = hard_deadline_ms;
+    Ok(())
+}
+
+fn write_length(caller: &mut Caller<'_, Guest>, pointer: i32, count: i32) -> Option<u64> {
+    let (Ok(start), Ok(count)) = (usize::try_from(pointer), usize::try_from(count)) else { return None };
+    if count > 1024 { return None; }
+    let Some(Extern::Memory(memory)) = caller.get_export("memory") else { return None };
+    let bytes = memory.data(&*caller).get(start..start.checked_add(count.checked_mul(8)?)?)?;
+    bytes.chunks_exact(8).try_fold(0_u64, |sum, item| {
+        let size = u32::from_le_bytes(item[4..8].try_into().ok()?);
+        sum.checked_add(u64::from(size)).filter(|total| *total <= MAX_BYTES)
+    })
+}
+
+fn bounded_write(caller: &mut Caller<'_, Guest>, fd: i32, pointer: i32, count: i32, offset: Option<u64>) -> Result<(), types::Error> {
+    // Shadowed ABI calls must reset the pinned adapter's per-hostcall budget,
+    // exactly as Wiggle's normal generated linker does. Reusing the previous
+    // call's remainder would reject valid writes and eventually starve stdout.
+    let fuel = caller.as_context_mut().hostcall_fuel();
+    caller.data_mut().wasi.set_hostcall_fuel(fuel);
+    // Only original stdio descriptors use the parent's pipe limit. Closing a
+    // stdio descriptor may let path_open reuse its number for a regular file.
+    if caller.data().stdio.contains(&fd) { return Ok(()); }
+    let Some(length) = write_length(caller, pointer, count) else { return Err(types::Errno::Fbig.into()) };
+    let Some(Extern::Memory(memory)) = caller.get_export("memory") else { return Err(types::Errno::Fbig.into()) };
+    let (bytes, guest) = memory.data_and_store_mut(caller);
+    let mut memory = wiggle::GuestMemory::Unshared(bytes);
+    let fd = types::Fd::from(fd);
+    let flags = wasmtime_wasi::runtime::in_tokio(guest.wasi.fd_fdstat_get(&mut memory, fd))?;
+    let position = if flags.fs_flags.contains(types::Fdflags::APPEND) {
+        wasmtime_wasi::runtime::in_tokio(guest.wasi.fd_filestat_get(&mut memory, fd))?.size
+    } else { match offset { Some(offset) => offset, None => guest.wasi.fd_tell(&mut memory, fd)? } };
+    if position.checked_add(length).is_some_and(|end| end <= MAX_BYTES) { Ok(()) }
+    else { Err(types::Errno::Fbig.into()) }
 }
 
 fn name(value: &str) -> bool {
@@ -74,7 +130,43 @@ fn add_wasi(linker: &mut Linker<Guest>) -> Result<()> {
         let Some(Extern::Memory(memory)) = caller.get_export("memory") else { wasmtime::bail!("Expected guest memory"); };
         let (bytes, guest) = memory.data_and_store_mut(&mut caller);
         let mut memory = wiggle::GuestMemory::Unshared(bytes);
-        wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::fd_close(&mut guest.wasi, &mut memory, fd))
+        let status = wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::fd_close(&mut guest.wasi, &mut memory, fd))?;
+        if status == 0 { guest.descriptors.remove(&fd); guest.stdio.remove(&fd); }
+        Ok(status)
+    })?;
+    linker.func_wrap(PREVIEW1, "fd_write", |mut caller: Caller<'_, Guest>, fd: i32, iovs: i32, count: i32, result: i32| -> wasmtime::Result<i32> {
+        // Lower recoverable WASI errors just as the generated ABI does. Only
+        // an actual host trap may escape this callback and terminate the guest.
+        if let Err(error) = bounded_write(&mut caller, fd, iovs, count, None) { return Ok(error.downcast()? as i32); }
+        let Some(Extern::Memory(memory)) = caller.get_export("memory") else { wasmtime::bail!("Expected guest memory"); };
+        let (bytes, guest) = memory.data_and_store_mut(&mut caller);
+        let mut memory = wiggle::GuestMemory::Unshared(bytes);
+        wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::fd_write(&mut guest.wasi, &mut memory, fd, iovs, count, result))
+    })?;
+    linker.func_wrap(PREVIEW1, "fd_pwrite", |mut caller: Caller<'_, Guest>, fd: i32, iovs: i32, count: i32, offset: i64, result: i32| -> wasmtime::Result<i32> {
+        let Ok(offset) = u64::try_from(offset) else { return Ok(types::Errno::Fbig as i32); };
+        if let Err(error) = bounded_write(&mut caller, fd, iovs, count, Some(offset)) { return Ok(error.downcast()? as i32); }
+        let Some(Extern::Memory(memory)) = caller.get_export("memory") else { wasmtime::bail!("Expected guest memory"); };
+        let (bytes, guest) = memory.data_and_store_mut(&mut caller);
+        let mut memory = wiggle::GuestMemory::Unshared(bytes);
+        wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::fd_pwrite(&mut guest.wasi, &mut memory, fd, iovs, count, offset as i64, result))
+    })?;
+    linker.func_wrap(PREVIEW1, "fd_filestat_set_size", |mut caller: Caller<'_, Guest>, fd: i32, size: i64| -> wasmtime::Result<i32> {
+        if !u64::try_from(size).is_ok_and(|size| size <= MAX_BYTES) { return Ok(types::Errno::Fbig as i32); }
+        let Some(Extern::Memory(memory)) = caller.get_export("memory") else { wasmtime::bail!("Expected guest memory"); };
+        let (bytes, guest) = memory.data_and_store_mut(&mut caller);
+        let mut memory = wiggle::GuestMemory::Unshared(bytes);
+        wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::fd_filestat_set_size(&mut guest.wasi, &mut memory, fd, size))
+    })?;
+    linker.func_wrap(PREVIEW1, "fd_allocate", |mut caller: Caller<'_, Guest>, fd: i32, offset: i64, len: i64| -> wasmtime::Result<i32> {
+        if !(u64::try_from(offset).ok().zip(u64::try_from(len).ok())
+            .and_then(|(offset, len)| offset.checked_add(len)).is_some_and(|end| end <= MAX_BYTES)) {
+            return Ok(types::Errno::Fbig as i32);
+        }
+        let Some(Extern::Memory(memory)) = caller.get_export("memory") else { wasmtime::bail!("Expected guest memory"); };
+        let (bytes, guest) = memory.data_and_store_mut(&mut caller);
+        let mut memory = wiggle::GuestMemory::Unshared(bytes);
+        wasi_snapshot_preview1::fd_allocate(&mut guest.wasi, &mut memory, fd, offset, len)
     })?;
     linker.func_wrap(PREVIEW1, "path_open", move |mut caller: Caller<'_, Guest>, fd: i32,
         lookup: i32, path: i32, len: i32, flags: i32, rights: i64, inheriting: i64,
@@ -82,6 +174,7 @@ fn add_wasi(linker: &mut Linker<Guest>) -> Result<()> {
         if fd == OUTPUTS_FD && !output_allowed(&mut caller, path, len) {
             return Ok(NOTCAPABLE);
         }
+        if caller.data().descriptors.len() >= MAX_DESCRIPTORS { return Ok(types::Errno::Mfile as i32); }
         // Calling a linked host Func directly loses the original Wasm caller.
         // Invoke the pinned Preview 1 ABI with the original instance memory.
         let Some(Extern::Memory(memory)) = caller.get_export("memory") else { wasmtime::bail!("Expected guest memory"); };
@@ -89,9 +182,14 @@ fn add_wasi(linker: &mut Linker<Guest>) -> Result<()> {
         let mut memory = wiggle::GuestMemory::Unshared(bytes);
         use wasi_snapshot_preview1::WasiSnapshotPreview1;
         guest.wasi.set_hostcall_fuel(1024 * 1024);
-        wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::path_open(
+        let status = wasmtime_wasi::runtime::in_tokio(wasi_snapshot_preview1::path_open(
             &mut guest.wasi, &mut memory, fd, lookup, path, len, flags, rights, inheriting, fd_flags, result,
-        ))
+        ))?;
+        if status == 0 {
+            let opened: types::Fd = memory.read(wiggle::GuestPtr::new(result as u32))?;
+            guest.descriptors.insert(i32::from(opened));
+        }
+        Ok(status)
     })?;
     linker.allow_shadowing(false);
     Ok(())
@@ -111,14 +209,11 @@ fn run(args: &[String]) -> Result<u8> {
         _ => bail!("Unsupported sandbox language"),
     };
 
-    restrict(Resource::Core, 0)?;
-    restrict(Resource::Fsize, MAX_BYTES)?;
-    restrict(Resource::Nofile, 96)?;
     // RLIMIT_CPU counts compilation and guest execution cumulatively. Use
     // the same total budget as the hard wall deadline; the guest epoch below
     // starts at readiness and still enforces the requested execution timeout.
     let hard_deadline_ms = STARTUP_MS + timeout;
-    restrict(Resource::Cpu, hard_deadline_ms.div_ceil(1000))?;
+    native_limits(hard_deadline_ms)?;
     memory::start(memory::LIMIT_BYTES)?;
 
     // This is a host-only liveness pipe. The guest has an empty stdin instead.
@@ -163,7 +258,8 @@ fn run(args: &[String]) -> Result<u8> {
     wasi.args(script_args);
     let limits = StoreLimitsBuilder::new().memory_size(MEMORY_BYTES).memories(1)
         .instances(1).tables(1).table_elements(20_000).trap_on_grow_failure(true).build();
-    let mut store = Store::new(&engine, Guest { wasi: wasi.build_p1(), limits, outputs: outputs.to_vec() });
+    let mut store = Store::new(&engine, Guest { wasi: wasi.build_p1(), limits, outputs: outputs.to_vec(),
+        descriptors: (0..if python { 7 } else { 6 }).collect(), stdio: (0..3).collect() });
     store.limiter(|guest| &mut guest.limits);
     store.set_epoch_deadline(1);
     let module = Module::from_file(&engine, module)?;
