@@ -7,7 +7,7 @@
  function savedLeftOpen(){try{return window.localStorage.getItem(LEFT_VISIBILITY_KEY)!=='false'}catch(_){return true}}
  const state={panelOpen:false,panelTab:'results',sideView:'surface',artifact:'response',leftOpen:savedLeftOpen(),leftDrawer:false,documentEditing:false,busy:false,taskState:'needs-confirmation',newAssignments:true,lastSubmission:null};
  let surfaces=null,layout=null,settings=null,workspaceStore=null,workspaceViews=null,workspaceChrome=null,knowledge=null,modelSettings=null,chatModelPicker=null,demoStore=null,connectionManager=null,records=null,recordToolbar=null,workspaceOff=null,connectionOff=null,recordsOff=null;
- let providerProfiles=null,modelProfilesAdapter=null;
+ let providerProfiles=null,modelProfilesAdapter=null,extensions=null,extensionService=null;
  let piActivity=null,piView=null,piSubscription=null,piSession=null,piSessionUnsubscribe=null,piSessionEpoch=0,piRunId=null,piText='',piEngaged=false,piPreviewActive=false,appDestroyed=false;
  let piHistoryAfterSettle=-1;
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
@@ -235,7 +235,7 @@
    if(!piSession)q('#ac-pi-session-status').textContent=snapshot.taskManagerConnected?'TaskManager connected · model session not connected':'Workspace service is not connected';
    if(snapshot.sessionBound===false){q('#ac-pi-session-status').textContent='Connect the model to this conversation';preservePendingSubmission('The selected conversation is no longer bound to the model connection.');if(piEngaged)resetPiActivity();}
   }
-  piView?.refresh();piManualView?.refresh();settings?.refresh?.();icons();
+  piView?.refresh();piManualView?.refresh();settings?.refresh?.();extensions?.setWorkspace();icons();
  }
  function resolvedNewSessionModel(workspace,projectId){const projectModel=projectId===workspace.projectId?workspace.modelScopes?.projectDefault:workspace.projects.find(project=>project.id===projectId)?.defaultModel;return projectModel||connectionManager.getDefaultModel()||null;}
  function canCreateSession(){return !nativeSessionTransition&&Boolean(workspaceStore.getState().capabilities?.createSession||connectionManager.getState().capabilities.createSession||piRuntime.available('new_session'));}
@@ -687,9 +687,14 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   onResetLayout:()=>layout?.reset(),
   getDemoMode:()=>workspaceStore.getState().mode==='demo',onDemoModeChange:enabled=>workspaceStore.setDevelopment(enabled),isRuntimeConnected:()=>workspaceStore.getState().mode==='runtime',onRuntimeSection:section=>piWorkbench?.open(section),
   onChange(preferences){composer.setSendKey?.(preferences.sendKey);drawChart()},
-  onOpen(){overlay();announce('Settings opened.')},
+  onOpen(){overlay();extensions?.refresh();announce('Settings opened.')},
   onClose(){overlay();announce('Settings closed.')}
  });
+ extensions=window.AthenaExtensions?.mount(q('#ast-extensions-slot'),{icons,getWorkspace:()=>workspaceStore.getState(),onUseSkill(skill){
+  const request='Use the "'+skill.name+'" skill ('+skill.id+') for this task.';
+  composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+request);
+  settings?.close(false);overlay();composer.focus();toast('Skill added to your draft. Send the request to use it.');
+ }});
  modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,hosted,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onSetProjectExecution:(id,enabled)=>workspaceStore.setProjectExecution(id,enabled),onChange(config){
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
@@ -720,9 +725,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
   openPi,executePi:(action,params)=>piRuntime.execute(action,params),refreshPi:()=>piRuntime.refresh(),respondPiUI:(id,response)=>piRuntime.respondUI(id,response),
   attachModelProfiles:adapter=>{modelProfilesAdapter=adapter||null;providerProfiles?.setModelProfiles(adapter);chatModelPicker?.setModelProfiles(adapter);if(adapter)renderWorkspace(workspaceStore.getState());},
+  attachExtensions:adapter=>{extensionService=adapter||null;extensions?.setService(extensionService);extensions?.setWorkspace();workspaceViews?.setResearchService(extensionService);},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
-  getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),extensions:extensions?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();

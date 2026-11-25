@@ -68,6 +68,7 @@ test("parent SDK tools preserve explicit request IDs and support joining all chi
     { name: "send_to_agent", id: "call_send_93", args: { taskId: "task-401", message: "Use the voltage column.", requestId: "request-7" } },
     { name: "wait_for_agents", id: "call_wait_94", args: {} },
     { name: "calculate_csv", id: "call_parent_csv", args: {} },
+    { name: "request_review", id: "call_review_disabled", args: { missionId:"mission",evidenceIds:["evidence"],question:"Review it." } },
   ];
   const received: Call[] = [];
   const { session, requests } = await scenario(t, calls, { role: "parent", async execute(name, id, args) {
@@ -79,7 +80,10 @@ test("parent SDK tools preserve explicit request IDs and support joining all chi
   try {
     await session.prompt("Delegate the analysis.");
     assert.deepEqual(requests[0]?.tools.map(tool => tool.function.name).sort(),
-      ["cancel_task", "get_task", "list_tasks", "read", "send_to_agent", "spawn_agent", "wait_for_agents"]);
+      ["cancel_task", "get_task", "list_tasks", "read", "send_to_agent", "spawn_agent", "wait_for_agents",
+        "list_skills", "load_skill", "get_research_board", "add_research_evidence", "remember_research",
+        "plan_research", "propose_knowledge"].sort());
+    assert.match(JSON.stringify(requests[0]?.messages), /Independent evidence review is unavailable/);
     assert.deepEqual(received, calls.slice(0, 3), "Only parent tools reach the manager, with raw IDs and validated arguments");
     const results = requests.at(-1)?.messages.filter(message => message.role === "tool").map(message => message.content);
     assert.ok(results?.includes('{"tasks":[{"taskId":"task-401","status":"failed"}]}'));
@@ -105,7 +109,8 @@ test("child SDK tools delegate grants and reject path arguments and parent tools
   } });
   try {
     await session.prompt("Read and calculate using the assigned file.");
-    assert.deepEqual(requests[0]?.tools.map(tool => tool.function.name).sort(), ["calculate_csv", "calculate_rc_response", "read"]);
+    assert.deepEqual(requests[0]?.tools.map(tool => tool.function.name).sort(), ["calculate_csv", "calculate_rc_response", "read",
+      "list_skills", "load_skill", "get_research_board", "add_research_evidence", "remember_research", "submit_review"].sort());
     assert.deepEqual(received, calls.slice(2));
     const results = requests.at(-1)?.messages.filter(message => message.role === "tool").map(message => message.content);
     assert.ok(results?.includes('{"count":3,"mean":7.5}'));

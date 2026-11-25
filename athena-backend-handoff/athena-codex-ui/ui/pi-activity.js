@@ -40,6 +40,16 @@
     read_file: ['file-text', 'Reading result file', 'Read result file', 'Result file read', 'Result file read failed'],
     write_file: ['file-plus-2', 'Writing analysis file', 'Write analysis file', 'Analysis file written', 'Analysis file write failed'],
     run_command: ['square-terminal', 'Running analysis', 'Run analysis', 'Analysis finished', 'Analysis failed'],
+    list_skills: ['book-open', 'Checking available skills', 'Check available skills', 'Available skills checked', 'Skills unavailable'],
+    load_skill: ['book-open', 'Loading research procedure', 'Load research procedure', 'Research procedure loaded', 'Procedure could not load'],
+    get_research_board: ['notebook-text', 'Reading research records', 'Read research records', 'Research records read', 'Research records unavailable'],
+    plan_research: ['clipboard-list', 'Recording research plan', 'Record research plan', 'Research plan recorded', 'Research plan could not save'],
+    add_research_evidence: ['file-check-2', 'Verifying research evidence', 'Verify research evidence', 'Research evidence recorded', 'Evidence could not be recorded'],
+    request_review: ['users-round', 'Starting independent review', 'Start independent review', 'Independent review requested', 'Review could not start'],
+    submit_review: ['clipboard-check', 'Recording review findings', 'Record review findings', 'Review findings recorded', 'Review findings could not save'],
+    remember_research: ['notebook-pen', 'Saving working notes', 'Save working notes', 'Working notes saved', 'Working notes could not save'],
+    propose_knowledge: ['library', 'Recording reusable method', 'Record reusable method', 'Reusable method recorded', 'Method could not be recorded'],
+    call_external_mcp: ['plug', 'Running connected MCP tool', 'Run connected MCP tool', 'Connected tool returned a result', 'Connected tool failed'],
     custom: ['plug', 'Running tool', 'Run tool', 'Tool finished', 'Tool failed']
   });
   const ICONS = new Set([...Object.values(PHASES).map(item => item[0]), ...Object.values(TOOL_KINDS).map(item => item[0])]);
@@ -90,6 +100,16 @@
     if (kind === 'calculate_rc_response') detail = 'Assigned circuit JSON';
     if (['read_file', 'write_file'].includes(kind)) detail = textValue(value.name, 240) || 'Assigned file';
     if (kind === 'run_command') detail = textValue(value.script, 240) || 'Assigned analysis';
+    if (kind === 'list_skills') detail = 'Available procedures';
+    if (kind === 'load_skill') detail = 'Selected procedure';
+    if (kind === 'get_research_board') detail = 'Current research records';
+    if (kind === 'plan_research') detail = textValue(value.objective, 240) || 'Study objective and acceptance criteria';
+    if (['add_research_evidence', 'propose_knowledge'].includes(kind)) detail = textValue(value.title, 240) || 'Saved research evidence';
+    if (kind === 'request_review') detail = textValue(value.question, 240) || 'Independent evidence check';
+    if (kind === 'submit_review') detail = 'Checks, findings and limitations';
+    if (kind === 'remember_research') detail = value.scope === 'project' ? 'Project working notes' : 'Agent working notes';
+    if (kind === 'call_external_mcp') detail = textValue(value.tool, 240) || textValue(value.toolName, 240) || 'Approved server tool';
+    if (labels && ['plan_research', 'add_research_evidence', 'propose_knowledge', 'request_review', 'call_external_mcp'].includes(kind)) detail = labels.text(detail, 'Research action', [value.taskId, value.missionId, value.reviewId, value.evidenceId, value.runId, value.attemptId, value.requestId]);
     if (labels && ['spawn_agent', 'send_to_agent', 'wait_for_agents', 'get_task', 'list_tasks', 'cancel_task'].includes(kind)) detail = labels.text(detail, 'Assigned task', [value.taskId, value.agentSessionId, value.sessionId, value.runId, value.attemptId, value.requestId]);
     const label = state === 'succeeded' ? info[3] : state === 'failed' ? info[4] : state === 'queued' ? info[2] : state === 'stopped' ? info[2] + ' · stopped' : info[1];
     return Object.freeze({ kind, icon: info[0], label, detail, status: state, active: state === 'running', motion: state === 'running' ? 'pulse' : 'none' });

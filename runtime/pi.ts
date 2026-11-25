@@ -156,7 +156,9 @@ function hostAdapter(value: unknown): value is HostAdapter {
     && typeof value.subscribe === "function" && typeof value.destroy === "function";
 }
 
-/** No discovery: extensions, MCP, skills, context files, and packages never load. */
+/** No automatic discovery. Athena mounts tools from its pinned registry and
+ * loads selected skill text through load_skill; arbitrary SDK extensions,
+ * project context files and executable packages remain unavailable. */
 function fixedResources(systemPrompt: string): ResourceLoader {
   const extensions = { extensions: [], errors: [], runtime: createExtensionRuntime() };
   return {

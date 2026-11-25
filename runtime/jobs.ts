@@ -10,6 +10,8 @@ import { lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
+import { callExternalMcp, EXTERNAL_MCP_LIMITS, validateExternalVerification, matchesExternalSchema, extensionDigest } from './external-mcp-client.ts';
+import type { PinnedExternalServer } from './extensions.ts';
 
 type Scope = { readonly projectId: string; readonly sessionId: string };
 type FileVersion = Scope & { readonly fileId: string; readonly versionId: string; readonly name: string };
@@ -21,6 +23,7 @@ export type CsvJob = Scope & {
 export type McpArtifact = Scope & {
   readonly id: string; readonly attemptId: string; readonly name: string; readonly mcpAlias?: string;
   readonly mimeType: 'application/json'; readonly bytes: number; readonly sha256: string;
+  readonly receiptKind?: 'external-mcp-v1';
 };
 type JobErrorCode = 'INVALID_INPUT' | 'CLOSED' | 'QUEUE_FULL' | 'DUPLICATE_ATTEMPT'
   | 'GRANT_DENIED' | 'ARTIFACT_DENIED' | 'INVALID_FILE' | 'UNSUPPORTED_PLATFORM';
@@ -96,11 +99,13 @@ function parseGrant(bytes: Buffer, grantId: string, scope: Scope): McpGrant {
 }
 
 type Identity = Omit<CsvJob,'grantId'|'column'>;
+export type ExternalMcpJob = Identity & {readonly server:PinnedExternalServer;readonly tool:string;readonly arguments:Readonly<Record<string,unknown>>;readonly token?:string};
 export type AnalysisJob = Identity & SandboxJob & { readonly inputs: readonly (AnalysisSnapshot & {readonly fileId?:string; readonly versionId?:string})[] };
 export type JobAttempt = Identity & { readonly grantId?: string; readonly column?: string;
   readonly mcp?: { readonly server:string; readonly version:string; readonly protocol:string; readonly tool:string; readonly phase:McpPhase;
     readonly alias?:string; readonly resultKind?:string; readonly displayName?:string; readonly registryVersion?:number };
   readonly toolArguments?: Readonly<Record<string,unknown>>;
+  readonly externalMcp?: {readonly serverId:string;readonly pluginId:string;readonly pluginRevision:string;readonly verificationDigest:string;readonly url:string;readonly tool:string;readonly argumentDigest:string};
   readonly artifacts?: readonly AnalysisArtifact[]; readonly containerId?: string; readonly executionId?: string;
   readonly analysis?: { readonly language: SandboxJob['language']; readonly script: string; readonly outputs: readonly string[];
     readonly inputs: readonly {readonly name:string; readonly sha256:string; readonly fileId?:string; readonly versionId?:string}[];
@@ -145,6 +150,7 @@ type Pending = {
   attempt: JobAttempt;
   readonly analysis?: SandboxJob;
   readonly registration?: Registration;
+  readonly external?: Pick<ExternalMcpJob,'server'|'tool'|'arguments'|'token'>;
   readonly result: Promise<JobAttempt>;
   readonly resolve: (attempt: JobAttempt) => void;
   stop?: StopReason;
@@ -254,6 +260,21 @@ export class JobRunner {
     return this.#admit(job, undefined, registration);
   }
 
+  startExternal(input:ExternalMcpJob):JobHandle {
+    this.#assertOpen();
+    const server=structuredClone(input.server);
+    validateExternalVerification(server.definition,server.verification);
+    const tool=server.verification.tools.find(item=>item.name===input.tool);
+    if (!tool || !object(input.arguments) || !matchesExternalSchema(tool.inputSchema,input.arguments)) throw new CsvJobError('INVALID_INPUT','External MCP arguments do not match the pinned tool.');
+    const args=structuredClone(input.arguments);
+    const job={projectId:text(input.projectId,'project ID'),sessionId:text(input.sessionId,'session ID'),
+      requestId:text(input.requestId,'request ID'),taskId:text(input.taskId,'task ID'),toolId:text(input.toolId,'tool ID'),attemptId:text(input.attemptId,'attempt ID'),
+      externalMcp:{serverId:server.id,pluginId:server.pluginId,pluginRevision:server.pluginRevision,verificationDigest:server.verification.digest,url:server.definition.url,tool:input.tool,argumentDigest:extensionDigest(args)}};
+    // The secret is kept only on the live private handle. No credential, auth
+    // reference or remote session token enters process events or stored output.
+    return this.#admit(job,undefined,undefined,{server,tool:input.tool,arguments:args,token:input.token});
+  }
+
   analysisAccess(): Promise<AnalysisAccess> {
     // Coalesce concurrent probes, including UI discovery while admitting an execution.
     return this.#discovery ??= analysisAccess().finally(() => {this.#discovery = undefined;});
@@ -292,14 +313,20 @@ export class JobRunner {
     return this.#admit(job,{language,script,inputs,outputs,args});
   }
 
-  #admit(job: Identity & Partial<Pick<JobAttempt,'grantId'|'column'|'analysis'|'args'|'toolArguments'>>, analysis?: SandboxJob, registration?: Registration):JobHandle {
+  #admit(job: Identity & Partial<Pick<JobAttempt,'grantId'|'column'|'analysis'|'args'|'toolArguments'|'externalMcp'>>, analysis?: SandboxJob, registration?: Registration, external?:Pending['external']):JobHandle {
     const key = attemptKey(job);
     if (this.#known.has(key)) throw new CsvJobError('DUPLICATE_ATTEMPT', 'Job attempt IDs cannot be reused.');
     if (this.#queue.length >= MCP_LIMITS.queue) throw new CsvJobError('QUEUE_FULL', 'The job queue is full.');
     this.#known.add(key);
     const { promise: result, resolve } = Promise.withResolvers<JobAttempt>();
-    const pending: Pending = { result, resolve, analysis, registration, attempt: Object.freeze({ ...job, ...(registration ? { mcp: { ...registration.binding.identity, phase: 'initialize' as const } } : {}), program: analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
-      cwd: null, env: analysis ? analysisEnv : ENV, limits: this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
+    const externalIdentity=external ? {registryVersion:1,server:external.server.verification.serverInfo.name,displayName:external.server.definition.name,
+      version:external.server.verification.serverInfo.version,protocol:external.server.verification.protocolVersion,tool:external.tool,
+      alias:'external:'+external.server.id+':'+external.tool,resultKind:'mcp-result',phase:'initialize' as const} : undefined;
+    const pending: Pending = { result, resolve, analysis, registration, external, attempt: Object.freeze({ ...job,
+      ...(externalIdentity ? {mcp:externalIdentity} : registration ? { mcp: { ...registration.binding.identity, phase: 'initialize' as const } } : {}),
+      program: external ? 'External MCP' : analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
+      cwd: null, env: external ? {} : analysis ? analysisEnv : ENV,
+      limits: external ? {...this.#limits,artifactBytes:EXTERNAL_MCP_LIMITS.responseBytes+16*1024,timeoutMs:external.server.definition.timeoutMs ?? 10000} : this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
       exitCode: null, signal: null, cancellation: 'not_requested', stdout: '', stderr: '' }) };
     this.#queue.push(pending);
     this.#admitting++;
@@ -321,7 +348,12 @@ export class JobRunner {
   /** Only persisted, session-authorized artifact records should reach the runner. */
   async download(artifact: McpArtifact): Promise<Buffer> {
     const { id, projectId, sessionId, attemptId, bytes, sha256: digest } = artifact;
-    const binding = builtins.get(artifact.mcpAlias ?? csvRegistration.binding.identity.alias)?.binding;
+    // External outputs have a self-contained immutable receipt. A plugin may
+    // be updated or removed after publication without breaking past downloads.
+    const binding = artifact.receiptKind==='external-mcp-v1'
+      ? {outputName:'mcp-result.json',mimeType:'application/json',outputBytes:EXTERNAL_MCP_LIMITS.responseBytes+16*1024}
+      : builtins.get(artifact.mcpAlias ?? csvRegistration.binding.identity.alias)?.binding;
+    if (artifact.receiptKind !== undefined && artifact.receiptKind !== 'external-mcp-v1') throw new CsvJobError('ARTIFACT_DENIED','Unknown artifact receipt format.');
     if (!binding || !UUID.test(id) || !SHA256.test(digest) || artifact.name !== binding.outputName || artifact.mimeType !== binding.mimeType
       || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > binding.outputBytes) {
       throw new CsvJobError('ARTIFACT_DENIED', 'Invalid MCP artifact reference.');
@@ -331,7 +363,7 @@ export class JobRunner {
       const receipt: unknown = JSON.parse((await readBounded(directory, 'artifact.json', 8 * 1024)).toString('utf8'));
       if (!object(receipt) || receipt.id !== id || receipt.projectId !== projectId || receipt.sessionId !== sessionId
         || receipt.attemptId !== attemptId || receipt.bytes !== bytes || receipt.sha256 !== digest
-        || receipt.mcpAlias !== artifact.mcpAlias || receipt.name !== artifact.name || receipt.mimeType !== artifact.mimeType) {
+        || receipt.mcpAlias !== artifact.mcpAlias || receipt.name !== artifact.name || receipt.mimeType !== artifact.mimeType || receipt.receiptKind !== artifact.receiptKind) {
         throw new CsvJobError('ARTIFACT_DENIED', 'MCP artifact reference does not match its receipt.');
       }
       const content = await readBounded(directory, binding.outputName, binding.outputBytes);
@@ -402,7 +434,7 @@ export class JobRunner {
     if (pending.stop || pending.attempt.endedAt !== null) return;
     if (pending.exited && reason !== 'output_limit') {
       // A clean worker exit can precede asynchronous verification and receipt persistence.
-      if (pending.registration && reason === 'cancelled') pending.cancelBeforePublication = true;
+      if ((pending.registration || pending.external) && reason === 'cancelled') pending.cancelBeforePublication = true;
       return;
     }
     pending.stop = reason;
@@ -437,6 +469,10 @@ export class JobRunner {
       }
       if (pending.analysis) {
         await this.#runAnalysis(pending,pending.analysis,cwd);
+        return;
+      }
+      if (pending.external) {
+        await this.#runExternal(pending,pending.external,cwd);
         return;
       }
       const registration = pending.registration;
@@ -519,6 +555,51 @@ export class JobRunner {
           error: error instanceof Error ? error.message : 'Job attempt failed.' });
       }
     }
+  }
+
+  async #runExternal(pending:Pending,external:NonNullable<Pending['external']>,cwd:string):Promise<void> {
+    const ctl=new AbortController();
+    pending.terminate=()=>ctl.abort();
+    let dispatched=false;
+    const timeout=setTimeout(()=>this.#stop(pending,'timed_out'),pending.attempt.limits.timeoutMs);
+    try {
+      if (pending.stop) ctl.abort();
+      ctl.signal.throwIfAborted();
+      pending.attempt=Object.freeze({...pending.attempt,status:'running',startedAt:Date.now()});
+      this.#emit({type:'process_started',attempt:pending.attempt});
+      const result=await callExternalMcp(external.server.definition,external.server.verification,external.tool,external.arguments,{
+        token:external.token,signal:ctl.signal,onPhase:phase=>{
+          if (phase==='tools/call') dispatched=true;
+          pending.attempt=Object.freeze({...pending.attempt,mcp:{...pending.attempt.mcp!,phase}});
+          this.#emit({type:'process_output',attempt:pending.attempt,stream:'stdout',text:'MCP '+phase+'\n'});
+        },
+      });
+      ctl.signal.throwIfAborted();
+      pending.exited=true;
+      const server=external.server;
+      const content=Buffer.from(JSON.stringify({schemaVersion:1,kind:'external-mcp-result',
+        server:{id:server.id,name:server.verification.serverInfo.name,version:server.verification.serverInfo.version,
+          pluginId:server.pluginId,pluginRevision:server.pluginRevision,verificationDigest:server.verification.digest},tool:external.tool,result}));
+      if (content.length>pending.attempt.limits.artifactBytes) throw new Error('External MCP result exceeds the saved artifact limit.');
+      const artifact:McpArtifact={id:randomUUID(),projectId:pending.attempt.projectId,sessionId:pending.attempt.sessionId,
+        attemptId:pending.attempt.attemptId,mcpAlias:pending.attempt.mcp!.alias,receiptKind:'external-mcp-v1',name:'mcp-result.json',mimeType:'application/json',bytes:content.length,sha256:sha256(content)};
+      await writeFile(join(cwd,artifact.name),content,{flag:'wx',mode:0o400});
+      await writeFile(join(cwd,'artifact.json'),JSON.stringify(artifact),{flag:'wx',mode:0o400});
+      if (pending.cancelBeforePublication || pending.stop || ctl.signal.aborted) {
+        await rm(join(cwd,'artifact.json'));
+        this.#finish(pending,{status:pending.stop==='timed_out'?'timed_out':'cancelled',cancellation:'unknown',error:'Result publication was cancelled. Remote completion cannot be confirmed.'});
+        return;
+      }
+      this.#finish(pending,{status:'succeeded',artifact});
+    } catch(error) {
+      const message=error instanceof Error ? error.message : 'External MCP call failed.';
+      const safe=external.token ? message.replaceAll(external.token,'[redacted]') : message;
+      const timedOut=pending.stop==='timed_out' || error instanceof Error && error.name==='TimeoutError';
+      this.#finish(pending,{status:timedOut?'timed_out':pending.stop==='cancelled'?'cancelled':'failed',
+        cancellation:pending.stop || timedOut ? dispatched?'unknown':'confirmed' : 'not_requested',
+        error:pending.stop==='cancelled' ? dispatched?'Request cancelled locally. The external server may still have completed the operation.':undefined
+          :timedOut?'External MCP call exceeded its time limit; it will not be replayed automatically.':safe});
+    } finally { clearTimeout(timeout); }
   }
 
   async #runAnalysis(pending:Pending, job:SandboxJob, cwd:string):Promise<void> {

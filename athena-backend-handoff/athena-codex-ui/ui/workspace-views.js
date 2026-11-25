@@ -115,6 +115,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
     let snapshot = store.getState(), destroyed = false, unsubscribe = null, recordUnsubscribe = null, resizeObserver = null;
     let history = { key: '', messages: [], status: '', error: '' };
+    let researchService = options.researchService || null, researchBoard = null;
     const q = selector => host.querySelector(selector);
     const qa = selector => Array.from(host.querySelectorAll(selector));
     const notify = message => options.toast?.(message);
@@ -190,7 +191,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowShell() {
-      return '<div class="awv-scroll"><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
+      return '<div class="awv-scroll"><div data-awv-research-board></div><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
     }
 
     function artifactShell() {
@@ -202,9 +203,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function shell() {
+      researchBoard?.destroy(); researchBoard = null;
       rememberDiagnostics(host);
       host.dataset.workspaceView = state.view;
       host.innerHTML = headerHTML() + ({ workflow: workflowShell, artifacts: artifactShell, timeline: timelineShell }[state.view])();
+      if (state.view === 'workflow' && window.AthenaResearchBoard) researchBoard = window.AthenaResearchBoard.mount(q('[data-awv-research-board]'), { service: researchService, getWorkspace: () => snapshot, icons: refreshIcons, onNavigate: navigate });
       update(true);
     }
 
@@ -311,8 +314,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       setHTML('[data-awv-measurements]', calculations.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
         const registered = window.AthenaResultFiles?.mcp(p.job.mcp);
+        const cancellation = window.AthenaResultFiles?.mcpCancellation(p);
         return '<section class="awv-task-detail"><h3>' + esc(taskTitle(p.taskId)) + '</h3>'
-          + processButton(p) + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
+          + processButton(p) + (cancellation ? '<p class="awv-caption">' + esc(cancellation) + '</p>' : '') + (p.job.error ? '<p>' + esc(labels.text(p.job.error, 'The calculation needs attention.', [p.id, p.taskId, p.runId, p.attemptId, p.agentSessionId])) + '</p>' : '')
           + (file && artifactDownload(file) ? '<button type="button" class="awv-link-row" data-awv-open-artifact="' + esc(file.id)
             + '" data-awv-version="' + esc(artifactVersion(file)) + '">' + icon('table-2') + esc(registered?.action || 'View saved result') + '</button>' : '') + '</section>';
       }).join(''));
@@ -481,6 +485,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const finite = value => typeof value === 'number' && Number.isFinite(value);
       const count = value => Number.isSafeInteger(value) && value >= 0;
       if (!record(data) || data.schemaVersion !== 1) return null;
+      if (kind === 'mcp-result') {
+        if (data.kind !== 'external-mcp-result' || !record(data.server) || typeof data.server.name !== 'string'
+          || typeof data.tool !== 'string' || !record(data.result) || data.result.isError !== false
+          || !Array.isArray(data.result.content) || !data.result.content.every(block => record(block) && block.type === 'text' && typeof block.text === 'string')
+          || data.result.structuredContent !== undefined && !record(data.result.structuredContent)) return null;
+        const text = data.result.content.map(block => block.text).join('\n\n');
+        return '<section data-awv-external-result><h4>Saved MCP result</h4><p class="awv-caption">' + esc(data.server.name) + ' · ' + esc(data.tool) + '</p>'
+          + '<p class="awv-caption">This is the saved server response. Links and instructions in the response are shown as text.</p>'
+          + (text ? '<pre class="awv-record-text" tabindex="0" aria-label="Saved MCP text">' + esc(text) + '</pre>' : '')
+          + (data.result.structuredContent !== undefined ? '<h5>Structured output</h5><pre class="awv-record-text" tabindex="0" aria-label="Saved MCP structured output">' + esc(JSON.stringify(data.result.structuredContent, null, 2)) + '</pre>' : '')
+          + (!text && data.result.structuredContent === undefined ? '<p class="awv-caption">The server returned no text or structured output.</p>' : '') + '</section>';
+      }
       if (kind === 'rc-step-response') {
         if (!finite(data.timeConstantSeconds) || data.timeConstantSeconds <= 0 || !finite(data.cutoffHz) || data.cutoffHz <= 0
           || !Array.isArray(data.samples) || !data.samples.length || data.samples.length > 512
@@ -548,7 +564,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
           section.className = 'awv-table-scroll';
           section.setAttribute('aria-live', 'polite');
           section.setAttribute('data-awv-mcp-result', registered?.resultKind || 'unsupported');
-          section.textContent = registered ? 'Loading saved ' + (registered.resultKind === 'csv-statistics' ? 'measurements' : 'RC response') + '…' : 'A structured preview is not available for this tool version. Download the saved result to inspect it.';
+          section.textContent = registered ? 'Loading saved ' + ({ 'csv-statistics': 'measurements', 'rc-step-response': 'RC response', 'mcp-result': 'tool result' }[registered.resultKind] || 'result') + '…' : 'A structured preview is not available for this tool version. Download the saved result to inspect it.';
           holder.querySelector('h3').parentElement.after(section);
           // The request owns this element. A late reply can only update its detached old view.
           if (registered) void renderMcpResult(section, download, registered.resultKind);
@@ -635,6 +651,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function update(force = false) {
       if (destroyed) return;
+      researchBoard?.update();
       updateHeading();
       if (state.view === 'workflow') updateWorkflow();
       if (state.view === 'artifacts') updateArtifacts(force);
@@ -816,6 +833,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     recordUnsubscribe = options.records?.subscribe(() => { if (!destroyed && state.view === 'artifacts') { updateArtifacts(true); refreshIcons(); } });
     return {
       open,
+      setResearchService(service) { researchService = service || null; researchBoard?.setService(researchService); },
       focus: () => {
         if (destroyed || !host.isConnected || host.hidden || host.closest('[hidden],[inert],[aria-hidden="true"]')) return;
         q('[data-awv-heading]')?.focus({ preventScroll: true });
@@ -824,7 +842,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       destroy() {
         if (destroyed) return;
         destroyed = true;
-        unsubscribe?.(); recordUnsubscribe?.(); abort.abort();
+        unsubscribe?.(); recordUnsubscribe?.(); researchBoard?.destroy(); abort.abort();
         resizeObserver?.disconnect();
         timers.forEach(clearTimeout); urls.forEach(url => URL.revokeObjectURL(url));
         timers.clear(); urls.clear(); diagnosticState.clear();

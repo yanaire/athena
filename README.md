@@ -54,6 +54,35 @@ The following describes the current `main` source, not unmerged feature branches
 
 **In development / not included in this baseline:** MCP integration is being developed separately. Persistent knowledge-library services, versioned PDF and manuscript/review workflows, advanced Pi plugins, approvals and automatic retry are not implemented in the current baseline. See [contract gaps](athena-backend-handoff/CONTRACT-GAPS.md).
 
+### Research extensions candidate
+
+The `feature/athena-research-extensions` candidate extends the CSV/RC integration
+candidate with project-owned declarative plugins, explicitly approved external
+MCP connections, 12 versioned research skills and an evidence-based research
+board. It is separate from the `main` baseline described above and still requires
+acceptance of the exact app build on a Mac with the user's actual model account.
+
+- **Settings → Tools & plugins:** import or update a JSON package, inspect its
+  endpoints and allowed tools, check each MCP connection, then enable the package.
+  Skills can be selected individually. Changes apply to new runs; existing runs
+  retain their admitted versions and credentials.
+- **Workflow → Research board:** inspect the research plan, actual input/result
+  evidence, independent reviewer receipts and reusable methods. Model review,
+  independent reproduction and human-confirmed conventions remain distinct.
+- **Artifacts:** open and download the same validated file produced by the
+  built-in CSV/RC tools or an approved external MCP. The browser does not perform
+  the engineering calculation again.
+
+External connections currently support bounded MCP Streamable HTTP with text
+and structured JSON results, plus optional dedicated bearer credentials. Plugin
+packages contain guidance and connection declarations; they do not execute
+installation scripts or launch arbitrary programs. This is an Athena research
+workflow inspired by Hyra 2.0, not an imported Hyra runtime.
+
+[Plugin, skill and external MCP contract](docs/ecosystem/RUNTIME.md) ·
+[Research workflow and Books](docs/research-workflow.md) ·
+[Candidate acceptance and Mac handoff](docs/ecosystem/ACCEPTANCE.md)
+
 ## Architecture
 
 ```mermaid
@@ -239,6 +268,7 @@ athena-1/
 | :--- | :--- |
 | Getting started | [Installation](docs/installation.md) · [Model providers](docs/model-providers.md) |
 | Internals | [Architecture](docs/architecture.md) · [UI integration](athena-backend-handoff/START-HERE.md) |
+| Research extensions candidate | [Runtime contract](docs/ecosystem/RUNTIME.md) · [Research workflow](docs/research-workflow.md) · [Acceptance](docs/ecosystem/ACCEPTANCE.md) |
 | Development | [Build and test](docs/development.md) · [Acceptance contract](athena-backend-handoff/ACCEPTANCE.md) |
 | Safety | [Privacy](PRIVACY.md) · [Security](SECURITY.md) · [Sandbox](docs/sandbox-security.md) |
 | Release | [Preview status](docs/oss-preview-status.md) · [Known limitations](docs/known-limitations.md) · [Release checklist](docs/release-checklist.md) · [M4.2 release notes](docs/m42/release-notes.md) |

@@ -53,6 +53,24 @@
       registerCompatibleEndpoint: input => rpc('registerCompatibleEndpoint', [input])
     });
   }
+  function extensionsAdapter() {
+    if (!Array.isArray(capabilities) || !capabilities.includes('extensions')) return null;
+    return Object.freeze({
+      capability: 'extensions',
+      getExtensions: projectId => rpc('getExtensions', [projectId]),
+      installPlugin: (projectId, manifest, revision) => rpc('installPlugin', [projectId, manifest, revision]),
+      setPluginEnabled: (projectId, id, enabled, revision) => rpc('setPluginEnabled', [projectId, id, enabled, revision]),
+      removePlugin: (projectId, id, revision) => rpc('removePlugin', [projectId, id, revision]),
+      setSkillEnabled: (projectId, id, enabled, revision) => rpc('setSkillEnabled', [projectId, id, enabled, revision]),
+      // The caller clears its password field before sending. No token is added
+      // to snapshots, adapter state, DOM output or local storage.
+      checkMcpServer: (projectId, pluginId, serverId, revision, options = {}) => rpc('checkMcpServer', [projectId, pluginId, serverId, revision, options]),
+      ...(capabilities.includes('research_workflow') ? {
+        getResearch: (projectId, sessionId) => rpc('getResearch', [projectId, sessionId]),
+        decideKnowledge: (projectId, id, decision) => rpc('decideKnowledge', [projectId, id, decision])
+      } : {})
+    });
+  }
   function unbind() {
     generation++; activeSession = null; piListeners.clear(); app.detachPiSession();
   }
@@ -174,6 +192,7 @@
         app.attachConnectionManager(connections);
         modelProfiles = modelProfilesAdapter();
         if (modelProfiles) app.attachModelProfiles?.(modelProfiles);
+        app.attachExtensions?.(extensionsAdapter());
         if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
         await app.refreshPi();
         if (destroyed || streamBound !== streamEpoch) return;
