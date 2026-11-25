@@ -2,41 +2,78 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { desktopBuildPlan } from '../scripts/build-desktop.mjs';
-import { detachMacOSImage, isolatedRuntimeEnvironment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
+import { detachMacOSImage, isolatedRuntimeEnvironment, macOSImageAttachment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
 
 test('macOS packaging confirms detachment despite a late DiskArbitration response', () => {
   const calls = [];
-  let attachment = 'mounted';
-  detachMacOSImage(() => attachment, force => {
-    calls.push(force);
-    if (!force) throw new Error('timeout for DiskArbitration expired');
-    attachment = 'detached';
+  const target = '10B24A7B-C507-413D-BB71-284231981351';
+  const mounted = { state: 'mounted', target };
+  const detached = { state: 'detached' };
+  let attachment = mounted;
+  detachMacOSImage(() => attachment, device => {
+    calls.push(device);
+    if (calls.length === 1) throw new Error('timeout for DiskArbitration expired');
+    attachment = detached;
     throw new Error('No such file or directory');
   });
-  assert.deepEqual(calls, [false, true]);
+  assert.deepEqual(calls, [target, target]);
 
-  attachment = 'mounted';
+  attachment = mounted;
   calls.length = 0;
-  detachMacOSImage(() => attachment, force => {
-    calls.push(force);
-    attachment = 'detached';
+  detachMacOSImage(() => attachment, device => {
+    calls.push(device);
+    attachment = detached;
     throw new Error('timeout for DiskArbitration expired');
   });
-  assert.deepEqual(calls, [false]);
+  assert.deepEqual(calls, [target]);
 
-  attachment = 'mounted';
+  attachment = mounted;
   calls.length = 0;
-  assert.throws(() => detachMacOSImage(() => attachment, force => {
-    calls.push(force);
-    attachment = 'attached';
+  assert.throws(() => detachMacOSImage(() => attachment, device => {
+    calls.push(device);
+    attachment = { state: 'ambiguous' };
     throw new Error('drive not detached');
   }), /still attached/);
-  assert.deepEqual(calls, [false]);
+  assert.deepEqual(calls, [target]);
 
-  attachment = 'mounted';
+  attachment = mounted;
   calls.length = 0;
-  assert.throws(() => detachMacOSImage(() => attachment, force => calls.push(force)), /still attached/);
-  assert.deepEqual(calls, [false, true]);
+  assert.throws(() => detachMacOSImage(() => attachment, device => calls.push(device)), /still attached/);
+  assert.deepEqual(calls, [target, target]);
+});
+
+test('macOS packaging finds the owned partition after unmount and retries with its media UUID', () => {
+  const path = '/private/tmp/athena/Athena.sparseimage';
+  const mount = '/private/tmp/athena/mount';
+  const target = '10B24A7B-C507-413D-BB71-284231981351';
+  const device = '/dev/disk6';
+  const partition = `${device}s2`;
+  const whole = { 'content-hint': 'GUID_partition_scheme', 'dev-entry': device };
+  const hfs = { 'dev-entry': partition };
+  const report = (entities, imagePath = path) => [{ 'image-path': imagePath, 'system-entities': entities }];
+  const mounted = report([whole, { ...hfs, 'mount-point': mount }]);
+  const unmounted = report([whole, hfs]);
+  assert.deepEqual(macOSImageAttachment(mounted, path, mount, true), { state: 'mounted', device, partition });
+  assert.deepEqual(macOSImageAttachment(unmounted, path, mount, false), { state: 'unmounted', device, partition });
+  assert.deepEqual(macOSImageAttachment(report([whole, hfs], '/another-image'), path, mount, false), { state: 'detached' });
+  assert.deepEqual(macOSImageAttachment(report([whole, { ...hfs, 'mount-point': '/different-mount' }]), path, mount, false),
+    { state: 'ambiguous' });
+  assert.deepEqual(macOSImageAttachment(mounted, path, mount, false), { state: 'ambiguous' });
+
+  const calls = [];
+  let images = mounted;
+  detachMacOSImage(() => {
+    const attachment = macOSImageAttachment(images, path, mount, images === mounted);
+    return attachment.partition ? { ...attachment, target } : attachment;
+  }, uuid => {
+    calls.push(uuid);
+    if (images === mounted) {
+      images = unmounted;
+      throw new Error('timeout for DiskArbitration expired');
+    }
+    images = [];
+  });
+  assert.deepEqual(calls, [target, target]);
 });
 
 test('each native platform selects a distinct pinned Node archive and matching sidecar ABI', () => {
