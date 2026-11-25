@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem with Athena.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Athena. Please check existing issues first.
+        Use synthetic examples and remove credentials, private transcripts, and research data.
+        For security vulnerabilities, follow [SECURITY.md](https://github.com/yanaire/athena/blob/main/SECURITY.md) instead of opening a public issue.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and revision
+      description: Include the commit or branch, OS and CPU, and how you ran Athena. If relevant, include Node/Rust versions and the provider/model name without credentials.
+      placeholder: |
+        Revision:
+        OS and CPU:
+        Run mode (desktop source build, browser host, or standalone preview):
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Describe the smallest example that reproduces the problem. Say whether it used a controlled provider or a live model.
+      placeholder: |
+        1. Start Athena with...
+        2. Open...
+        3. Run...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: What should happen, what happens instead, and how often does it occur?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant logs or screenshots
+      description: Optional. Share only the relevant, redacted excerpt or screenshot.
+    validations:
+      required: false
