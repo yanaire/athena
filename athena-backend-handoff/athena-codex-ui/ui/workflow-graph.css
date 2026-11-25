@@ -1,0 +1,59 @@
+/* Read-only task graph. Cards remain native buttons; scrolling and list view are
+   available without pointer gestures. No reduced-size text at the default zoom. */
+#athena-codex .awg *{box-sizing:border-box}
+#athena-codex .awg{margin:10px 0 16px;border:1px solid var(--awv-line,#ddd9cb);border-radius:12px;overflow:hidden;background:#f7f6ed}
+#athena-codex .awg-controls{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;padding:10px 11px;border-bottom:1px solid #e4e1d5;background:#fbfaf4}
+#athena-codex .awg-summary{font-size:10px;color:#686d58;line-height:1.5}
+#athena-codex .awg-controls>div{display:flex;align-items:center;gap:3px}
+#athena-codex .awg-controls button{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:3px 7px;background:#f4f2e9;border:1px solid #dedbcc;border-radius:5px;font-size:11px;color:#4c5340}
+#athena-codex .awg-controls button:hover{background:#e9eadc}
+#athena-codex .awg-controls button:disabled{opacity:.45;cursor:default}
+#athena-codex .awg-controls output{min-width:36px;text-align:center;font-size:10px;font-variant-numeric:tabular-nums;color:#6c705f}
+#athena-codex .awg-viewport{position:relative;overflow:auto;max-height:min(60vh,560px);min-height:170px;overscroll-behavior:contain;scrollbar-gutter:stable;scroll-padding:18px;background-image:radial-gradient(#dcdccd .7px,transparent .7px);background-size:16px 16px}
+#athena-codex .awg-plane{position:relative;min-width:100%;margin:0 auto}
+#athena-codex .awg-canvas{position:relative;transform-origin:top left}
+/* This is a full graph canvas, not an icon. Override the workspace SVG icon size. */
+#athena-codex .awg-canvas>svg.awg-edges{display:block;position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+#athena-codex .awg-edges marker path{fill:#788466}
+#athena-codex .awg-edge{fill:none;stroke:#8a967b;stroke-width:1.6;vector-effect:non-scaling-stroke}
+#athena-codex .awg-edge-delegation{stroke:#a8aa97;stroke-dasharray:3 5}
+#athena-codex .awg-edge-cyclic{stroke:#b67860;stroke-width:2}
+#athena-codex .awg-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border:1px solid #d9d9c9;border-radius:10px;background:#fffef8;box-shadow:0 2px 4px #353c2410;color:#343d2a}
+#athena-codex .awg-node-selected{border-color:#8b9b70;box-shadow:0 0 0 2px #b9c49f50,0 3px 9px #353c2410}
+#athena-codex .awg-node-cyclic{border-color:#b67860}
+#athena-codex .awg-task{display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;gap:8px;width:100%;min-height:114px;padding:12px;text-align:left;border:0;border-radius:9px;background:transparent;color:inherit}
+#athena-codex .awg-task:hover{background:#f3f4e8}
+#athena-codex .awg-node-kicker{display:flex;align-items:center;justify-content:space-between;gap:7px;font-size:9px;color:#7a806d;white-space:nowrap}
+#athena-codex .awg-status{display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#68745b;max-width:89px;overflow:hidden;text-overflow:ellipsis}
+#athena-codex .awg-status:before{content:"";display:block;flex-shrink:0;width:5px;height:5px;border-radius:50%;background:#a8ac9c}
+#athena-codex .awg-status[data-status="running"]:before{background:#819b56}
+#athena-codex .awg-status[data-status="succeeded"]:before{background:#748e50}
+#athena-codex .awg-status[data-status="failed"]:before,#athena-codex .awg-status[data-status="timed_out"]:before{background:#b66e50}
+#athena-codex .awg-status[data-status="paused"]:before,#athena-codex .awg-status[data-status="interrupted"]:before{background:#b39d5b}
+#athena-codex .awg-title{display:flex;align-items:center;gap:8px;min-width:0}
+#athena-codex .awg-avatar{display:flex;flex:none}
+#athena-codex .awg-task strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:12px;font-weight:600;line-height:1.45;min-height:35px;overflow-wrap:anywhere}
+#athena-codex .awg-node-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#7c806d}
+#athena-codex .awg-attempt-history{flex-shrink:0;margin:0;padding:5px 11px;font-size:9px;line-height:14px;color:#8b7559;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid #edeadd;background:#f9f6ec}
+#athena-codex .awg-processes{display:grid;gap:0;flex-shrink:0;padding:4px 7px;border-top:1px solid #e8e6da}
+#athena-codex .awg-processes button{display:flex;align-items:center;justify-content:space-between;gap:7px;min-width:0;min-height:31px;padding:5px;border:0;border-radius:4px;background:transparent;text-align:left;color:#5d654f;font-size:10px;line-height:16px}
+#athena-codex .awg-processes button:hover{background:#efefe3}
+#athena-codex .awg-processes button>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#athena-codex .awg-processes small{flex-shrink:0;font-size:9px;color:#7b826e}
+#athena-codex .awg-processes small[data-status="succeeded"]{color:#617e3d}
+#athena-codex .awg-processes small[data-status="failed"],#athena-codex .awg-processes small[data-status="timed_out"]{color:#a0684e}
+#athena-codex .awg-more{flex-shrink:0;min-height:24px;padding:3px 11px;text-align:left;border:0;background:#f6f6ed;color:#65764e;font-size:10px;line-height:16px}
+#athena-codex .awg-more:hover{background:#e9eddc}
+#athena-codex .awg-legend{display:flex;flex-wrap:wrap;gap:7px 14px;padding:11px 11px 4px;border-top:1px solid #e4e1d5;font-size:9px;color:#727762}
+#athena-codex .awg-legend>span{display:inline-flex;align-items:center;gap:6px}
+#athena-codex .awg-legend i{position:relative;width:18px;height:0;border-top:1.5px solid #8a967b}
+#athena-codex .awg-legend .awg-legend-dependency:after{content:"";position:absolute;right:-1px;top:-3.5px;border-left:5px solid #8a967b;border-top:3px solid transparent;border-bottom:3px solid transparent}
+#athena-codex .awg-legend .awg-legend-delegation{border-top:2px dotted #a8aa97}
+#athena-codex .awg-note{margin:0;padding:4px 11px 11px;font-size:10px;line-height:1.55;color:#7a7f6c}
+#athena-codex .awg-warning{margin:0;padding:9px 11px;font-size:10px;line-height:1.55;color:#8a6548;background:#faf0df;border-bottom:1px solid #e8d6b9}
+#athena-codex .awg-empty{padding:26px 12px;text-align:center;border:1px dashed #d7d8c7;border-radius:10px;color:#737b61}
+#athena-codex .awg-empty>span{font-size:24px}
+#athena-codex .awg-empty p{margin:6px 0;font-size:12px}
+#athena-codex .awg-empty small{font-size:10px;color:#8a8e7d}
+#athena-codex .awg :is(button,[tabindex]):focus-visible{outline:2px solid #6e8650;outline-offset:-3px}
+@media(prefers-reduced-motion:reduce){#athena-codex .awg *{scroll-behavior:auto}}

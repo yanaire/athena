@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFile, execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const [mode, appPath, ...extra] = process.argv.slice(2);
 assert.ok(mode === undefined || (['--verify-only', '--verify-local-chatgpt', '--pre-notarization', '--release'].includes(mode) && appPath && extra.length === 0),
@@ -89,8 +90,31 @@ if (!mode) {
 
 const workspace = await mkdtemp(join(tmpdir(), 'athena-bundle-check-'));
 const fixtureKey = randomBytes(32).toString('hex');
+const mcpFixtureKey = randomBytes(32).toString('hex');
 let successfulRequests = 0;
 const fixture = createServer((request, response) => {
+  if (request.url === '/mcp') {
+    if (request.headers.authorization !== `Bearer ${mcpFixtureKey}`) { response.writeHead(401).end(); return; }
+    if (request.method === 'DELETE') { response.writeHead(202).end(); return; }
+    if (request.method !== 'POST') { response.writeHead(405).end(); return; }
+    const chunks = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      const message = JSON.parse(Buffer.concat(chunks));
+      if (message.method.startsWith('notifications/')) { response.writeHead(202).end(); return; }
+      let result;
+      if (message.method === 'initialize') {
+        response.setHeader('Mcp-Session-Id', 'bundle-external');
+        result = { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'bundle-external', version: '1.0.0' } };
+      } else if (message.method === 'tools/list') {
+        result = { tools: [{ name: 'double', inputSchema: { type: 'object', properties: { value: { type: 'number' } }, required: ['value'], additionalProperties: false } }] };
+      } else if (message.method === 'tools/call' && message.params.name === 'double') {
+        result = { content: [{ type: 'text', text: String(message.params.arguments.value * 2) }], structuredContent: { doubled: message.params.arguments.value * 2 } };
+      } else { response.writeHead(400).end(); return; }
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+    });
+    return;
+  }
   if (request.headers.authorization !== `Bearer ${fixtureKey}`) { response.writeHead(401).end(); return; }
   successfulRequests++;
   if (request.method === 'GET' && request.url === '/v1/models') {
@@ -153,6 +177,8 @@ async function withHost(step) {
     assert.equal(response.status, 200);
     const { capabilities } = await response.json();
     assert.ok(capabilities.includes('model_profiles'));
+    assert.ok(capabilities.includes('extensions'));
+    assert.ok(capabilities.includes('research_workflow'));
     assert.equal(capabilities.includes('native_oauth_browser'), expectChatGPT, 'Unexpected ChatGPT capability for this bundle.');
     const rpc = async (method, args = [], status = 200) => {
       const reply = await fetch(origin + '/api/rpc', {
@@ -161,6 +187,7 @@ async function withHost(step) {
       });
       const wire = await reply.text();
       assert.equal(wire.includes(fixtureKey), false, 'A credential reached the response.');
+      assert.equal(wire.includes(mcpFixtureKey), false, 'An external MCP credential reached the response.');
       assert.equal(reply.status, status, `${method} failed.`);
       const body = JSON.parse(wire);
       return status === 200 ? body.result : body;
@@ -176,12 +203,16 @@ async function withHost(step) {
 }
 
 try {
-  execFileSync(binary, ['--input-type=module', '--eval', `
+  await promisify(execFile)(binary, ['--input-type=module', '--eval', `
     import assert from 'node:assert/strict';
-    import { CsvJobRunner } from './runtime/jobs.ts';
+    import { JobRunner } from './runtime/jobs.ts';
     import { AnalysisFiles } from './runtime/analysis-files.ts';
+    import { ExtensionStore } from './runtime/extensions.ts';
+    import { discoverExternalMcp } from './runtime/external-mcp-client.ts';
+    import { Storage } from './runtime/storage.ts';
+    import { join } from 'node:path';
     const dataDir = process.argv[1];
-    const runner = new CsvJobRunner({ dataDir });
+    const runner = new JobRunner({ dataDir });
     const files = new AnalysisFiles(dataDir);
     for (const [language, name, source] of [
       ['python', 'job.py', "with open('/outputs/proof.txt','w') as f: f.write(open('input.txt').read().upper())"],
@@ -194,9 +225,47 @@ try {
       assert.equal(result.analysis.backend,'wasi');
       assert.equal((await files.download(result.artifacts[1])).toString(),'BUNDLE INPUT');
     }
+    const scope = {projectId:'bundle', sessionId:'bundle'};
+    const grant = await runner.grant({...scope, fileId:'voltage', versionId:'one', name:'measurements.csv',
+      bytes:Buffer.from('measurement_mV\\n7\\n13\\n\\n21\\n35\\n')});
+    const study = await runner.start({...scope, taskId:'measurement', attemptId:'measurement',
+      requestId:'measurement', toolId:'measurement-tool', grantId:grant.id, column:'measurement_mV'}).result;
+    assert.equal(study.status, 'succeeded', study.error);
+    assert.equal(study.mcp.phase, 'tools/call');
+    assert.deepEqual(JSON.parse((await runner.download(study.artifact)).toString()).statistics, [
+      {column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:7,max:35,mean:19}
+    ]);
+    const input = {schemaVersion:1,resistanceOhm:10000,capacitanceFarad:1e-7,inputVolt:1,sampleTimesSeconds:[0,0.001,0.005]};
+    const circuit = await runner.grant({...scope, fileId:'circuit',versionId:'one',name:'circuit.json',
+      bytes:Buffer.from(JSON.stringify(input))}, 'calculate_rc_response');
+    const rc = await runner.startMcp('calculate_rc_response',{...scope,taskId:'circuit',attemptId:'circuit',
+      requestId:'circuit',toolId:'circuit-tool',grantId:circuit.id}).result;
+    assert.equal(rc.status,'succeeded',rc.error);
+    assert.equal(rc.mcp.server,'athena-circuits');
+    const response = JSON.parse((await runner.download(rc.artifact)).toString());
+    assert.ok(Math.abs(response.samples[1].outputVolt - 0.632120558829) < 1e-12);
+    const storage = new Storage(join(dataDir, 'extension-proof'));
+    const extensions = new ExtensionStore(storage);
+    const catalog = extensions.snapshot('bundle');
+    assert.equal(catalog.skills.length, 12);
+    assert.equal(catalog.skills.filter(skill => skill.automaticEligible).length, 3);
+    const pin = extensions.pin('bundle');
+    const context = {...scope, runId:'bundle', taskId:'bundle', attemptId:'bundle', parentTaskId:null, agentSessionId:'bundle'};
+    const loaded = extensions.loadSkill(pin, context, 'athena-research-intake', 'Bundled skill integrity check.', [], 'automatic');
+    assert.equal(loaded.use.sha256, pin.skills.find(skill => skill.id === 'athena-research-intake').sha256);
+    assert.ok(loaded.instructions.length > 100);
+    const definition = {id:'fixture', name:'Bundled external MCP', transport:'streamable-http', url:process.argv[2], auth:'bearer', allowedTools:['double']};
+    const verification = await discoverExternalMcp(definition, {token:process.argv[3]});
+    const external = await runner.startExternal({...scope, taskId:'external',attemptId:'external',requestId:'external',toolId:'external',
+      server:{id:'bundle-tools/fixture',serverId:'fixture',pluginId:'bundle-tools',pluginRevision:'a'.repeat(64),definition,verification},
+      tool:'double',arguments:{value:7},token:process.argv[3]}).result;
+    assert.equal(external.status,'succeeded',external.error);
+    assert.equal(JSON.parse((await runner.download(external.artifact)).toString()).result.structuredContent.doubled,14);
+    storage.close();
     await runner.close();
-  `, workspace, '--desktop'], { cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' }, timeout: 45_000 });
+  `, workspace, `http://127.0.0.1:${fixture.address().port}/mcp`, mcpFixtureKey, '--desktop'], { cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' }, timeout: 45_000 });
   let profileId;
+  let projectId;
   await withHost(async rpc => {
     assert.equal((await rpc('listModelProfiles')).credentialMode, 'local_file');
     assert.equal((await rpc('startProviderOAuth', ['openai-codex'], 400)).code, 'UNSUPPORTED_AUTH');
@@ -224,6 +293,13 @@ try {
     const profile = await rpc('saveModelProfile', [{ name: 'Bundle QA', provider: provider.id, modelId: 'bundle-fixture' }]);
     profileId = profile.id;
     await rpc('setAppModelProfile', [profileId]);
+    projectId = (await rpc('createProject', [{name:'Bundle extension proof'}])).project.id;
+    const extensions = await rpc('getExtensions', [projectId]);
+    assert.equal(extensions.skills.length, 12);
+    const invalid = await rpc('installPlugin', [projectId, {schemaVersion:1,id:'unsafe',command:'sh'},extensions.revision],400);
+    assert.equal(invalid.code,'INVALID_EXTENSION');
+    await rpc('setSkillEnabled', [projectId,'athena-scientific-figure',false,extensions.revision]);
+    assert.equal((await rpc('getResearch',[projectId])).books.length,0);
   });
   const vaultPath = join(workspace, 'auth/credentials.v2.json');
   const vault = await readFile(vaultPath);
@@ -237,10 +313,13 @@ try {
     assert.equal(profiles.credentialMode, 'local_file');
     const restored = await rpc('verifyModelProfile', [profileId]);
     assert.deepEqual([restored.lastCheck.streaming, restored.lastCheck.tools], ['passed', 'passed']);
+    const extensions = await rpc('getExtensions',[projectId]);
+    assert.equal(extensions.skills.length,12);
+    assert.equal(extensions.skills.find(skill=>skill.id==='athena-scientific-figure').enabled,false);
   });
   assert.equal(successfulRequests, 3);
   assert.ok(vault.equals(await readFile(vaultPath)), 'Authenticated restart changed the existing vault.');
-  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
+  console.log(`Verified signed bundle, ChatGPT ${expectChatGPT ? 'local PKCE readiness' : 'disabled'}, measurement, RC and external HTTP MCP artifacts, 12 bundled skill hashes and selected-body loading, extension RPC and settings restore, Python and JavaScript artifact bytes, interrupted token-only bootstrap, preserved local credentials and profile, and successful Pi streaming and tools after restart (isolated HOME).`);
 } finally {
   fixture.closeAllConnections();
   await new Promise(resolve => fixture.close(resolve));

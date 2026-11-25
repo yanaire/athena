@@ -11,7 +11,11 @@
   async function json(url, options) {
     const response = await fetch(url, { ...options, signal: AbortSignal.timeout(120000) });
     const body = await response.json();
-    if (!response.ok || typeof body?.error === 'string') throw new Error(body?.error || 'The workspace service could not complete this request.');
+    if (!response.ok || typeof body?.error === 'string') {
+      const error = new Error(body?.error || 'The workspace service could not complete this request.');
+      if (typeof body?.code === 'string') error.code = body.code;
+      throw error;
+    }
     return body;
   }
   async function rpc(method, args) {
@@ -47,6 +51,24 @@
       setConversationModelProfile: (sessionId, id) => rpc('setConversationModelProfile', [sessionId, id]),
       verifyModelProfile: id => rpc('verifyModelProfile', [id]),
       registerCompatibleEndpoint: input => rpc('registerCompatibleEndpoint', [input])
+    });
+  }
+  function extensionsAdapter() {
+    if (!Array.isArray(capabilities) || !capabilities.includes('extensions')) return null;
+    return Object.freeze({
+      capability: 'extensions',
+      getExtensions: projectId => rpc('getExtensions', [projectId]),
+      installPlugin: (projectId, manifest, revision) => rpc('installPlugin', [projectId, manifest, revision]),
+      setPluginEnabled: (projectId, id, enabled, revision) => rpc('setPluginEnabled', [projectId, id, enabled, revision]),
+      removePlugin: (projectId, id, revision) => rpc('removePlugin', [projectId, id, revision]),
+      setSkillEnabled: (projectId, id, enabled, revision) => rpc('setSkillEnabled', [projectId, id, enabled, revision]),
+      // The caller clears its password field before sending. No token is added
+      // to snapshots, adapter state, DOM output or local storage.
+      checkMcpServer: (projectId, pluginId, serverId, revision, options = {}) => rpc('checkMcpServer', [projectId, pluginId, serverId, revision, options]),
+      ...(capabilities.includes('research_workflow') ? {
+        getResearch: (projectId, sessionId) => rpc('getResearch', [projectId, sessionId]),
+        decideKnowledge: (projectId, id, decision) => rpc('decideKnowledge', [projectId, id, decision])
+      } : {})
     });
   }
   function unbind() {
@@ -112,6 +134,18 @@
     createSession: input => activate('createSession', [input]),
     openSession: id => activate('openSession', [id]),
     getAgentHistory: (conversationId, agentSessionId) => rpc('getAgentHistory', [conversationId, agentSessionId]),
+    async retryTask(taskId, request) {
+      let result, failure;
+      try { result = await rpc('retryTask', [taskId, request]); }
+      catch (error) { failure = error; }
+      // A receipt describes the accepted attempt, not the current snapshot. Read
+      // current state separately so replaying a receipt cannot restore old data.
+      if (!failure || failure.code) {
+        try { acceptSnapshot(await rpc('getSnapshot', [])); } catch (_) { /* SSE/reconnect will hydrate the current state. */ }
+      }
+      if (failure) throw failure;
+      return { ...result, snapshot };
+    },
     cancelTask: taskId => rpc('cancelTask', [taskId]),
     cancelRun: runId => rpc('cancelRun', [runId]),
     async setProjectExecution(id, enabled) {
@@ -158,6 +192,7 @@
         app.attachConnectionManager(connections);
         modelProfiles = modelProfilesAdapter();
         if (modelProfiles) app.attachModelProfiles?.(modelProfiles);
+        app.attachExtensions?.(extensionsAdapter());
         if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
         await app.refreshPi();
         if (destroyed || streamBound !== streamEpoch) return;

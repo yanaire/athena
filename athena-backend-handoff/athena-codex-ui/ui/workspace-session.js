@@ -11,7 +11,29 @@
     if (!demo || !runtime) throw new TypeError('Workspace session needs the demo store and runtime bridge.');
     let host = null, hostUnsubscribe = null, epoch = 0, destroyed = false, development = false, hydration = 0;
     let live = empty(), pi = runtime.getState(), activity = null, observedTools = [], observedEvents = [], appDefault = null, lockedModel = null, selectedSession = null;
-    const listeners = new Set(), manualTools = new Map(), runModels = new Map();
+    const listeners = new Set(), manualTools = new Map(), runModels = new Map(), retryOperations = new Map();
+    const retryStorageKey = 'athena.task-retries.v1';
+    const retryIdentity = value => JSON.stringify([value.projectId, value.sessionId, value.runId, value.taskId, value.expectedAttemptId]);
+    function retryRequestId(value) {
+      // Keep only request identities. An uncertain response can be replayed after a
+      // reload without submitting a second attempt or retaining prompts/logs here.
+      let journal = [], storage;
+      try {
+        storage = window.localStorage;
+        if (!storage?.getItem || !storage?.setItem) throw new Error('Storage unavailable');
+        const raw = storage.getItem(retryStorageKey);
+        let saved;
+        try { saved = JSON.parse(raw || '[]'); } catch (_) { saved = []; }
+        if (Array.isArray(saved)) journal = saved.filter(item => typeof item?.key === 'string' && id(item.requestId));
+      } catch (_) { throw new Error('The retry request could not be saved. Reopen the app before trying again.'); }
+      const key = retryIdentity(value), recorded = journal.find(item => item.key === key);
+      if (recorded) return recorded.requestId;
+      const requestId = window.crypto?.randomUUID?.();
+      if (!requestId) throw new Error('This workspace cannot create a retry request. Reopen the app and try again.');
+      try { storage.setItem(retryStorageKey, JSON.stringify([...journal.slice(-63), { key, requestId }])); }
+      catch (_) { throw new Error('The retry request could not be saved. Reopen the app before trying again.'); }
+      return requestId;
+    }
     const isLive = () => Boolean(hosted || host || pi.connected || selectedSession);
     const available = (capability, method) => Boolean(host && live.revision >= 0 && rows(host.capabilities).includes(capability) && typeof host[method] === 'function');
     function getState() {
@@ -35,6 +57,7 @@
         execution: workspaceBound && live.execution && live.execution.projectId === projectId ? { ...live.execution, canEdit: Boolean(projectId) && available('set_project_execution', 'setProjectExecution') } : null,
         tasks: workspaceBound ? live.tasks.filter(inScope) : [], agents: workspaceBound ? live.agents.filter(inScope) : [], attempts: workspaceBound ? live.attempts.filter(inScope) : [], processes: workspaceBound ? live.processes.filter(inScope) : [], artifacts: workspaceBound ? live.artifacts.filter(inScope) : [], approvals: workspaceBound ? live.approvals.filter(inScope) : [], tools: [...tools.values()],
         events: [...live.events.filter(inScope), ...observedEvents.filter(inScope)].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index),
+        retryOperations: workspaceBound ? Object.fromEntries([...retryOperations.values()].filter(item => inScope(item) && item.runId === live.run.id && (item.pending || live.tasks.some(task => task.id === item.taskId && task.attemptId === item.expectedAttemptId))).map(({ taskId, expectedAttemptId, requestId, pending, accepted, error }) => [taskId, { expectedAttemptId, requestId, pending, accepted, error }])) : {},
         modelScopes: { appDefault, projectDefault: model(project?.defaultModel), conversation: sessionBound && model(pi.model) ? { ...model(pi.model), thinkingLevel: pi.thinkingLevel } : null, runLocked: host && workspaceBound ? live.run?.model : sessionBound ? lockedModel : null },
         capabilities: { createProject: available('create_project', 'createProject'), createSession: available('create_session', 'createSession'), openSession: available('open_session', 'openSession'), setProjectModel: Boolean(projectId) && available('set_project_model', 'setProjectDefaultModel'), retryTask: workspaceBound && available('retry_task', 'retryTask'), cancelRun: workspaceBound && available('cancel_run', 'cancelRun'), cancelTask: workspaceBound && available('cancel_task', 'cancelTask'), agentHistory: workspaceBound && available('get_agent_history', 'getAgentHistory'), decideApproval: workspaceBound && available('decide_approval', 'decideApproval') }
       });
@@ -76,7 +99,7 @@
       catch (error) { if (bound === epoch) report(error); throw error; }
       return getState();
     }
-    function detach() { epoch++; hostUnsubscribe?.(); hostUnsubscribe = null; host = null; runModels.clear(); live = empty(); selectedSession = null; activity = null; observedTools = []; manualTools.clear(); observedEvents = []; lockedModel = null; publish(); }
+    function detach() { epoch++; hostUnsubscribe?.(); hostUnsubscribe = null; host = null; runModels.clear(); retryOperations.clear(); live = empty(); selectedSession = null; activity = null; observedTools = []; manualTools.clear(); observedEvents = []; lockedModel = null; publish(); }
     async function command(capability, method, args) {
       if (!available(capability, method)) throw new Error('The connected TaskManager does not provide ' + capability.replaceAll('_', ' ') + '.');
       const bound = epoch, current = host; const result = await current[method](...args);
@@ -88,6 +111,34 @@
         if (destroyed || bound !== epoch || current !== host) throw new Error('The workspace connection changed.');
       }
       return result;
+    }
+    function retryTask(taskId) {
+      if (!isLive()) return demo.retryTask(taskId);
+      const current = getState(), task = current.tasks.find(item => item.id === taskId);
+      if (!current.capabilities?.retryTask || !task) return Promise.resolve(null);
+      const key = JSON.stringify([current.projectId, current.sessionId, current.run.id, taskId]);
+      const previous = retryOperations.get(key);
+      if (previous?.pending) return previous.promise;
+      if (previous?.accepted && previous.expectedAttemptId === task.attemptId) return Promise.resolve(previous.result);
+      if (task.retryable !== true || !task.parentTaskId || !id(task.attemptId)) return Promise.resolve(null);
+      const operation = { projectId: current.projectId, sessionId: current.sessionId, runId: current.run.id, taskId, expectedAttemptId: task.attemptId, requestId: previous?.expectedAttemptId === task.attemptId ? previous.requestId : null, pending: true, accepted: false, error: null };
+      retryOperations.set(key, operation);
+      try { operation.requestId ||= retryRequestId(operation); }
+      catch (error) { operation.pending = false; operation.error = String(error?.message || error); publish(); return Promise.resolve(null); }
+      const bound = epoch, adapter = host;
+      // Deferring the call by one microtask lets every view observe the pending
+      // operation before a second click can reach the adapter.
+      operation.promise = Promise.resolve().then(() => {
+        if (destroyed || bound !== epoch || adapter !== host) throw new Error('The workspace connection changed.');
+        return command('retry_task', 'retryTask', [taskId, { requestId: operation.requestId, expectedAttemptId: operation.expectedAttemptId }]);
+      }).then(result => {
+        if (result?.taskId !== taskId || result?.runId !== operation.runId || !id(result?.attemptId) || result.attemptId === operation.expectedAttemptId) throw new Error('The host did not confirm a new attempt for this task.');
+        operation.accepted = true; operation.result = result; return result;
+      }).catch(error => { operation.error = String(error?.message || error); return null; }).finally(() => {
+        operation.pending = false;
+        if (!destroyed && bound === epoch && adapter === host) publish();
+      });
+      publish(); return operation.promise;
     }
     function observationScope() {
       const sessionId = pi.session?.sessionId || pi.session?.id || null;
@@ -142,7 +193,7 @@
         if (!Array.isArray(result?.messages) || result.agentSessionId !== agentSessionId || (result.conversationId ?? result.sessionId) !== conversationId) throw new Error('The host returned history for a different agent or conversation.');
         return result.messages;
       },
-      retryTask: taskId => isLive() ? command('retry_task', 'retryTask', [taskId]).catch(report) : demo.retryTask(taskId),
+      retryTask,
       cancelTask: taskId => command('cancel_task', 'cancelTask', [taskId]).catch(report),
       cancel: (runId = live.run.id) => isLive() ? command('cancel_run', 'cancelRun', [runId]).catch(report) : demo.cancel(),
       decideApproval: (approvalId, decision) => isLive() ? command('decide_approval', 'decideApproval', [approvalId, decision]).catch(report) : demo.decideApproval(approvalId, decision),

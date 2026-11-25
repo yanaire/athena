@@ -19,6 +19,8 @@ import { ProviderOAuthError } from './provider-oauth.ts';
 import { ChatGPTRegistrationError } from './chatgpt-registrations.ts';
 import { ModelProfiles } from './model-profiles.ts';
 import { ManagerError } from './orchestration.ts';
+import { ExtensionError } from './extensions.ts';
+import { ExternalMcpError } from './external-mcp-client.ts';
 
 const desktopMode = process.argv.includes('--desktop', 2);
 async function initialize() {
@@ -51,7 +53,7 @@ async function initialize() {
   });
   const profiles = new ModelProfiles(directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
   for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
-  const manager = new TaskManager({ dataDir: directory, models: {
+  const manager = new TaskManager({ dataDir: directory, externalCredentials: credentials, models: {
     resolve: (conversation, project) => profiles.resolve(conversation, project),
     pin: model => providers.pin(model), requireProfile: id => { profiles.get(id); },
   } });
@@ -89,6 +91,15 @@ function model(value: unknown) {
   return hostModel;
 }
 const idOrNull = (value: unknown) => value === null ? null : string(value);
+function booleanArg(value:unknown):boolean {
+  if (typeof value!=='boolean') throw new TypeError('Expected a boolean setting.');
+  return value;
+}
+function revisionArg(value:unknown):number|undefined {
+  if (value===undefined) return;
+  if (typeof value!=='number' || !Number.isSafeInteger(value) || value<0) throw new TypeError('Expected the current settings revision.');
+  return value;
+}
 const profileList = async () => ({ profiles: profiles.list(), appDefaultProfileId: profiles.appDefaultProfileId,
   credentialMode: 'local_file', credentialMigration: await migration.status(), hostModel });
 const connectionState = () => connections?.getState() ?? { status: hostModel ? 'configured' : 'disconnected', defaultModel: hostModel, verification: { status: 'not_checked' } };
@@ -111,6 +122,21 @@ async function changeCredentials<T>(action: () => Promise<T>): Promise<T> {
 async function rpc(method: string, args: unknown[]) {
   const [input, second] = args;
   switch (method) {
+    case 'getSnapshot': return manager.getSnapshot();
+    case 'getExtensions': return manager.getExtensions(string(input));
+    case 'installPlugin': return manager.installPlugin(string(input),second,revisionArg(args[2]));
+    case 'setPluginEnabled': return manager.setPluginEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));
+    case 'removePlugin': return manager.removePlugin(string(input),string(second),revisionArg(args[2]));
+    case 'setSkillEnabled': return manager.setSkillEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));
+    case 'checkMcpServer': {
+      if (args[4] !== undefined && !object(args[4])) throw new TypeError('Expected optional connection credentials.');
+      return manager.checkMcpServer(string(input),string(second),string(args[2]),revisionArg(args[3]),args[4] as {token?:string}|undefined);
+    }
+    case 'getResearch': return manager.getResearch(string(input),second == null ? undefined : string(second));
+    case 'decideKnowledge': {
+      if (!object(args[2])) throw new TypeError('Expected a human knowledge decision.');
+      return manager.decideKnowledge(string(input),string(second),args[2]);
+    }
     case 'createProject':
       if (!object(input)) throw new TypeError('Expected project.');
       return manager.createProject({ name: string(input.name), defaultModel: model(input.defaultModel) });
@@ -122,6 +148,10 @@ async function rpc(method: string, args: unknown[]) {
     case 'openSession': return manager.openSession(string(input));
     case 'getAgentHistory': return manager.getAgentHistory(string(input), string(second));
     case 'cancelTask': return manager.cancelTask(string(input));
+    case 'retryTask':
+      if (credentialWrite || oauthPending()) throw new ManagerError('CREDENTIAL_BUSY', 'Finish or cancel the credential operation before retrying research.');
+      if (!object(second)) throw new TypeError('Expected retry request and attempt IDs.');
+      return manager.retryTask(string(input), {requestId:string(second.requestId),expectedAttemptId:string(second.expectedAttemptId)});
     case 'cancelRun': return manager.cancelRun(string(input));
     case 'setProjectDefaultModel': return manager.setProjectDefaultModel(string(input), model(second));
     case 'setProjectExecution':
@@ -320,7 +350,8 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
     if (res.destroyed) return;
     if (res.headersSent) { res.destroy(); return; }
     const known = error instanceof ProviderError || error instanceof ProviderOAuthError || error instanceof ManagerError
-      || error instanceof ChatGPTRegistrationError || error instanceof CredentialVaultError;
+      || error instanceof ChatGPTRegistrationError || error instanceof CredentialVaultError
+      || error instanceof ExtensionError || error instanceof ExternalMcpError;
     json(error instanceof RangeError ? 413 : 400, { error: known || error instanceof TypeError || error instanceof RangeError ? error.message : 'Request failed.',
       ...(known ? { code: error.code } : {}) });
   }

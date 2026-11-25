@@ -326,6 +326,7 @@
     const api = Object.freeze({
       start, begin, append, replaceText, setPhase, end, stop, destroy,
       getActivityHost: () => activitySlot,
+      setConversationMode(value) { bubble.hidden = value === true; },
       getState: () => ({ active, phase, mode, text, reducedMotion: prefersReduced(), steps: stepper?.getState() || null })
     });
     MOUNTS.set(slot, api);

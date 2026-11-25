@@ -17,6 +17,9 @@
   </p>
 </div>
 
+> **État (2026-11-25) :** Le candidat à l'intégration examiné pour les Mac Apple Silicon comprend le code source pour MCP, les extensions de recherche et le DAG des workflows.
+> La description de référence et les comptes rendus de validation ci-dessous conservent l'historique d'une version antérieure ; la validation finale sur un Mac réel avec un compte réel reste à effectuer, et le périmètre actuel de l'intégration est décrit dans le [README en anglais](README.md) et le [rapport de revue de l'intégration](docs/validation/2026-11-25-open-pr-integration-review.md).
+
 > [!IMPORTANT]
 > **Aperçu du code source, pas une version publique officielle.** Le code propre à Athena est placé sous Apache-2.0, mais les mentions de tiers, les droits relatifs à l’interface et aux ressources ainsi que l’autorisation de publier l’historique Git restent à examiner. La visibilité publique du dépôt ne règle pas ces obligations. Ne redistribuez ni le code candidat ni l’application tant que les conditions restantes ne sont pas satisfaites. Consultez l’[état de publication](docs/oss-preview-status.md), les [mentions de tiers](THIRD_PARTY_NOTICES.md) et les [limites connues](docs/known-limitations.md). Aucun installateur officiel signé et notarié ni DMG public n’est disponible.
 

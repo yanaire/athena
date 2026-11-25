@@ -30,8 +30,9 @@ test('the real Node worker computes statistics from the immutable file version a
   const attempt = await runner.start({ ...match, grantId: grant.grantId, column: '--inspect' }).result;
   assert.equal(attempt.status, 'succeeded', attempt.stderr || attempt.error);
   assert.equal(attempt.program, process.execPath);
-  assert.equal(attempt.args.at(-1), '--inspect');
-  assert.equal(basename(attempt.args.at(-2) ?? ''), 'csv-worker.mjs');
+  assert.equal(basename(attempt.args.at(-1) ?? ''), 'csv-worker.mjs');
+  assert.equal(attempt.mcp?.phase, 'tools/call');
+  assert.equal(attempt.mcp?.server, 'athena-measurements');
   assert.deepEqual(attempt.env, { LANG: 'C', LC_ALL: 'C', TZ: 'UTC' });
   assert.ok(attempt.cwd);
   assert.equal(basename(dirname(attempt.cwd)), 'attempts');
@@ -48,7 +49,7 @@ test('the real Node worker computes statistics from the immutable file version a
   assert.equal(events.at(0)?.type, 'process_queued');
   assert.equal(events.at(1)?.type, 'process_started');
   assert.equal(events.at(-1)?.type, 'process_finished');
-  assert.match(events.flatMap(event => event.type === 'process_output' && event.stream === 'stdout' ? [event.text] : []).join(''), /Finished: 4 data records/);
+  assert.match(events.flatMap(event => event.type === 'process_output' && event.stream === 'stdout' ? [event.text] : []).join(''), /MCP tools\/list\nMCP tools\/call/);
 
   await runner.close();
   const reopened = new CsvJobRunner({ dataDir });
@@ -80,6 +81,54 @@ test('start synchronously obtains its queued receipt and does not dispatch when 
   t.after(() => reopened.close());
   const fresh = await reopened.start({ ...match, grantId: grant.id }).result;
   assert.equal(fresh.status, 'succeeded', fresh.error);
+});
+
+test('a one-time terminal persistence failure withholds the artifact and lets the next job run', async t => {
+  const saved: CsvJobEvent[] = [];
+  let failed = false;
+  const { runner } = await fixture(t, { onEvent(event) {
+    if (event.type === 'process_finished' && event.attempt.status === 'succeeded' && !failed) {
+      failed = true;
+      throw new Error('Synthetic terminal persistence failure');
+    }
+    saved.push(event);
+  } });
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
+  const first = runner.start({ ...match, grantId: grant.id });
+  const next = runner.start({ ...match, attemptId: 'next', grantId: grant.id });
+  const result = await first.result;
+  assert.equal(failed, true);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.exitCode, 0, 'the worker finished; publication is what failed');
+  assert.match(result.error ?? '', /persist.*completion/i);
+  assert.equal(result.artifact, undefined);
+  assert.equal(result.artifacts, undefined);
+  assert.deepEqual(saved.filter(e => e.type === 'process_finished' && e.attempt.attemptId === match.attemptId).map(e => e.attempt), [result]);
+  assert.equal((await next.result).status, 'succeeded');
+});
+
+test('permanent terminal persistence failure halts admission and settles the queue and close', { timeout: 5_000 }, async t => {
+  const started: string[] = [];
+  const { runner } = await fixture(t, { onEvent(event) {
+    if (event.type === 'process_started') started.push(event.attempt.attemptId);
+    if (event.type === 'process_finished') throw new Error('Synthetic persistent storage failure');
+  } });
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
+  const first = runner.start({ ...match, grantId: grant.id });
+  const queued = ['next-1', 'next-2'].map(attemptId => runner.start({ ...match, attemptId, grantId: grant.id }));
+  const result = await first.result;
+  assert.equal(result.status, 'failed');
+  assert.equal(result.artifact, undefined);
+  assert.match(result.error ?? '', /persist.*completion/i);
+  assert.throws(() => runner.start({ ...match, attemptId: 'late', grantId: grant.id }), { code: 'CLOSED' });
+  for (const handle of queued) {
+    const stopped = await handle.result;
+    assert.notEqual(stopped.status, 'succeeded');
+    assert.equal(stopped.pid, null);
+    assert.equal(stopped.artifact, undefined);
+  }
+  await runner.close();
+  assert.deepEqual(started, [match.attemptId]);
 });
 
 test('a grant ID does not authorize a different project or session, or changed bytes', async t => {
@@ -122,15 +171,15 @@ test('artifact downloads reject changed data, symlinks and cross-session receipt
   await assert.rejects(runner.download(artifact), { code: 'ARTIFACT_DENIED' });
 });
 
-test('malformed CSV produces a real nonzero exit and stderr without a downloadable artifact', async t => {
+test('malformed CSV returns an MCP tool error even with a clean transport exit', async t => {
   const events: CsvJobEvent[] = [];
   const { runner } = await fixture(t, { onEvent: event => events.push(event) });
   const grant = await runner.grant({ ...file, bytes: Buffer.from('x,y\n"not closed,y\n') });
   const result = await runner.start({ ...match, grantId: grant.id }).result;
   assert.equal(result.status, 'failed');
-  assert.equal(result.exitCode, 2);
+  assert.equal(result.exitCode, 0);
   assert.equal(result.cancellation, 'not_requested');
-  assert.match(result.stderr, /Unclosed quoted CSV field/);
+  assert.match(result.error ?? '', /Unclosed quoted CSV field/);
   assert.equal(result.artifact, undefined);
   assert.equal(events.flatMap(event => event.type === 'process_output' && event.stream === 'stderr' ? [event.text] : []).join(''), result.stderr);
 });
@@ -207,4 +256,93 @@ test('a recovered running receipt reports interruption and does not redispatch o
   assert.equal(process.kill(-prior.pid, 0), true);
   handle.cancel();
   assert.equal((await handle.result).cancellation, 'confirmed');
+});
+
+const rcAlias = 'calculate_rc_response';
+const circuit = { schemaVersion: 1, resistanceOhm: 10000, capacitanceFarad: 1e-7, inputVolt: 1, sampleTimesSeconds: [0, 0.001, 0.005] };
+
+test('RC worker reads the granted version, follows the step equation and publishes its verified JSON', async t => {
+  const { runner } = await fixture(t);
+  for (const voltage of [1, -2]) {
+    const bytes = Buffer.from(JSON.stringify({ ...circuit, inputVolt: voltage }));
+    const grant = await runner.grant({ ...file, name: 'circuit.json', bytes }, rcAlias);
+    const job = await runner.startMcp(rcAlias, { ...match, attemptId: 'rc-' + voltage, grantId: grant.id }).result;
+    assert.equal(job.status, 'succeeded', job.error);
+    assert.equal(job.mcp?.server, 'athena-circuits');
+    assert.equal(job.mcp?.phase, 'tools/call');
+    assert.equal(job.grant?.sha256, createHash('sha256').update(bytes).digest('hex'));
+    assert.ok(job.artifact);
+    assert.equal(job.artifact.name, 'rc-response.json');
+    const rc = JSON.parse((await runner.download(job.artifact)).toString());
+    assert.equal(rc.timeConstantSeconds, 0.001);
+    assert.ok(Math.abs(rc.cutoffHz - 159.154943091895) < 1e-12);
+    assert.deepEqual(rc.samples.map((s: {timeSeconds:number}) => s.timeSeconds), circuit.sampleTimesSeconds);
+    for (const [i, expected] of [0, 0.6321205588285577, 0.9932620530009145].entries()) {
+      assert.ok(Math.abs(rc.samples[i].outputVolt - voltage * expected) < 1e-14);
+    }
+  }
+});
+
+test('RC input bounds, malformed data and unrepresentable results never produce an artifact', async t => {
+  const { runner } = await fixture(t);
+  const input = { ...file, name: 'circuit.json' };
+  await assert.rejects(runner.grant({ ...input, bytes: Buffer.alloc(65537) }, rcAlias), { code: 'INVALID_INPUT' });
+  await assert.rejects(runner.grant({ ...file, bytes: Buffer.from('{}') }, rcAlias), { code: 'GRANT_DENIED' });
+  const bad = ['invalid JSON', 'null', JSON.stringify(circuit).replace('"inputVolt":1', '"inputVolt":1e999'),
+    ...[{ resistanceOhm: 0 }, { capacitanceFarad: -1 }, { sampleTimesSeconds: [-1] }, { sampleTimesSeconds: [] },
+      { sampleTimesSeconds: Array(513).fill(0) }, { resistanceOhm: 1e308, capacitanceFarad: 1e308 },
+      { resistanceOhm: 1e-300, capacitanceFarad: 1e-300 }, { inputVolt: 5e-324, sampleTimesSeconds: [1e-7] }
+    ].map(change => JSON.stringify({ ...circuit, ...change }))];
+  for (const [i, text] of bad.entries()) {
+    const grant = await runner.grant({ ...input, bytes: Buffer.from(text) }, rcAlias);
+    const result = await runner.startMcp(rcAlias, { ...match, attemptId: 'bad-' + i, grantId: grant.id }).result;
+    assert.equal(result.status, 'failed', result.error);
+    assert.equal(result.exitCode, 0); // MCP error response on a healthy transport.
+    assert.equal(result.artifact, undefined);
+  }
+});
+
+test('RC and CSV share one queue; a cancelled RC releases its slot and cannot reuse CSV grants', async t => {
+  const started = Promise.withResolvers<void>();
+  const { runner } = await fixture(t, { concurrency: 1, onEvent(event) {
+    if (event.type === 'process_started' && event.attempt.mcp?.alias === rcAlias) {
+      process.kill(event.attempt.pid!, 'SIGSTOP');
+      started.resolve();
+    }
+  } });
+  const grant = await runner.grant({ ...file, name: 'circuit.json', bytes: Buffer.from(JSON.stringify(circuit)) }, rcAlias);
+  const csv = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
+  const first = runner.startMcp(rcAlias, { ...match, grantId: grant.id });
+  await started.promise;
+  const next = runner.start({ ...match, attemptId: 'second', grantId: csv.id });
+  first.cancel();
+  const canceled = await first.result;
+  assert.equal(canceled.status, 'cancelled');
+  assert.equal(canceled.cancellation, 'confirmed');
+  assert.equal(canceled.artifact, undefined);
+  assert.equal((await next.result).status, 'succeeded');
+  const denied = await runner.startMcp(rcAlias, { ...match, attemptId: 'wrong-tool', grantId: csv.id }).result;
+  assert.equal(denied.status, 'failed');
+  assert.equal(denied.pid, null);
+  assert.equal(denied.artifact, undefined);
+  assert.throws(() => runner.startMcp('unknown', { ...match, grantId: csv.id }), /Unknown/);
+});
+
+test('legacy CSV grant and artifact receipts without MCP metadata survive reopening', async t => {
+  const { runner, dataDir } = await fixture(t);
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n7\n') });
+  const { mcpAlias: _grantAlias, ...legacyGrant } = grant;
+  const oldGrant = join(dataDir, 'csv-jobs', 'grants', grant.id, 'grant.json');
+  await chmod(oldGrant, 0o600);
+  await writeFile(oldGrant, JSON.stringify(legacyGrant));
+  const job = await runner.start({ ...match, grantId: grant.id }).result;
+  assert.ok(job.artifact && job.cwd, job.error);
+  const { mcpAlias: _artifactAlias, ...legacyArtifact } = job.artifact;
+  const receipt = join(job.cwd, 'artifact.json');
+  await chmod(receipt, 0o600);
+  await writeFile(receipt, JSON.stringify(legacyArtifact));
+  await runner.close();
+  const reopened = new CsvJobRunner({ dataDir });
+  t.after(() => reopened.close());
+  assert.equal(JSON.parse((await reopened.download(legacyArtifact)).toString()).statistics[0].mean, 7);
 });

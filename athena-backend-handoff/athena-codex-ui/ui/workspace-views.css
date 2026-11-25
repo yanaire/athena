@@ -116,6 +116,7 @@
 #athena-codex .awv-metrics dt{font-size:10px;color:#988b75;margin-bottom:3px}
 #athena-codex .awv-metrics dd{font-size:22px;line-height:1.4;letter-spacing:-.5px;color:#615641;margin:0;white-space:normal;font-variant-numeric:tabular-nums}
 #athena-codex .awv-metrics dd.awv-metric-small{font-size:17px;padding-top:4px}
+#athena-codex [data-awv-rc-response] .awv-metrics dd{font-size:17px;overflow-wrap:anywhere}
 #athena-codex .awv-metrics small{font-size:10px;color:#9e8e73;letter-spacing:0;white-space:nowrap}
 #athena-codex .awv-table-scroll{overflow:auto;max-width:100%;margin-top:12px}
 #athena-codex .awv-table{border-collapse:collapse;width:100%;font-size:10px;line-height:1.65;table-layout:fixed;font-variant-numeric:tabular-nums}

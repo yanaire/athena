@@ -17,6 +17,9 @@
   </p>
 </div>
 
+> **Stand (2026-11-25):** Der geprüfte Integrationskandidat für Apple-Silicon-Macs enthält den Quellcode für MCP, Forschungserweiterungen und den Workflow-DAG.
+> Die folgende Beschreibung des bisherigen Stands und die Prüfprotokolle bewahren den Verlauf einer früheren Version; die abschließende Abnahme auf einem echten Mac mit einem realen Benutzerkonto steht noch aus, und der aktuelle Integrationsumfang ist in der [englischen README](README.md) und im [Integrationsprüfbericht](docs/validation/2026-11-25-open-pr-integration-review.md) beschrieben.
+
 > [!IMPORTANT]
 > **Quellcode-Vorschau, keine offizielle öffentliche Veröffentlichung.** Für Athena-eigenen Code wurde Apache-2.0 gewählt; Hinweise zu Drittmaterialien, Rechte an UI und Ressourcen sowie die Freigabe der Git-Historie werden jedoch weiterhin geprüft. Die öffentliche Sichtbarkeit des Repositorys erfüllt diese Pflichten nicht. Verbreiten Sie den Quellcode-Kandidaten oder die App erst weiter, wenn die offenen Freigabebedingungen erfüllt sind. Siehe [Veröffentlichungsstatus](docs/oss-preview-status.md), [Drittanbieterhinweise](THIRD_PARTY_NOTICES.md) und [bekannte Einschränkungen](docs/known-limitations.md). Es gibt kein offiziell signiertes und notarisiertes Installationspaket und kein öffentliches DMG.
 
