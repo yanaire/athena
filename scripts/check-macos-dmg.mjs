@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,8 @@ const image = (...args) => run('/usr/bin/hdiutil', args);
 
 // desktop:build seals the app after Tauri finishes. Package that sealed copy.
 run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
-const work = await mkdtemp(join(tmpdir(), 'athena-dmg-'));
+// Tauri rejects an executable launched through a symlink, including /var.
+const work = await mkdtemp(join(await realpath(tmpdir()), 'athena-dmg-'));
 const payload = join(work, 'payload');
 const mount = join(work, 'mount');
 const installation = join(work, 'Installed Athena');
