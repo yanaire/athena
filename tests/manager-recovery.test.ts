@@ -14,7 +14,7 @@ import { ModelProfiles } from '../runtime/model-profiles.ts';
 import { createPiSession } from '../runtime/pi.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
 import { openLocalCredentials } from '../runtime/local-credentials.ts';
-import { assertKilled } from './platform-test-helpers.ts';
+import { assertKilled, restorePrivatePermissions, windows } from './platform-test-helpers.ts';
 
 type Wire = { model: string; messages: { role: string; content: unknown }[];
   tools: { function: { name: string } }[] };
@@ -75,6 +75,9 @@ function terminal(manager: TaskManager) {
 // Control only the provider. Pi transcripts, TaskManager, SQLite, the scheduler and CSV MCP are real.
 async function fixture(t: TestContext, handler: Handler) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'athena-manager-recovery-')));
+  // This fresh fixture must model a private app workspace even when the native
+  // PowerShell token defaults new directories to the Administrators owner.
+  await restorePrivatePermissions(directory, 0o700);
   const hits: Hit[] = [];
   const server = createServer(async (req, res) => {
     if (req.url?.endsWith('/models')) {
@@ -556,7 +559,10 @@ test('recovery pins the original model revision after profile edits and a host r
   assert.ok(retried.every(h => h.route === '/a/v1/chat/completions' && h.wire.model === 'fixture-a'));
 });
 
-test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch', { timeout: 30_000 }, async t => {
+// This fixture restarts the full host repeatedly and performs fresh native ACL
+// checks at every credential boundary. Only its outer Windows budget is larger;
+// production request deadlines and the assertions below remain unchanged.
+test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch', { timeout: windows ? 120_000 : 30_000 }, async t => {
   const keyA = 'recovery-binding-fixture-A', keyB = 'recovery-binding-fixture-B';
   const headers: (string | undefined)[] = [];
   const state = await fixture(t, (wire, res, req) => {

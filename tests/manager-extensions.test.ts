@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { readFile, realpath, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { TaskManager } from '../runtime/manager.ts';
 import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import type { PluginManifest } from '../runtime/extensions.ts';
@@ -65,7 +66,7 @@ async function body(req: IncomingMessage) {
 // The provider is controlled; the Pi SDK, tool routing, HTTP MCP, queue, credentials,
 // SQLite, artifact downloads and manual retry are real. This requires no WASI binary.
 async function fixture(t: TestContext, handler: Handler) {
-  const directory = await realpath(await mkdtemp(join(tmpdir(), 'athena-manager-extensions-')));
+  const directory = await realpath(privateTestDirectory(join(tmpdir(), 'athena-manager-extensions-')));
   const hits: Wire[] = [], calls: { authorization: string | undefined; args: unknown }[] = [];
   const provider = createServer(async (req, res) => {
     try { const wire = await body(req) as Wire; hits.push(wire); await handler(wire, res); }

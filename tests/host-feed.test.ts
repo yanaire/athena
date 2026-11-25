@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 
 test('HTTP reconnect replays a project created in the bootstrap gap and rejects an old host epoch', { timeout: 15_000 }, async t => {
-  const dataDir = await mkdtemp(join(tmpdir(), 'athena-resume-'));
+  const dataDir = privateTestDirectory(join(tmpdir(), 'athena-resume-'));
   const credentialKey = randomBytes(32).toString('hex');
   const stops: (() => Promise<void>)[] = [];
   t.after(async () => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { link, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -9,14 +9,14 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
 import type { WorkspaceSnapshot } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
-import { makePublicPermissions } from './platform-test-helpers.ts';
+import { privateTestDirectory, makePublicPermissions } from './platform-test-helpers.ts';
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function fixture(t: TestContext) {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-manager-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-manager-'));
   const requests: unknown[] = [];
   let mode: 'answer' | 'read' | 'read_attachment' | 'fail' | 'hold' = 'answer';
   let notifyRequest: (() => void) | undefined;

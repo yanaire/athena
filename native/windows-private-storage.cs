@@ -67,7 +67,7 @@ internal static class AthenaWindowsPrivateStorage
         return (attributes & FileAttributes.Directory) != 0;
     }
 
-    private static void Protect(string path, bool directory, SecurityIdentifier owner)
+    private static FileSystemSecurity PrivateSecurity(bool directory, SecurityIdentifier owner)
     {
         FileSystemSecurity acl = directory ? (FileSystemSecurity)new DirectorySecurity() : new FileSecurity();
         var inheritance = directory ? InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit : InheritanceFlags.None;
@@ -78,8 +78,66 @@ internal static class AthenaWindowsPrivateStorage
             acl.AddAccessRule(new FileSystemAccessRule(principal, FileSystemRights.FullControl,
                 inheritance, PropagationFlags.None, AccessControlType.Allow));
         }
+        return acl;
+    }
+
+    private static void Protect(string path, bool directory, SecurityIdentifier owner)
+    {
+        var acl = PrivateSecurity(directory, owner);
         if (directory) Directory.SetAccessControl(path, (DirectorySecurity)acl);
         else File.SetAccessControl(path, (FileSecurity)acl);
+    }
+
+    private static string CreationPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full);
+        if (full.Length > root.Length) full = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (full.Length <= root.Length) throw new RejectedStorage("invalid_path");
+        return full;
+    }
+
+    private static void RequireDirectoryParents(string path)
+    {
+        // The managed creation API can create missing ancestors. Require every
+        // parent to exist already, and reject reparse points throughout the path.
+        // Node creates each missing component separately with its own descriptor.
+        var parent = Path.GetDirectoryName(path);
+        if (String.IsNullOrEmpty(parent)) throw new RejectedStorage("invalid_parent");
+        while (!String.IsNullOrEmpty(parent))
+        {
+            if (!IsDirectory(parent)) throw new RejectedStorage("invalid_parent");
+            parent = Path.GetDirectoryName(parent);
+        }
+    }
+
+    private static void CreateDirectory(string path, SecurityIdentifier owner)
+    {
+        RequireDirectoryParents(path);
+        // .NET passes this security descriptor to CreateDirectory itself. It
+        // leaves an existing directory unchanged; Check rejects unsafe winners
+        // of a concurrent creation instead of repairing their permissions.
+        Directory.CreateDirectory(path, (DirectorySecurity)PrivateSecurity(true, owner));
+        RequireDirectoryParents(path);
+    }
+
+    private static void CreateLock(string path, SecurityIdentifier owner)
+    {
+        RequireDirectoryParents(path);
+        try
+        {
+            // CreateNew passes the descriptor with the creation request and
+            // cannot open, truncate, or change an already-existing lock file.
+            using (new FileStream(path, FileMode.CreateNew, FileSystemRights.Read | FileSystemRights.Write,
+                FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.None,
+                (FileSecurity)PrivateSecurity(false, owner))) { }
+        }
+        catch (IOException error)
+        {
+            var code = error.HResult & 0xffff;
+            if (code != 80 && code != 183) throw; // FILE_EXISTS / ALREADY_EXISTS only.
+        }
+        RequireDirectoryParents(path);
     }
 
     private static void Check(string path, bool directory, SecurityIdentifier owner)
@@ -118,15 +176,22 @@ internal static class AthenaWindowsPrivateStorage
                 Console.Out.Write(Version);
                 return 0;
             }
-            if (arguments.Length != 1 || (arguments[0] != "check" && arguments[0] != "protect"))
+            if (arguments.Length != 1 || (arguments[0] != "check" && arguments[0] != "protect"
+                && arguments[0] != "create-directory" && arguments[0] != "create-lock"))
                 throw new RejectedStorage("invalid_operation");
             Console.InputEncoding = new UTF8Encoding(false, true);
             var path = ReadPath();
-            var directory = IsDirectory(path);
             using (var identity = WindowsIdentity.GetCurrent())
             {
                 var owner = identity.User;
                 if (owner == null) throw new RejectedStorage("missing_identity");
+                if (arguments[0] == "create-directory" || arguments[0] == "create-lock") path = CreationPath(path);
+                if (arguments[0] == "create-directory") CreateDirectory(path, owner);
+                if (arguments[0] == "create-lock") CreateLock(path, owner);
+                var directory = IsDirectory(path);
+                if (arguments[0] == "create-directory" && !directory) throw new RejectedStorage("changed_kind");
+                if (arguments[0] == "create-lock" && (directory || new FileInfo(path).Length != 0))
+                    throw new RejectedStorage("invalid_lock");
                 if (arguments[0] == "protect") Protect(path, directory, owner);
                 Check(path, directory, owner);
             }

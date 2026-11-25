@@ -1,4 +1,4 @@
-name: Verify Windows fixture cleanup
+name: Verify Windows atomic private storage
 on: [pull_request]
 permissions:
   contents: read
@@ -28,6 +28,9 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Compile the fixed Windows permission helper
         run: npm run windows:prepare
-      - name: Locate unfinished test resources
+      - name: Verify atomic owner and lock publication
         timeout-minutes: 5
-        run: node --import ./scripts/probe-test-resources.mjs --test --test-reporter=tap --test-concurrency=1 --test-timeout=45000 tests/chatgpt-responses.test.ts tests/connections.test.ts tests/credential-binding.test.ts tests/local-credentials.test.ts tests/manager-recovery.test.ts
+        run: node --test --test-reporter=tap --test-concurrency=1 tests/private-storage.test.ts tests/local-credentials.test.ts tests/credential-binding.test.ts
+      - name: Verify private roots and complete recovery cleanup
+        timeout-minutes: 5
+        run: node --test --test-reporter=tap --test-concurrency=1 --test-timeout=180000 tests/connections.test.ts tests/storage.test.ts tests/model-profiles.test.ts tests/extensions.test.ts tests/manager-recovery.test.ts

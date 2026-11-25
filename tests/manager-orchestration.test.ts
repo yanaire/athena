@@ -3,20 +3,20 @@ import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
 import { Storage } from '../runtime/storage.ts';
-import { assertKilled } from './platform-test-helpers.ts';
+import { privateTestDirectory, assertKilled } from './platform-test-helpers.ts';
 
 type Message={role:string;content:unknown;tool_call_id?:string};
 type Wire={messages:Message[];tools:{function:{name:string}}[]};
 type Call={name:string;args:object};
 async function setup(t:TestContext,answer:(wire:Wire)=>Promise<string|Call>|string|Call){
-  const directory=await mkdtemp(join(tmpdir(),'athena-m2-manager-'));
+  const directory=privateTestDirectory(join(tmpdir(),'athena-m2-manager-'));
   const server=createServer(async(req,res)=>{
     const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
     const wire:Wire=JSON.parse(Buffer.concat(chunks).toString());
