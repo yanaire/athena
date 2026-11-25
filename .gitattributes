@@ -3,3 +3,6 @@
 # The bundled catalog and skill bodies are verified against reviewed byte hashes.
 /skills/catalog.json text eol=lf
 /skills/**/SKILL.md text eol=lf
+
+# Analysis packages record the exact Cargo lockfile digest.
+/sandbox/Cargo.lock text eol=lf

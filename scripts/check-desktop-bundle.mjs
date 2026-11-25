@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { lockedSandboxIdentity } from './analysis-provenance.mjs';
 import { isolatedRuntimeEnvironment, resolveDesktopPlatform } from './desktop-platform.mjs';
 
 const platform = resolveDesktopPlatform();
@@ -99,7 +100,6 @@ for (const path of [application, binary, sandbox, ...(!macOS ? [windowsStorage] 
     assert.equal(bytes.readUInt16LE(offset + 4), 0x8664, 'Each executable must be Windows x64.');
   }
 }
-assert.equal(execFileSync(sandbox, ['--version'], { encoding: 'utf8', env: environment }).trim(), 'athena-sandbox/1 wasmtime/50.0.3');
 const analysis = join(host, 'analysis-runtime');
 for (const directory of [executables, analysis]) {
   for (const name of ['athena-prepare-python', 'athena-prepare-python.exe']) {
@@ -107,7 +107,12 @@ for (const directory of [executables, analysis]) {
   }
 }
 const { files: digests, helper } = JSON.parse(await readFile(join(analysis, 'provenance.json'), 'utf8'));
+const expectedSandbox = await lockedSandboxIdentity();
 assert.equal(helper.target, platform.target, 'Sandbox provenance must match the selected target.');
+assert.equal(helper.lockSha256, expectedSandbox.lockSha256, 'Sandbox provenance must match sandbox/Cargo.lock.');
+assert.equal(helper.identity, expectedSandbox.identity, 'Sandbox provenance must identify the locked Wasmtime and helper ABI.');
+assert.equal(execFileSync(sandbox, ['--version'], { encoding: 'utf8', env: environment, timeout: 5_000, windowsHide: true }).trim(),
+  expectedSandbox.identity, 'The bundled sandbox must match the locked Wasmtime and helper ABI.');
 const provenance = JSON.parse(await readFile(join(host, 'provenance.json'), 'utf8'));
 assert.equal(provenance.node.target, platform.target);
 assert.equal(provenance.node.archiveSha256, platform.archiveSha256);

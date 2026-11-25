@@ -54,7 +54,7 @@ async function fixture(t: TestContext, { cancelFirstReview = false, executionEna
   // This narrowly controlled discovery flag enables the existing approved
   // artifact-transfer gate on hosts without native WASI. No WASI call is made:
   // every actual calculation below uses the real bundled Node CSV MCP worker.
-  t.mock.method(JobRunner.prototype, 'analysisAccess', async () => ({ available: true as const, engine: 'Wasmtime 50.0.3' as const,
+  t.mock.method(JobRunner.prototype, 'analysisAccess', async () => ({ available: true as const, engine: 'Wasmtime 51.0.0' as const,
     node: { path: 'qjs.wasm', version: 'QuickJS-ng 0.18.0' }, python: { path: 'python.wasm', version: 'CPython 3.15.2' } }));
 
   function answer(wire: Wire): string | Call {

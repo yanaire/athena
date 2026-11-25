@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { lockedSandboxIdentity } from './analysis-provenance.mjs';
 import { buildEnvironment } from './desktop-platform.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -31,7 +32,8 @@ function preparePythonBytecode(runtime, preparer) {
   // This separate build-only executable uses the same pinned Wasmtime engine
   // on every platform. It is not copied into staged or distributed runtimes.
   // Node's built-in uvwasi cannot iterate directories on Windows (ENOSYS).
-  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 300_000, windowsHide: true });
+  // Cold Pulley and stdlib compilation can exceed five minutes on Intel CI.
+  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 600_000, windowsHide: true });
 }
 
 export async function prepareAnalysis(destination, binaryDestination) {
@@ -53,6 +55,7 @@ export async function prepareAnalysis(destination, binaryDestination) {
     const target = `${arch}-${platform}`;
     const exe = process.platform === 'win32' ? '.exe' : '';
     execFileSync('cargo', ['build', '--release', '--locked', '--target', target, '--manifest-path', join(root, 'sandbox/Cargo.toml')], { stdio: 'inherit', env: buildEnvironment() });
+    const provenance = await lockedSandboxIdentity();
     const out = join(work, 'runtime');
     await mkdir(join(out, 'python'), { recursive: true });
     if (process.platform === 'win32') {
@@ -68,10 +71,12 @@ export async function prepareAnalysis(destination, binaryDestination) {
     const binary = binaryDestination ?? join(out, `athena-sandbox${exe}`);
     await copyFile(helper, binary);
     await chmod(binary, 0o755);
+    const identity = execFileSync(binary, ['--version'], { encoding: 'utf8', timeout: 5_000, windowsHide: true }).trim();
+    if (identity !== provenance.identity) throw new Error(`Unexpected native analysis helper identity: ${identity}.`);
     await copyFile(license, join(out, 'quickjs-LICENSE.txt'));
     const files = Object.fromEntries(await Promise.all(Object.entries({ 'athena-sandbox': binary, 'python.wasm': join(out, 'python.wasm'),
       'qjs.wasm': join(out, 'qjs.wasm') }).map(async ([name, path]) => [name, hash(await readFile(path))])));
-    await writeFile(join(out, 'provenance.json'), JSON.stringify({ upstream, helper: { target, lockSha256: hash(await readFile(join(root, 'sandbox/Cargo.lock'))) }, files }, null, 2) + '\n');
+    await writeFile(join(out, 'provenance.json'), JSON.stringify({ upstream, helper: { target, ...provenance }, files }, null, 2) + '\n');
     await rm(destination, { recursive: true, force: true });
     await rename(out, destination);
   } finally { await rm(work, { recursive: true, force: true }); }

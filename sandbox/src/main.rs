@@ -301,7 +301,7 @@ fn run(args: &[String]) -> Result<u8> {
 fn main() -> process::ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
     if args == ["--version"] {
-        println!("athena-sandbox/1 wasmtime/50.0.3");
+        println!("athena-sandbox/1 wasmtime/{}", env!("ATHENA_WASMTIME_VERSION"));
         return process::ExitCode::SUCCESS;
     }
     match run(&args) {
