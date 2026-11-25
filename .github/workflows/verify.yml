@@ -182,6 +182,7 @@ jobs:
           git diff --exit-code -- athena-backend-handoff/athena-codex-ui/athena-preview.html
       - name: Check Windows credential permissions before the native build
         if: runner.os == 'Windows'
+        timeout-minutes: 10
         run: node --test tests/local-credentials.test.ts
       - name: Prepare and test the native analysis runtime
         run: |
