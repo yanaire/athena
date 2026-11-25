@@ -934,6 +934,66 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 
 #athena-codex .ap-preview-limit{font-size:11px;line-height:1.6;color:var(--ac-muted);margin:10px 0;overflow-wrap:anywhere}
 
+/* Read-only task graph. Cards remain native buttons; scrolling and list view are
+   available without pointer gestures. No reduced-size text at the default zoom. */
+#athena-codex .awg *{box-sizing:border-box}
+#athena-codex .awg{margin:10px 0 16px;border:1px solid var(--awv-line,#ddd9cb);border-radius:12px;overflow:hidden;background:#f7f6ed}
+#athena-codex .awg-controls{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;padding:10px 11px;border-bottom:1px solid #e4e1d5;background:#fbfaf4}
+#athena-codex .awg-summary{font-size:10px;color:#686d58;line-height:1.5}
+#athena-codex .awg-controls>div{display:flex;align-items:center;gap:3px}
+#athena-codex .awg-controls button{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:3px 7px;background:#f4f2e9;border:1px solid #dedbcc;border-radius:5px;font-size:11px;color:#4c5340}
+#athena-codex .awg-controls button:hover{background:#e9eadc}
+#athena-codex .awg-controls button:disabled{opacity:.45;cursor:default}
+#athena-codex .awg-controls output{min-width:36px;text-align:center;font-size:10px;font-variant-numeric:tabular-nums;color:#6c705f}
+#athena-codex .awg-viewport{position:relative;overflow:auto;max-height:min(60vh,560px);min-height:170px;overscroll-behavior:contain;scrollbar-gutter:stable;scroll-padding:18px;background-image:radial-gradient(#dcdccd .7px,transparent .7px);background-size:16px 16px}
+#athena-codex .awg-plane{position:relative;min-width:100%;margin:0 auto}
+#athena-codex .awg-canvas{position:relative;transform-origin:top left}
+/* This is a full graph canvas, not an icon. Override the workspace SVG icon size. */
+#athena-codex .awg-canvas>svg.awg-edges{display:block;position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+#athena-codex .awg-edges marker path{fill:#788466}
+#athena-codex .awg-edge{fill:none;stroke:#8a967b;stroke-width:1.6;vector-effect:non-scaling-stroke}
+#athena-codex .awg-edge-delegation{stroke:#a8aa97;stroke-dasharray:3 5}
+#athena-codex .awg-edge-cyclic{stroke:#b67860;stroke-width:2}
+#athena-codex .awg-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;border:1px solid #d9d9c9;border-radius:10px;background:#fffef8;box-shadow:0 2px 4px #353c2410;color:#343d2a}
+#athena-codex .awg-node-selected{border-color:#8b9b70;box-shadow:0 0 0 2px #b9c49f50,0 3px 9px #353c2410}
+#athena-codex .awg-node-cyclic{border-color:#b67860}
+#athena-codex .awg-task{display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;gap:8px;width:100%;min-height:114px;padding:12px;text-align:left;border:0;border-radius:9px;background:transparent;color:inherit}
+#athena-codex .awg-task:hover{background:#f3f4e8}
+#athena-codex .awg-node-kicker{display:flex;align-items:center;justify-content:space-between;gap:7px;font-size:9px;color:#7a806d;white-space:nowrap}
+#athena-codex .awg-status{display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#68745b;max-width:89px;overflow:hidden;text-overflow:ellipsis}
+#athena-codex .awg-status:before{content:"";display:block;flex-shrink:0;width:5px;height:5px;border-radius:50%;background:#a8ac9c}
+#athena-codex .awg-status[data-status="running"]:before{background:#819b56}
+#athena-codex .awg-status[data-status="succeeded"]:before{background:#748e50}
+#athena-codex .awg-status[data-status="failed"]:before,#athena-codex .awg-status[data-status="timed_out"]:before{background:#b66e50}
+#athena-codex .awg-status[data-status="paused"]:before,#athena-codex .awg-status[data-status="interrupted"]:before{background:#b39d5b}
+#athena-codex .awg-title{display:flex;align-items:center;gap:8px;min-width:0}
+#athena-codex .awg-avatar{display:flex;flex:none}
+#athena-codex .awg-task strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:12px;font-weight:600;line-height:1.45;min-height:35px;overflow-wrap:anywhere}
+#athena-codex .awg-node-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#7c806d}
+#athena-codex .awg-attempt-history{flex-shrink:0;margin:0;padding:5px 11px;font-size:9px;line-height:14px;color:#8b7559;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid #edeadd;background:#f9f6ec}
+#athena-codex .awg-processes{display:grid;gap:0;flex-shrink:0;padding:4px 7px;border-top:1px solid #e8e6da}
+#athena-codex .awg-processes button{display:flex;align-items:center;justify-content:space-between;gap:7px;min-width:0;min-height:31px;padding:5px;border:0;border-radius:4px;background:transparent;text-align:left;color:#5d654f;font-size:10px;line-height:16px}
+#athena-codex .awg-processes button:hover{background:#efefe3}
+#athena-codex .awg-processes button>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#athena-codex .awg-processes small{flex-shrink:0;font-size:9px;color:#7b826e}
+#athena-codex .awg-processes small[data-status="succeeded"]{color:#617e3d}
+#athena-codex .awg-processes small[data-status="failed"],#athena-codex .awg-processes small[data-status="timed_out"]{color:#a0684e}
+#athena-codex .awg-more{flex-shrink:0;min-height:24px;padding:3px 11px;text-align:left;border:0;background:#f6f6ed;color:#65764e;font-size:10px;line-height:16px}
+#athena-codex .awg-more:hover{background:#e9eddc}
+#athena-codex .awg-legend{display:flex;flex-wrap:wrap;gap:7px 14px;padding:11px 11px 4px;border-top:1px solid #e4e1d5;font-size:9px;color:#727762}
+#athena-codex .awg-legend>span{display:inline-flex;align-items:center;gap:6px}
+#athena-codex .awg-legend i{position:relative;width:18px;height:0;border-top:1.5px solid #8a967b}
+#athena-codex .awg-legend .awg-legend-dependency:after{content:"";position:absolute;right:-1px;top:-3.5px;border-left:5px solid #8a967b;border-top:3px solid transparent;border-bottom:3px solid transparent}
+#athena-codex .awg-legend .awg-legend-delegation{border-top:2px dotted #a8aa97}
+#athena-codex .awg-note{margin:0;padding:4px 11px 11px;font-size:10px;line-height:1.55;color:#7a7f6c}
+#athena-codex .awg-warning{margin:0;padding:9px 11px;font-size:10px;line-height:1.55;color:#8a6548;background:#faf0df;border-bottom:1px solid #e8d6b9}
+#athena-codex .awg-empty{padding:26px 12px;text-align:center;border:1px dashed #d7d8c7;border-radius:10px;color:#737b61}
+#athena-codex .awg-empty>span{font-size:24px}
+#athena-codex .awg-empty p{margin:6px 0;font-size:12px}
+#athena-codex .awg-empty small{font-size:10px;color:#8a8e7d}
+#athena-codex .awg :is(button,[tabindex]):focus-visible{outline:2px solid #6e8650;outline-offset:-3px}
+@media(prefers-reduced-motion:reduce){#athena-codex .awg *{scroll-behavior:auto}}
+
 /* Local workspace views. The surrounding panel controls its own width. */
 #athena-codex .awv-host{--awv-ink:#45463d;--awv-muted:#7d7c70;--awv-line:#e3e0d5;--awv-paper:#fffef9;--awv-accent:#8e6551;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;overflow:hidden;color:var(--awv-ink);background:#f8f7f0;font-size:12px;line-height:1.55;container-type:inline-size}
 #athena-codex .awv-host *{box-sizing:border-box}
@@ -1518,6 +1578,8 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 }
 #athena-codex .acs-surface-option > svg { width: 19px; height: 19px; color: #747268; }
 #athena-codex .acs-surface-option > span { min-width: 0; overflow-wrap: anywhere; }
+#athena-codex .acs-surface-copy { display: grid; gap: 1px; }
+#athena-codex .acs-surface-copy > small { font-size: 10px; line-height: 1.5; color: #716d63; }
 #athena-codex .acs-surface-option kbd {
   margin-left: auto;
   width: 25px;
@@ -1563,6 +1625,8 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .acs-view-caption { margin-left: auto; flex: none; color: #979184; font-size: 10px; }
 #athena-codex .acs-icon-button { width: 29px; height: 29px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 29px; color: #77736b; border-radius: 6px; padding: 0; }
 #athena-codex .acs-icon-button > svg { width: 15px; height: 15px; }
+#athena-codex .acs-icon-button:disabled { opacity: .4; }
+#athena-codex .acs-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; margin-top: 10px; }
 #athena-codex .acs-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 35px; background: #f7f6f1; border: 1px solid #e6e3d9; border-radius: 7px; }
 #athena-codex .acs-search:focus-within { border-color: #aaa79a; }
 #athena-codex .acs-search > svg { width: 14px; height: 14px; color: #8d887b; }
@@ -3439,7 +3503,10 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         return {message:validateMessage('/'+p.name+(argumentsText?' '+argumentsText:'')),...(state.session.isStreaming?{streamingBehavior:'followUp'}:{})};
       }
       const allowed=new Set(spec.fields.map(f=>f.name));if(['prompt','steer','follow_up'].includes(id)){allowed.add('images');allowed.add('fileReferences');}
-      return Object.fromEntries(Object.entries(p).filter(([k,v])=>allowed.has(k)&&v!==''&&v!==undefined));
+      // A validated attachment-only message is deliberately empty, not absent.
+      // The host still requires the string field and independently checks files.
+      const messageAction=['prompt','steer','follow_up'].includes(id);
+      return Object.fromEntries(Object.entries(p).filter(([k,v])=>allowed.has(k)&&v!==undefined&&(v!==''||messageAction&&k==='message')));
     }
     async function direct(command,p,current){
       if(command==='get_state')return {model:current.model,thinkingLevel:current.thinkingLevel,isStreaming:current.isStreaming,isCompacting:current.isCompacting,steeringMode:current.steeringMode,followUpMode:current.followUpMode,sessionFile:current.sessionFile,sessionId:current.sessionId,sessionName:current.sessionName,autoCompactionEnabled:current.autoCompactionEnabled,autoRetryEnabled:current.autoRetryEnabled,messageCount:current.messages?.length,pendingMessageCount:current.pendingMessageCount,steering:current.getSteeringMessages?.(),followUp:current.getFollowUpMessages?.()};
@@ -6696,6 +6763,159 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
 
 </script>
 <script>
+/* Read-only Workflow graph. Edges come only from TaskManager's reported relations.
+ * waitFor() records children in the parent's dependencies: child -> coordinator.
+ * A delegation association is laid out in that same direction, without an arrow,
+ * until a dependency is reported. It never claims that the child ran first.
+ * Attempts/processes keep their own recorded status; the task is not their status.
+ */
+(() => {
+  'use strict';
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  const STATUS = { ready: 'Ready', queued: 'Queued', running: 'Running', cancelling: 'Cancelling', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Failed', cancelled: 'Cancelled', timed_out: 'Timed out', interrupted: 'Interrupted' };
+  const status = value => STATUS[value] || 'Not reported';
+  const statusKey = value => Object.hasOwn(STATUS, value) ? value : 'unknown';
+  const ownScope = (item, snapshot) => ![['projectId', snapshot.projectId], ['sessionId', snapshot.sessionId], ['runId', snapshot.run?.id]].some(([key, value]) => item[key] && value && item[key] !== value);
+  const array = value => Array.isArray(value) ? value : [];
+
+  function project(snapshot = {}) {
+    const nodes = [], byId = new Map(), edges = [], missing = [], duplicates = [], edgeKeys = new Set();
+    for (const task of array(snapshot.tasks)) {
+      if (!task || typeof task.id !== 'string' || !task.id || !ownScope(task, snapshot)) continue;
+      if (byId.has(task.id)) { duplicates.push(task.id); continue; }
+      const node = { id: task.id, task, index: nodes.length, attempts: [], processes: [], dependencies: [], delegatedBy: null, childCount: 0 };
+      nodes.push(node); byId.set(node.id, node);
+    }
+    const addEdge = (source, target, kind) => {
+      const key = JSON.stringify([source, target]);
+      if (edgeKeys.has(key)) return;
+      if (!byId.has(source) || !byId.has(target)) { missing.push({ source, target, kind }); return; }
+      edgeKeys.add(key); edges.push({ source, target, kind });
+    };
+    // Dependency edges take precedence over an association for the same pair.
+    for (const node of nodes) {
+      node.dependencies = [...new Set(array(node.task.dependencies).filter(id => typeof id === 'string' && id))];
+      for (const id of node.dependencies) addEdge(id, node.id, 'dependency');
+    }
+    for (const node of nodes) {
+      const parent = node.task.parentTaskId;
+      if (typeof parent === 'string' && parent) {
+        node.delegatedBy = parent;
+        if (byId.has(parent)) byId.get(parent).childCount++;
+        addEdge(node.id, parent, 'delegation');
+      }
+      node.attempts = array(snapshot.attempts).filter(item => item?.taskId === node.id && ownScope(item, snapshot));
+      node.processes = array(snapshot.processes).filter(item => item?.taskId === node.id && ownScope(item, snapshot));
+    }
+
+    // Condense strongly connected components before ranking. A bad dependency
+    // cycle remains visible as a cycle; its members never get a made-up order.
+    const outgoing = new Map(nodes.map(node => [node.id, []]));
+    edges.forEach(edge => outgoing.get(edge.source).push(edge.target));
+    let serial = 0;
+    const indices = new Map(), low = new Map(), stack = [], onStack = new Set(), components = [];
+    function visit(id) {
+      indices.set(id, serial); low.set(id, serial++); stack.push(id); onStack.add(id);
+      for (const target of outgoing.get(id)) {
+        if (!indices.has(target)) { visit(target); low.set(id, Math.min(low.get(id), low.get(target))); }
+        else if (onStack.has(target)) low.set(id, Math.min(low.get(id), indices.get(target)));
+      }
+      if (low.get(id) !== indices.get(id)) return;
+      const members = []; let member;
+      do { member = stack.pop(); onStack.delete(member); members.push(member); } while (member !== id);
+      components.push(members.sort((a, b) => byId.get(a).index - byId.get(b).index));
+    }
+    nodes.forEach(node => { if (!indices.has(node.id)) visit(node.id); });
+    const componentOf = new Map();
+    components.forEach((members, index) => members.forEach(id => componentOf.set(id, index)));
+    const componentEdges = components.map(() => new Set()), indegree = components.map(() => 0), rank = components.map(() => 0);
+    edges.forEach(edge => {
+      const from = componentOf.get(edge.source), to = componentOf.get(edge.target);
+      edge.cyclic = from === to && (components[from].length > 1 || edge.source === edge.target);
+      if (from !== to && !componentEdges[from].has(to)) { componentEdges[from].add(to); indegree[to]++; }
+    });
+    const queue = components.map((_, index) => index).filter(index => indegree[index] === 0);
+    for (let i = 0; i < queue.length; i++) {
+      const from = queue[i];
+      for (const to of componentEdges[from]) { rank[to] = Math.max(rank[to], rank[from] + 1); if (--indegree[to] === 0) queue.push(to); }
+    }
+    const cyclicIds = new Set(edges.filter(edge => edge.cyclic).flatMap(edge => [edge.source, edge.target]));
+    const layers = [];
+    nodes.forEach(node => {
+      node.rank = rank[componentOf.get(node.id)]; node.cyclic = cyclicIds.has(node.id);
+      (layers[node.rank] ||= []).push(node);
+    });
+    // At most four cards in a row; large levels wrap without inventing edges.
+    const cardWidth = 224, gap = 24, margin = 24, maxColumns = 4;
+    const rowColumns = Math.max(1, ...layers.map(layer => Math.min(maxColumns, layer.length)));
+    const width = margin * 2 + rowColumns * cardWidth + (rowColumns - 1) * gap;
+    let y = margin;
+    for (const layer of layers) {
+      for (let start = 0; start < layer.length; start += maxColumns) {
+        const row = layer.slice(start, start + maxColumns), left = (width - (row.length * cardWidth + (row.length - 1) * gap)) / 2;
+        let maxHeight = 0;
+        row.forEach((node, index) => {
+          const processRows = Math.min(2, node.processes.length);
+          node.height = 116 + (node.attempts.length > 1 ? 24 : 0) + (processRows ? processRows * 31 + 8 : 0) + (node.processes.length > 2 ? 24 : 0);
+          node.width = cardWidth; node.x = left + index * (cardWidth + gap); node.y = y;
+          maxHeight = Math.max(maxHeight, node.height);
+        });
+        y += maxHeight + 68;
+      }
+    }
+    return { nodes, edges, missing, duplicates, cyclicIds: [...cyclicIds], layers, width, height: Math.max(180, y - 68 + margin) };
+  }
+
+  function render(model, options = {}) {
+    if (!model.nodes.length) return '<div class="awg-empty"><span aria-hidden="true">◇</span><p>No workflow tasks yet</p><small>Reported tasks and their relationships will appear here.</small></div>';
+    const byId = new Map(model.nodes.map(node => [node.id, node]));
+    const title = item => options.taskTitle?.(item) || window.AthenaActivityLabels?.task(item, model.nodes.map(node => node.task)) || 'Task';
+    const clean = (value, fallback, ids) => window.AthenaActivityLabels?.text(value, fallback, ids) || fallback;
+    const knownIds = model.nodes.flatMap(node => [node.id, node.task.parentTaskId, node.task.attemptId, node.task.agentSessionId, ...node.attempts.map(attempt => attempt.id), ...node.processes.flatMap(process => [process.id, process.toolId, process.attemptId, process.agentSessionId])]);
+    const processName = process => {
+      const job = process.job || process;
+      return clean(window.AthenaResultFiles?.mcp(job.mcp)?.name || job.program, job.mcp ? 'Engineering calculation' : 'Background process', knownIds);
+    };
+    const nodeTitle = id => byId.has(id) ? title(byId.get(id).task) : 'Unavailable task';
+    function edgePath(edge) {
+      const from = byId.get(edge.source), to = byId.get(edge.target);
+      const x1 = from.x + from.width / 2, y1 = from.y + from.height, x2 = to.x + to.width / 2, y2 = to.y;
+      if (edge.cyclic) {
+        if (edge.source === edge.target) return 'M ' + (from.x + from.width) + ' ' + (from.y + 32) + ' C ' + (from.x + from.width + 22) + ' ' + (from.y + 32) + ', ' + (from.x + from.width + 22) + ' ' + (from.y + from.height - 24) + ', ' + (from.x + from.width) + ' ' + (from.y + from.height - 24);
+        return 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + (y1 + 28) + ', ' + x2 + ' ' + (to.y + to.height + 28) + ', ' + x2 + ' ' + (to.y + to.height);
+      }
+      const mid = y1 + (y2 - y1) / 2;
+      return 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + mid + ', ' + x2 + ' ' + mid + ', ' + x2 + ' ' + y2;
+    }
+    const warnings = [model.missing.length ? 'Some linked tasks are not available in this run.' : '', model.cyclicIds.length ? 'Circular relationships were reported. These tasks are grouped without a claimed execution order.' : '', model.duplicates.length ? 'Duplicate task records were reported; each task is shown once.' : ''].filter(Boolean);
+    const summary = model.nodes.filter(node => node.task.status === 'succeeded').length + ' complete · ' + model.nodes.filter(node => ['running', 'queued', 'cancelling'].includes(node.task.status)).length + ' active · ' + model.nodes.filter(node => ['failed', 'cancelled', 'timed_out', 'paused', 'interrupted'].includes(node.task.status)).length + ' stopped';
+    return '<section class="awg" aria-label="Workflow graph">'
+      + '<div class="awg-controls"><span class="awg-summary">' + esc(summary) + '</span><div role="group" aria-label="Graph zoom"><button type="button" data-awv-action="graph-zoom-out" data-awv-focus="graph-zoom-out" aria-label="Zoom out workflow graph">−</button><output data-awg-zoom aria-label="Graph zoom">100%</output><button type="button" data-awv-action="graph-zoom-in" data-awv-focus="graph-zoom-in" aria-label="Zoom in workflow graph">+</button><button type="button" data-awv-action="graph-fit" data-awv-focus="graph-fit">Fit</button><button type="button" data-awv-action="graph-actual" data-awv-focus="graph-actual" aria-label="Show workflow graph at actual size">1:1</button></div></div>'
+      + (warnings.length ? '<p class="awg-warning" role="status">' + warnings.map(esc).join(' ') + '</p>' : '')
+      + '<div class="awg-viewport" data-awg-viewport tabindex="0" aria-label="Workflow graph. Scroll to explore. Use Tab to select a task or process."><div class="awg-plane" data-awg-plane style="width:' + model.width + 'px;height:' + model.height + 'px"><div class="awg-canvas" data-awg-canvas style="width:' + model.width + 'px;height:' + model.height + 'px">'
+      + '<svg class="awg-edges" width="' + model.width + '" height="' + model.height + '" viewBox="0 0 ' + model.width + ' ' + model.height + '" aria-hidden="true"><defs><marker id="awg-dependency-arrow" viewBox="0 0 8 8" markerWidth="7" markerHeight="7" refX="7" refY="4" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 z"/></marker></defs>'
+      + model.edges.map(edge => '<path data-awg-edge="' + esc(edge.kind) + '" class="awg-edge awg-edge-' + edge.kind + (edge.cyclic ? ' awg-edge-cyclic' : '') + '" d="' + edgePath(edge) + '"' + (edge.kind === 'dependency' ? ' marker-end="url(#awg-dependency-arrow)"' : '') + '/>').join('') + '</svg>'
+      + '<div class="awg-nodes" role="list" aria-label="Tasks and their recorded work">' + model.nodes.map(node => {
+        const selected = options.selectedTaskId === node.id, attempts = node.attempts;
+        const current = attempts.find(attempt => attempt.id === node.task.attemptId);
+        const currentIndex = current ? attempts.indexOf(current) + 1 : null;
+        const relation = (node.dependencies.length ? 'Depends on ' + node.dependencies.map(nodeTitle).join(', ') + '. ' : '') + (node.delegatedBy ? 'Delegated by ' + nodeTitle(node.delegatedBy) + '. ' : '');
+        const caption = node.childCount ? 'Coordinator · ' + node.childCount + (node.childCount === 1 ? ' child' : ' children') : node.delegatedBy ? 'Delegated task' : 'Task';
+        const owner = clean(options.taskOwner?.(node.task), '', knownIds);
+        const prior = attempts.filter(attempt => attempt.id !== node.task.attemptId).map(attempt => status(attempt.status)).join(', ');
+        return '<article class="awg-node' + (selected ? ' awg-node-selected' : '') + (node.cyclic ? ' awg-node-cyclic' : '') + '" role="listitem" data-awg-node="' + esc(node.id) + '" data-awg-status="' + statusKey(node.task.status) + '" style="left:' + node.x + 'px;top:' + node.y + 'px;width:' + node.width + 'px;height:' + node.height + 'px">'
+          + '<button type="button" class="awg-task" data-awv-task="' + esc(node.id) + '" data-awv-focus="task-' + esc(node.id) + '" aria-pressed="' + selected + '" title="' + esc(title(node.task)) + '"><span class="awg-node-kicker">' + esc(caption) + '<span class="awg-status" data-status="' + statusKey(node.task.status) + '">' + esc(status(node.task.status)) + '</span></span><span class="awg-title">' + (options.avatar ? '<span class="awg-avatar">' + options.avatar(node.task) + '</span>' : '') + '<strong>' + esc(title(node.task)) + '</strong></span><span class="awg-node-meta">' + esc([owner, currentIndex ? 'Attempt ' + currentIndex : ''].filter(Boolean).join(' · ') || 'Select to inspect this task') + '</span><span class="awv-sr-only">' + esc(relation) + '</span></button>'
+          + (attempts.length > 1 ? '<p class="awg-attempt-history" title="' + esc('Previous attempts: ' + prior) + '">' + esc(attempts.length + ' attempts · Previous: ' + prior) + '</p>' : '')
+          + (node.processes.length ? '<div class="awg-processes" aria-label="Recorded processes">' + node.processes.slice(0, 2).map(process => '<button type="button" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="graph-process-' + esc(process.id) + '" title="' + esc(processName(process) + ' · ' + status(process.status)) + '"><span>' + esc(processName(process)) + '</span><small data-status="' + statusKey(process.status) + '">' + esc(status(process.status)) + '</small></button>').join('') + '</div>' : '')
+          + (node.processes.length > 2 ? '<button type="button" class="awg-more" data-awv-task="' + esc(node.id) + '" data-awv-focus="graph-more-' + esc(node.id) + '">View all ' + node.processes.length + ' processes</button>' : '') + '</article>';
+      }).join('') + '</div></div></div></div>'
+      + '<div class="awg-legend"><span><i class="awg-legend-dependency" aria-hidden="true"></i>Recorded dependency</span><span><i class="awg-legend-delegation" aria-hidden="true"></i>Delegation</span></div><p class="awg-note">Arrows show reported dependencies. Dotted links show delegation, not execution order. Select a task for its attempts, tools and results.</p></section>';
+  }
+  window.AthenaWorkflowGraph = Object.freeze({ project, render });
+})();
+
+</script>
+<script>
 /* Athena research workspace views. Runtime projections and separate authored examples; never a process runner.
  * Store subscriptions update individual regions; mounted filters survive clock ticks.
  * Public API: AthenaWorkspaceViews.mount(host, { store, icons, toast, onNavigate,
@@ -6810,16 +7030,26 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const store = options.store;
     const abort = new AbortController();
     const urls = new Set(), timers = new Set(), diagnosticState = new Map();
-    const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
+    const state = { view: 'workflow', taskId: 'sources', workflowMode: 'graph', workflowRunId: null, workflowFollowLatest: true, graphZoom: 100, graphFit: false, artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
     let snapshot = store.getState(), destroyed = false, unsubscribe = null, recordUnsubscribe = null, resizeObserver = null;
     let history = { key: '', messages: [], status: '', error: '' };
-    let researchService = options.researchService || null, researchBoard = null;
+    let researchService = options.researchService || null, researchBoard = null, graphModel = null;
     const q = selector => host.querySelector(selector);
     const qa = selector => Array.from(host.querySelectorAll(selector));
     const notify = message => options.toast?.(message);
     const refreshIcons = () => options.icons ? options.icons() : window.lucide?.createIcons({ attrs: { 'aria-hidden': 'true' } });
     const tasks = () => snapshot.tasks || [];
     const task = id => tasks().find(item => item.id === id);
+    const workflowRuns = () => {
+      const runs = new Map();
+      for (const item of tasks()) if (item.runId && !runs.has(item.runId)) runs.set(item.runId, { id: item.runId, firstTask: item });
+      if (snapshot.run?.id && !runs.has(snapshot.run.id)) runs.set(snapshot.run.id, { id: snapshot.run.id, firstTask: null });
+      return [...runs.values()];
+    };
+    const workflowRunId = () => state.workflowFollowLatest ? snapshot.run?.id || workflowRuns().at(-1)?.id || null : state.workflowRunId;
+    const workflowTasks = () => { const runId = workflowRunId(); return tasks().filter(item => !runId || !item.runId || item.runId === runId); };
+    const historicalWorkflow = () => live() && state.view === 'workflow' && workflowRunId() && workflowRunId() !== snapshot.run?.id;
+
     const labels = window.AthenaActivityLabels;
     const taskTitle = (item, fallback) => labels.task(item, tasks(), fallback);
     const agentTitle = agent => labels.agent(agent, tasks());
@@ -6889,7 +7119,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowShell() {
-      return '<div class="awv-scroll"><div data-awv-research-board></div><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
+      return '<div class="awv-scroll"><label class="awv-artifact-selector" data-awv-run-selector hidden><span>Conversation request</span><select data-awv-run-select aria-label="Select conversation request"></select></label><div class="awv-toolbar">' + segmented('Workflow layout', [['graph', 'Graph', 'workflow-mode'], ['list', 'List', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><section class="awv-task-detail" data-awv-task-detail></section><div data-awv-measurements></div><div data-awv-research-board></div></div>';
     }
 
     function artifactShell() {
@@ -6911,12 +7141,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function updateHeading() {
       const run = snapshot.run || {};
-      setText('[data-awv-mode-label]', live() ? 'Current conversation' : snapshot.mode === 'demo' ? 'Local demo' : 'UI preview');
-      setHTML('[data-awv-context-details]', live() ? labels.diagnostics([['Session ID', snapshot.sessionId], ['Run ID', run.id]], 'view-context') : '');
+      setText('[data-awv-mode-label]', historicalWorkflow() ? 'Earlier conversation request' : live() ? 'Current conversation' : snapshot.mode === 'demo' ? 'Local demo' : 'UI preview');
+      setHTML('[data-awv-context-details]', live() ? labels.diagnostics([['Session ID', snapshot.sessionId], ['Run ID', historicalWorkflow() ? workflowRunId() : run.id]], 'view-context') : '');
       setText('[data-awv-view-description]', live() && state.view === 'artifacts' ? 'Artifacts reported for this session, with exact source versions.' : VIEWS[state.view][1]);
-      setHTML('[data-awv-run-status]', badge(run.status || 'ready'));
+      setHTML('[data-awv-run-status]', historicalWorkflow() ? '<span class="awv-caption">Saved task records</span>' : badge(run.status || 'ready'));
       const elapsed = Math.floor((run.elapsedMs || 0) / 1000);
-      setText('[data-awv-run-time]', run.startedAt ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0') + ' elapsed' : live() && run.id ? 'Start time not reported' : 'Not started');
+      setText('[data-awv-run-time]', historicalWorkflow() ? 'Select a task to inspect its recorded outcome' : run.startedAt ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0') + ' elapsed' : live() && run.id ? 'Start time not reported' : 'Not started');
     }
 
     function syncSelect(selector, items, value) {
@@ -6938,7 +7168,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       let result = pending && can('decideApproval') ? '<button type="button" class="awv-button awv-button-accent" data-awv-approval="' + esc(pending.id) + '" data-awv-focus="approval-' + esc(pending.id) + '">' + icon('shield-check') + 'Review approval</button>' : '';
       if (can('retryTask') && (live() ? item.parentTaskId && item.retryable === true || retry?.pending || retry?.accepted : ['failed', 'cancelled'].includes(item.status) || item.status === 'blocked' && !pending)) result += '<button type="button" class="awv-button" data-awv-retry="' + esc(item.id) + '" data-awv-focus="retry-' + esc(item.id) + '"' + (retry?.pending || retry?.accepted ? ' disabled aria-busy="' + Boolean(retry.pending) + '"' : '') + '>' + icon('rotate-ccw') + (retry?.pending ? 'Retrying…' : retry?.accepted ? 'Retry queued' : 'Retry task') + '</button>';
       if (live() && can('cancelTask') && ['queued', 'running', 'blocked'].includes(item.status)) result += '<button type="button" class="awv-button" data-awv-cancel-task="' + esc(item.id) + '" data-awv-focus="cancel-' + esc(item.id) + '"' + (retry?.pending ? ' disabled' : '') + '>' + icon('square') + 'Cancel task</button>';
-      if (can('cancelRun') && (live() ? ['queued', 'running', 'blocked'] : ['queued', 'running', 'paused', 'blocked']).includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
+      if (can('cancelRun') && (!live() || !item.runId || item.runId === snapshot.run?.id) && (live() ? ['queued', 'running', 'blocked'] : ['queued', 'running', 'paused', 'blocked']).includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
       return result;
     }
 
@@ -6972,10 +7202,26 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowMap() {
-      if (live() && state.workflowMode === 'graph') return '<div class="awv-live-graph" aria-label="Task dependencies">' + tasks().map(item => '<section class="awv-live-graph-row">' + taskNode(item, true) + '<p class="awv-caption">Depends on: ' + ((item.dependencies || []).map(id => esc(taskTitle(id, 'Related task'))).join(' · ') || 'No dependencies') + '</p></section>').join('') + '</div><p class="awv-caption">Dependencies come from TaskManager. The UI does not schedule these tasks.</p>';
-      if (state.workflowMode === 'list') return '<div class="awv-task-list">' + tasks().map(item => taskNode(item)).join('') + '</div>';
-      const first = tasks().filter(item => !item.dependencies?.length), rest = tasks().filter(item => item.dependencies?.length);
-      return '<div class="awv-graph" aria-label="Dependency graph"><div class="awv-graph-start">' + first.map(item => taskNode(item, true)).join('') + '</div>' + rest.map((item, index) => '<div class="awv-graph-connector' + (index === 0 && first.length > 1 ? ' awv-graph-join' : '') + '" aria-hidden="true"><span></span></div><div class="awv-graph-step"><span class="awv-sr-only">Depends on ' + esc(item.dependencies.map(id => taskTitle(id, 'Related task')).join(' and ')) + '.</span>' + taskNode(item, true) + '</div>').join('') + '</div><p class="awv-caption awv-graph-caption">' + (first.length > 1 ? 'The first two tasks can run together. Both finish before analysis begins.' : 'Lines show which tasks must finish first.') + '</p>';
+      if (state.workflowMode === 'list' || !window.AthenaWorkflowGraph) {
+        graphModel = null;
+        return '<div class="awv-task-list">' + workflowTasks().map(item => taskNode(item)).join('') + '</div>';
+      }
+      graphModel = window.AthenaWorkflowGraph.project({ ...snapshot, run: { ...snapshot.run, id: workflowRunId() }, tasks: workflowTasks() });
+      return window.AthenaWorkflowGraph.render(graphModel, { selectedTaskId: state.taskId, taskTitle, taskOwner, avatar: ava });
+    }
+
+    function updateGraphViewport() {
+      const viewport = q('[data-awg-viewport]'), canvas = q('[data-awg-canvas]'), plane = q('[data-awg-plane]');
+      if (!graphModel || !viewport || !canvas || !plane) return;
+      if (state.graphFit) state.graphZoom = clamp(Math.floor(((viewport.clientWidth || host.clientWidth || 360) - 4) / graphModel.width * 100), 35, 100);
+      const scale = state.graphZoom / 100;
+      canvas.style.transform = 'scale(' + scale + ')';
+      plane.style.width = Math.ceil(graphModel.width * scale) + 'px';
+      plane.style.height = Math.ceil(graphModel.height * scale) + 'px';
+      setText('[data-awg-zoom]', state.graphZoom + '%');
+      const out = q('[data-awv-action="graph-zoom-out"]'), inside = q('[data-awv-action="graph-zoom-in"]');
+      if (out) out.disabled = state.graphZoom <= 35;
+      if (inside) inside.disabled = state.graphZoom >= 150;
     }
 
     function processButton(process) {
@@ -7004,11 +7250,25 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function updateWorkflow() {
-      if (!task(state.taskId)) state.taskId = tasks()[0]?.id || null;
+      const runs = workflowRuns();
+      if (!state.workflowFollowLatest && !runs.some(run => run.id === state.workflowRunId)) state.workflowFollowLatest = true;
+      state.workflowRunId = workflowRunId();
+      const visibleTasks = workflowTasks();
+      if (!visibleTasks.some(item => item.id === state.taskId)) state.taskId = visibleTasks[0]?.id || null;
+      const runSelector = q('[data-awv-run-selector]');
+      if (runSelector) runSelector.hidden = !live() || runs.length < 2;
+      syncSelect('[data-awv-run-select]', runs.map((run, index) => {
+        const root = tasks().find(item => item.runId === run.id && !item.parentTaskId) || run.firstTask;
+        return [run.id, (run.id === snapshot.run?.id ? 'Current · ' : 'Request ' + (index + 1) + ' · ') + (root ? taskTitle(root) : 'Waiting for tasks')];
+      }).reverse(), state.workflowRunId || '');
       press('[data-awv-action="workflow-mode"]', state.workflowMode);
-      setText('[data-awv-task-count]', tasks().filter(t => t.status === 'succeeded').length + ' / ' + tasks().length + ' complete');
+      setText('[data-awv-task-count]', visibleTasks.filter(t => t.status === 'succeeded').length + ' / ' + visibleTasks.length + ' complete');
+      const viewport = q('[data-awg-viewport]'), scrollLeft = viewport?.scrollLeft || 0, scrollTop = viewport?.scrollTop || 0;
       setHTML('[data-awv-workflow-map]', workflowMap());
-      const calculations = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
+      updateGraphViewport();
+      const nextViewport = q('[data-awg-viewport]');
+      if (nextViewport) { nextViewport.scrollLeft = scrollLeft; nextViewport.scrollTop = scrollTop; }
+      const calculations = live() ? (snapshot.processes || []).filter(p => p.runId === state.workflowRunId && p.job?.mcp) : [];
       setHTML('[data-awv-measurements]', calculations.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
         const registered = window.AthenaResultFiles?.mcp(p.job.mcp);
@@ -7364,6 +7624,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (chosen.taskId || tasks().some(item => item.id === id)) state.taskId = chosen.taskId || id;
       const toolId = chosen.toolId || (snapshot.tools || []).find(item => item.id === id)?.id;
       if (toolId) { state.taskId = (snapshot.tools || []).find(item => item.id === toolId)?.taskId || state.taskId; }
+      if (view === 'workflow' && (chosen.taskId || tasks().some(item => item.id === id) || toolId)) { const selected = task(state.taskId); if (selected?.runId) { state.workflowRunId = selected.runId; state.workflowFollowLatest = false; } }
       const artifactId = chosen.artifactId || (artifactList().some(item => item.id === id) ? id : null);
       if (artifactId) { state.artifactId = artifactId; state.artifactVersion = chosen.version ?? chosen.artifactVersion ?? null; state.documentVersion = chosen.documentVersion ?? (!live() ? chosen.version : null) ?? null; state.referenceOpen = false; }
       if (chosen.page) state.notePage = clamp(Number(chosen.page) || 1, 1, PAGES.length);
@@ -7448,7 +7709,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!button || !host.contains(button) || button.disabled) return;
       if (button.dataset.awvTask) {
         state.taskId = button.dataset.awvTask;
-        updateWorkflow(); refreshIcons();
+        const selected = task(state.taskId); if (selected?.runId) { state.workflowRunId = selected.runId; state.workflowFollowLatest = false; }
+        updateHeading(); updateWorkflow(); refreshIcons();
         return;
       }
       if (button.dataset.awvOpenTool) {
@@ -7476,6 +7738,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const action = button.dataset.awvAction;
       if (action === 'cancel-run' && can('cancelRun')) store.cancel();
       if (action === 'workflow-mode') { state.workflowMode = button.dataset.awvValue; updateWorkflow(); }
+      if (['graph-zoom-in', 'graph-zoom-out', 'graph-fit', 'graph-actual'].includes(action)) {
+        state.graphFit = action === 'graph-fit';
+        if (!state.graphFit) state.graphZoom = action === 'graph-actual' ? 100 : clamp(state.graphZoom + (action === 'graph-zoom-in' ? 10 : -10), 35, 150);
+        updateGraphViewport();
+        if (state.graphFit) { const viewport = q('[data-awg-viewport]'); if (viewport) { viewport.scrollLeft = 0; viewport.scrollTop = 0; } }
+      }
       if (action === 'code-tab') { state.codeTab = button.dataset.awvValue; updateCode(); }
       if (action === 'copy-artifact') { const value = currentArtifactText(); if (value != null) copy(value); }
       if (action === 'download-artifact') downloadArtifact();
@@ -7501,6 +7769,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     host.addEventListener('change', event => {
       const el = event.target;
+      if (el.matches('[data-awv-run-select]') && workflowRuns().some(run => run.id === el.value)) { state.workflowRunId = el.value; state.workflowFollowLatest = false; state.taskId = workflowTasks()[0]?.id || null; state.graphZoom = 100; state.graphFit = false; update(); }
       if (el.matches('[data-awv-artifact-select]')) { const selected = artifactList().find(item => (live() ? artifactKey(item) : item.id) === el.value); if (selected) { state.artifactId = selected.id; state.artifactVersion = live() ? artifactVersion(selected) : null; state.documentVersion = null; state.referenceOpen = false; state.citation = null; updateArtifacts(true); } }
       if (el.matches('[data-awv-series]')) { state[el.dataset.awvSeries] = el.checked; redrawPlot(); }
       if (el.matches('[data-awv-page-select]')) { state.notePage = clamp(Number(el.value) || 1, 1, PAGES.length); updateDocument(); }
@@ -7524,10 +7793,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     shell();
     if (typeof window.ResizeObserver === 'function') {
-      resizeObserver = new window.ResizeObserver(() => { if (!destroyed) redrawPlot(); });
+      resizeObserver = new window.ResizeObserver(() => { if (!destroyed) { redrawPlot(); updateGraphViewport(); } });
       resizeObserver.observe(host);
     }
-    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { qa('[data-aw-diagnostics]').forEach(detail => { detail.open = false; }); diagnosticState.clear(); lastScope = scope; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
+    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { qa('[data-aw-diagnostics]').forEach(detail => { detail.open = false; }); diagnosticState.clear(); lastScope = scope; state.workflowRunId = null; state.workflowFollowLatest = true; state.graphZoom = 100; state.graphFit = false; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
     recordUnsubscribe = options.records?.subscribe(() => { if (!destroyed && state.view === 'artifacts') { updateArtifacts(true); refreshIcons(); } });
     return {
       open,
@@ -10101,6 +10370,13 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function render(state) {
       if (destroyed) return;
+      // Existing attempt sections may already live inside the conversation.
+      // Begin before replacing their innerHTML, not only before placement.
+      options.onBeforeLayout?.();
+      try { return renderContents(state); } finally { options.onAfterLayout?.(); }
+    }
+
+    function renderContents(state) {
       snapshot = state;
       const runKey = JSON.stringify([state.mode, state.sessionId]);
       if (currentRunKey && currentRunKey !== runKey) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); expandedDiagnostics.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
@@ -10376,6 +10652,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   const text = content => typeof content === 'string' ? content : (Array.isArray(content) ? content : []).filter(block => block?.type === 'text').map(block => String(block.text || '')).join('\n');
   const context = value => value && typeof value.runId === 'string' && typeof value.attemptId === 'string' ? Object.fromEntries(['projectId', 'sessionId', 'runId', 'taskId', 'parentTaskId', 'agentSessionId', 'attemptId'].filter(key => typeof value[key] === 'string' || key === 'parentTaskId' && value[key] === null).map(key => [key, value[key]])) : null;
   const timestamp = value => Number.isFinite(value) ? value : typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+  const attachmentNames = value => (Array.isArray(value) ? value : []).filter(file => file && typeof file.name === 'string' && file.name).map(file => ({ name: file.name }));
 
   function mount(host, options = {}) {
     const view = window.AthenaPiSessionView.mount(host, { ...options, managedLayout: true });
@@ -10437,7 +10714,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       }
       host.hidden = !arranged.length && !error;
     }
+    function withLayout(change) {
+      options.onBeforeLayout?.();
+      try { return change(); } finally { options.onAfterLayout?.(); }
+    }
     function render() {
+      if (!destroyed) return withLayout(renderContents);
+    }
+    function renderContents() {
       if (destroyed) return;
       view.render({ runId: 'conversation', tools: currentTools(), error });
       const present = new Set(entries.map(entry => entry.key));
@@ -10453,11 +10737,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
           if (body.textContent !== entry.text) body.textContent = entry.text;
           node.hidden = !entry.text && !entry.attachments?.length;
           let attachmentList = node.querySelector('.ac-message-attachments');
-          if (entry.attachments?.length && !attachmentList) {
-            attachmentList = document.createElement('div'); attachmentList.className = 'ac-message-attachments';
-            for (const file of entry.attachments) { const label = document.createElement('span'); label.className = 'ac-message-attachment'; label.textContent = file.name; attachmentList.appendChild(label); }
-            node.appendChild(attachmentList);
-          }
+          if (entry.attachments?.length) {
+            if (!attachmentList) { attachmentList = document.createElement('div'); attachmentList.className = 'ac-message-attachments'; node.appendChild(attachmentList); }
+            const signature = JSON.stringify(entry.attachments.map(file => file.name));
+            if (attachmentList.dataset.attachments !== signature) {
+              attachmentList.replaceChildren(); attachmentList.dataset.attachments = signature;
+              for (const file of entry.attachments) { const label = document.createElement('span'); label.className = 'ac-message-attachment'; label.textContent = file.name; attachmentList.appendChild(label); }
+            }
+          } else attachmentList?.remove();
         }
       }
       layout();
@@ -10470,6 +10757,13 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       view.reset(); host.hidden = true;
     }
     function history(messages) {
+      if (destroyed) return;
+      // History replacement must start its transaction before clear() removes
+      // the old height; a render-only hook would mistake that empty view for
+      // a user at the bottom and pull someone reading earlier messages down.
+      return withLayout(() => restoreHistory(messages));
+    }
+    function restoreHistory(messages) {
       clear(true);
       for (const [index, message] of (messages || []).entries()) {
         const owner = context(message.athena), at = timestamp(message.timestamp);
@@ -10480,7 +10774,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         }
         if (!['user', 'assistant'].includes(message.role)) continue;
         if (message.role === 'user') {
-          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), athena: owner, at });
+          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), attachments: attachmentNames(message.attachments), athena: owner, at });
           continue;
         }
         const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content || [];
@@ -10513,6 +10807,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         }
         pendingUser.observed = true;
         pendingUser.text = text(event.message.content);
+        if (Array.isArray(event.message.attachments)) pendingUser.attachments = attachmentNames(event.message.attachments);
         pendingUser.at = timestamp(event.message.timestamp);
         pendingUser.athena = owner || pendingUser.athena;
         render();
@@ -10552,8 +10847,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     return Object.freeze({
       history, beginUser, observe, render: live, reset: finish, clear, refresh: render,
       revealTool: view.revealTool, hasTool: id => tools.has(id),
-      removeActivity(id) { const item = activities.get(id); item?.node.remove(); activities.delete(id); },
-      placeActivity(node, details) { const key = details.attemptId || details.key, previous = activities.get(key); if (previous && previous.node !== node) previous.node.remove(); const item = { node, ...details, at: timestamp(details.at) }; activities.set(key, item); layout(); return entries.some(entry => entry.athena?.runId === details.runId); },
+      removeActivity(id) { return withLayout(() => { const item = activities.get(id); item?.node.remove(); activities.delete(id); }); },
+      placeActivity(node, details) { return withLayout(() => { const key = details.attemptId || details.key, previous = activities.get(key); if (previous && previous.node !== node) previous.node.remove(); const item = { node, ...details, at: timestamp(details.at) }; activities.set(key, item); layout(); return entries.some(entry => entry.athena?.runId === details.runId); }); },
       destroy() { if (destroyed) return; clear(); view.destroy(); destroyed = true; }
     });
   }
@@ -10580,6 +10875,15 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     { id: 'device', label: 'Device', icon: 'smartphone', key: 'M' },
     { id: 'research', label: 'Research panel', icon: 'flask-conical', key: 'R' }
   ];
+
+  // These views do not advertise a host capability. Keep their scope visible
+  // before the user opens them; a working conversation is not a device bridge.
+  const LIMITED_SURFACES = {
+    browser: 'Web links only',
+    files: 'Workspace browsing unavailable',
+    diff: 'Repository diff unavailable',
+    device: 'Device connection unavailable'
+  };
 
 
   const esc = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -10609,11 +10913,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function header(id) {
       const item = SURFACES.find(entry => entry.id === id);
-      return '<div class="acs-toolbar"><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="home" aria-label="Back to surface list" title="Surface list">' + icon('arrow-left') + '</button><span class="acs-toolbar-title">' + icon(item.icon) + '<strong>' + item.label + '</strong></span><span class="acs-view-caption">' + (id === 'files' ? 'Project files' : 'Preview') + '</span></div>';
+      return '<div class="acs-toolbar"><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="home" aria-label="Back to surface list" title="Surface list">' + icon('arrow-left') + '</button><span class="acs-toolbar-title">' + icon(item.icon) + '<strong>' + item.label + '</strong></span><span class="acs-view-caption">' + (runtimeMode ? (id === 'browser' ? 'Web links only' : 'Unavailable') : id === 'files' ? 'Project files' : 'Preview') + '</span></div>';
     }
 
     function homeHTML() {
-      return '<div class="acs-home acs-scroll"><div class="acs-chooser" tabindex="-1" aria-label="Choose a surface"><h2>Open a surface</h2><p class="acs-home-description">Keep your tools beside the conversation.</p><div class="acs-surface-list">' + SURFACES.map(item => '<button type="button" class="acs-surface-option cursor-interaction' + (item.id === 'research' ? ' acs-research-option' : '') + '" data-acs-surface="' + item.id + '"' + (item.disabled ? ' disabled aria-label="' + item.label + ' · Repository connection required" title="Repository connection required"' : '') + '>' + icon(item.icon) + '<span>' + item.label + '</span><kbd>' + item.key + '</kbd></button>').join('') + '</div><p class="acs-shortcut-note">Use the shown keys while focused on this list.</p></div>' + (filenames.length ? '<section class="acs-recent"><div class="acs-section-label"><h3>Files in this conversation</h3><span>' + filenames.length + '</span></div>' + filenames.slice(0, 3).map(name => '<button class="acs-recent-file cursor-interaction" type="button" data-acs-file="' + esc(name) + '">' + icon(fileIcon(name)) + '<span>' + esc(name) + '</span>' + icon('arrow-up-right') + '</button>').join('') + '</section>' : '') + '</div>';
+      return '<div class="acs-home acs-scroll"><div class="acs-chooser" tabindex="-1" aria-label="Choose a surface"><h2>Open a surface</h2><p class="acs-home-description">Keep your tools beside the conversation.</p><div class="acs-surface-list">' + SURFACES.map(item => '<button type="button" class="acs-surface-option cursor-interaction' + (item.id === 'research' ? ' acs-research-option' : '') + '" data-acs-surface="' + item.id + '"' + (item.disabled ? ' disabled aria-label="' + item.label + ' · Repository connection required" title="Repository connection required"' : '') + '>' + icon(item.icon) + '<span class="acs-surface-copy">' + item.label + (runtimeMode && LIMITED_SURFACES[item.id] ? '<small data-acs-capability="' + item.id + '">' + LIMITED_SURFACES[item.id] + '</small>' : '') + '</span><kbd>' + item.key + '</kbd></button>').join('') + '</div><p class="acs-shortcut-note">Use the shown keys while focused on this list.</p></div>' + (!runtimeMode && filenames.length ? '<section class="acs-recent"><div class="acs-section-label"><h3>Files in this conversation</h3><span>' + filenames.length + '</span></div>' + filenames.slice(0, 3).map(name => '<button class="acs-recent-file cursor-interaction" type="button" data-acs-file="' + esc(name) + '">' + icon(fileIcon(name)) + '<span>' + esc(name) + '</span>' + icon('arrow-up-right') + '</button>').join('') + '</section>' : '') + '</div>';
     }
 
     function fileListHTML() {
@@ -10623,18 +10927,21 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function filesHTML() {
-      if (runtimeMode) return header('files') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('files') + '<h3>File browser not connected</h3><p>Use Knowledge for imported project sources and Artifacts for host-reported output files. A workspace file-list service is required here.</p></div></div>';
+      if (runtimeMode) return header('files') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('files') + '<h3>File browser not connected</h3><p>Workspace folders cannot be browsed here yet. Knowledge holds imported sources; Artifacts shows output files saved by the host.</p><div class="acs-empty-actions"><button type="button" class="acs-text-button" data-acs-workspace="knowledge">Open Knowledge' + icon('arrow-up-right') + '</button><button type="button" class="acs-text-button" data-acs-workspace="artifacts">Open Artifacts' + icon('arrow-up-right') + '</button></div></div></div>';
       const name = state.selectedFile;
       const lineCount = name ? contentOf(name).split('\n').length : 0;
       return header('files') + '<div class="acs-scroll acs-files-pane"><label class="acs-search">' + icon('search') + '<input type="search" data-acs-search placeholder="Search filenames" aria-label="Search filenames" autocomplete="off" value="' + esc(state.fileQuery) + '"></label><div class="acs-file-group-label">' + icon('folder-open') + '<span>Biosignal circuits</span></div><div class="acs-file-list">' + fileListHTML() + '</div>' + (name ? '<section class="acs-file-preview" aria-label="Selected file"><div class="acs-preview-heading"><div><h3 tabindex="-1" data-acs-file-heading>' + esc(name) + '</h3><span>Read only · ' + lineCount + (lineCount === 1 ? ' line' : ' lines') + '</span></div><div class="acs-preview-actions"><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="copy-file" aria-label="Copy file contents" title="Copy contents">' + icon('copy') + '</button><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="download-file" aria-label="Download file" title="Download file">' + icon('download') + '</button></div></div><pre class="acs-code" tabindex="0" aria-label="' + esc(name) + ' contents">' + esc(contentOf(name)) + '</pre></section>' : '<div class="acs-empty-state">' + icon('files') + '<h3>No files yet</h3><p>Project files added to this conversation will appear here.</p></div>') + '</div>';
     }
 
     function browserHTML() {
-      return header('browser') + '<div class="acs-scroll"><form class="acs-address-bar" data-acs-address-form><label class="acs-address-label">' + icon('globe') + '<input type="text" inputmode="url" autocomplete="url" data-acs-address aria-label="Web address to open in a new tab" placeholder="Enter a web address" value="' + esc(state.address) + '"></label><button type="submit" class="acs-icon-button cursor-interaction" aria-label="Open this address in a new tab" title="Open in a new tab">' + icon('arrow-up-right') + '</button></form><p class="acs-browser-note">Links open in a new tab. The embedded browser is not connected yet.</p><div class="acs-document-preview"><div class="acs-document-kicker">Project document · sample</div><h2>RC low-pass filter</h2><p>Review the circuit conditions and notes beside your conversation.</p><div class="acs-formula">f<sub>c</sub> = 1 / (2πRC)</div><dl class="acs-properties"><div><dt>Resistance R</dt><dd>1 kΩ</dd></div><div><dt>Capacitance C</dt><dd>100 nF</dd></div><div><dt>Theoretical cutoff</dt><dd>Approx. 1.5915 kHz</dd></div></dl><h3>What to check</h3><ul><li>Error between theory and calculated results</li><li>Response changes within component tolerances</li><li>Additional conditions for physical measurements</li></ul><button type="button" class="acs-text-button cursor-interaction" data-acs-research="results">View linked research results' + icon('arrow-up-right') + '</button></div></div>';
+      const preview = runtimeMode
+        ? '<div class="acs-empty-state">' + icon('globe') + '<h3>Browser automation is not connected</h3><p>Athena cannot read pages, control tabs, or perform browser actions from this panel. Opening a link does not give it to an agent.</p></div>'
+        : '<div class="acs-document-preview"><div class="acs-document-kicker">Project document · sample</div><h2>RC low-pass filter</h2><p>Review the circuit conditions and notes beside your conversation.</p><div class="acs-formula">f<sub>c</sub> = 1 / (2πRC)</div><dl class="acs-properties"><div><dt>Resistance R</dt><dd>1 kΩ</dd></div><div><dt>Capacitance C</dt><dd>100 nF</dd></div><div><dt>Theoretical cutoff</dt><dd>Approx. 1.5915 kHz</dd></div></dl><h3>What to check</h3><ul><li>Error between theory and calculated results</li><li>Response changes within component tolerances</li><li>Additional conditions for physical measurements</li></ul><button type="button" class="acs-text-button cursor-interaction" data-acs-research="results">View linked research results' + icon('arrow-up-right') + '</button></div>';
+      return header('browser') + '<div class="acs-scroll"><form class="acs-address-bar" data-acs-address-form><label class="acs-address-label">' + icon('globe') + '<input type="text" inputmode="url" autocomplete="url" data-acs-address aria-label="Web address to open or copy" aria-describedby="acs-browser-scope" placeholder="Enter a web address" value="' + esc(state.address) + '"></label><button type="submit" class="acs-icon-button cursor-interaction" aria-label="Open this address in a new tab in web mode" title="Open in a new tab in web mode">' + icon('arrow-up-right') + '</button><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="copy-address" aria-label="Copy web address" title="Copy web address"' + (!state.address.trim() ? ' disabled' : '') + '>' + icon('copy') + '</button></form><p class="acs-browser-note" id="acs-browser-scope">Web mode can open links in a new tab. Athena desktop does not support opening links from this panel yet; copy the address into your browser. An embedded browser is not connected.</p>' + preview + '</div>';
     }
 
     function diffHTML() {
-      if (runtimeMode) return header('diff') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('file-diff') + '<h3>No workspace diff service</h3><p>Open a versioned diff from Artifacts when the connected host provides one.</p></div></div>';
+      if (runtimeMode) return header('diff') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('file-diff') + '<h3>No workspace diff service</h3><p>Repository comparisons and file edits are not connected. Output files saved by the host are available in Artifacts.</p><button type="button" class="acs-text-button" data-acs-workspace="artifacts">Open Artifacts' + icon('arrow-up-right') + '</button></div></div>';
       const rows = [
         ['1', '1', 'context', '* RC low-pass · example'],
         ['2', '2', 'context', 'V1 in 0 AC 1'],
@@ -10649,7 +10956,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function deviceHTML() {
-      return header('device') + '<div class="acs-scroll acs-device-pane"><div class="acs-empty-state acs-device-empty"><span class="acs-device-icon">' + icon('monitor') + '</span><h2>No devices connected</h2><p>Connect your computer or lab server<br>to see where tasks run and their status.</p><span class="acs-status-label"><span class="acs-neutral-dot"></span>No active connection</span></div><div class="acs-device-details"><h3>Once connected</h3><div>' + icon('cpu') + '<span>Programs and runtime environment</span></div><div>' + icon('activity') + '<span>Active tasks and connection status</span></div><div>' + icon('folder-open') + '<span>Working folder and output files</span></div></div></div>';
+      return header('device') + '<div class="acs-scroll acs-device-pane"><div class="acs-empty-state acs-device-empty"><span class="acs-device-icon">' + icon('monitor') + '</span><h2>No devices connected</h2><p>Device connection is not implemented. Athena cannot pair a computer or lab server, control its desktop, or access its folders from this panel.</p><span class="acs-status-label"><span class="acs-neutral-dot"></span>Connection unavailable</span></div><div class="acs-device-details"><h3>Available in this workspace</h3><p>The connected Athena host reports its research tasks and saved results in Workflow.</p><button type="button" class="acs-text-button" data-acs-workspace="workflow">Open Workflow' + icon('arrow-up-right') + '</button></div></div>';
     }
 
     function render(moveFocus = false) {
@@ -10657,7 +10964,6 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       host.dataset.surface = state.surface;
       const views = { home: homeHTML, files: filesHTML, browser: browserHTML, diff: diffHTML, device: deviceHTML };
       host.innerHTML = (views[state.surface] || homeHTML)();
-      if (runtimeMode) { q('.acs-recent')?.remove(); q('.acs-document-preview')?.remove(); }
       refreshIcons();
       if (moveFocus) {
         const target = state.surface === 'home' ? q('[data-acs-surface]:not([disabled])') : q('[data-acs-action="home"]');
@@ -10687,11 +10993,11 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return true;
     }
 
-    async function copy(text) {
+    async function copy(text, message = 'Contents copied.') {
       try {
         if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
         await navigator.clipboard.writeText(text);
-        if (!destroyed) notify('Contents copied.');
+        if (!destroyed) notify(message);
       } catch (_) {
         if (!destroyed) notify('Clipboard unavailable. Select the text and copy it manually.');
       }
@@ -10715,6 +11021,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!button || !host.contains(button) || button.disabled) return;
       if (button.dataset.acsSurface) { open(button.dataset.acsSurface); return; }
       if (button.dataset.acsResearch) { options.onResearch?.(button.dataset.acsResearch); return; }
+      if (button.dataset.acsWorkspace) { options.onWorkspace?.(button.dataset.acsWorkspace); return; }
       if (button.dataset.acsFile) {
         if (!Object.prototype.hasOwnProperty.call(files, button.dataset.acsFile)) return;
         if (state.surface !== 'files') state.fileQuery = '';
@@ -10728,6 +11035,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (action === 'home') open('home');
       if (action === 'copy-file' && state.selectedFile) copy(contentOf(state.selectedFile));
       if (action === 'download-file') downloadSelectedFile();
+      if (action === 'copy-address') {
+        try { copy(normalizeAddress(), 'Web address copied.'); }
+        catch (_) { notify('Enter a web address beginning with http or https.'); }
+      }
     }, { signal });
 
     host.addEventListener('input', event => {
@@ -10736,8 +11047,21 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         q('.acs-file-list').innerHTML = fileListHTML();
         refreshIcons();
       }
-      if (event.target.matches('[data-acs-address]')) state.address = event.target.value;
+      if (event.target.matches('[data-acs-address]')) {
+        state.address = event.target.value;
+        q('[data-acs-action="copy-address"]').disabled = !state.address.trim();
+      }
     }, { signal });
+
+    function normalizeAddress() {
+      const address = state.address.trim();
+      const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[^/?#\s]+:\d+(?:[/?#]|$)/.test(address);
+      const url = new URL(hasScheme ? address : 'https://' + address);
+      if (!['https:', 'http:'].includes(url.protocol) || !url.hostname) throw new Error('unsupported-address');
+      state.address = url.href;
+      q('[data-acs-address]').value = state.address;
+      return url.href;
+    }
 
     host.addEventListener('submit', event => {
       if (!event.target.matches('[data-acs-address-form]')) return;
@@ -10745,12 +11069,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const address = state.address.trim();
       if (!address) { q('[data-acs-address]')?.focus(); return; }
       try {
-        const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[^/?#\s]+:\d+(?:[/?#]|$)/.test(address);
-        const url = new URL(hasScheme ? address : 'https://' + address);
-        if (!['https:', 'http:'].includes(url.protocol) || !url.hostname) throw new Error('unsupported-address');
-        state.address = url.href;
-        q('[data-acs-address]').value = state.address;
-        window.open(url.href, '_blank', 'noopener,noreferrer');
+        window.open(normalizeAddress(), '_blank', 'noopener,noreferrer');
       } catch (_) { notify('Enter a web address beginning with http or https.'); }
     }, { signal });
 
@@ -12761,6 +13080,26 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  let opener=null,dialogOpener=null,dialogAction=null,toastTimer=0,reconcileTimer=0;
  const listen=(el,type,fn,options={})=>el.addEventListener(type,fn,{...options,signal});
  const icons=()=>{if(window.lucide)window.lucide.createIcons({attrs:{'aria-hidden':'true'}})};
+ // Parent messages and host child snapshots can grow the same transcript in
+ // separate callbacks. Capture before the first DOM mutation, not after a
+ // child card has already grown. Nested renders share one scroll decision.
+ let conversationLayoutDepth=0,conversationLayoutAnchor=null;
+ function beforeConversationLayout(){
+  if(conversationLayoutDepth===0){
+   const scroller=q('.ac-conversation-inner');
+   conversationLayoutAnchor=scroller?{scroller,top:scroller.scrollTop,follow:scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<90}:null;
+  }
+  conversationLayoutDepth++;
+ }
+ function afterConversationLayout(){
+  if(conversationLayoutDepth<=0||--conversationLayoutDepth!==0)return;
+  const anchor=conversationLayoutAnchor;conversationLayoutAnchor=null;
+  if(appDestroyed||!anchor?.scroller.isConnected)return;
+  // A user reading earlier messages keeps that position through history
+  // replacement as well. No follow preference leaks into another callback.
+  anchor.scroller.scrollTop=anchor.follow?anchor.scroller.scrollHeight:anchor.top;
+ }
+
  const files={
   'baseline.cir':'* Athena UI example — ideal RC low-pass\nV1 in 0 AC 1\nR1 in out 1k\nC1 out 0 100n\n.ac dec 100 10 100k\n.end',
   'ac_response.csv':'# Illustrative values for UI design\nfrequency_hz,gain_db\n100,-0.0171\n1000,-1.4451\n1592,-3.0103\n10000,-16.0722',
@@ -13183,8 +13522,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   if(appDestroyed||snapshot.sequence===0)return;
   if(workspaceStore?.getState().sessionBound===false)return;
   if(!piEngaged&&snapshot.settled&&snapshot.phase==='idle'&&!snapshot.tools.length&&!snapshot.messages.length)return;
+  beforeConversationLayout();
+  try{
   q('#ac-live-reply').hidden=false;
-  const scroller=q('.ac-conversation-inner'),follow=scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<90;
   if(piRunId!==snapshot.runId||!piEngaged){
    piRunId=snapshot.runId;piText='';piEngaged=true;
    reply.begin({phase:snapshot.phase,previewLabel:piPreviewActive?'Local event preview':''});
@@ -13208,7 +13548,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    state.busy=true;composer.setBusy(true,snapshot.label,{canStop:piPreviewActive||typeof piSession?.abort==='function'});
   }
   chatModelPicker?.sync();
-  if(follow)scroller.scrollTop=scroller.scrollHeight;
+  }finally{afterConversationLayout()}
  }
  function handlePiEvent(event){if(appDestroyed)return false;return piRuntime?piRuntime.receive(event):piActivity.receive(event)}
  function usePiDraft(text){
@@ -13401,7 +13741,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  const resize=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{syncLeftUI();layout?.refresh();overlay();drawChart()}):null;resize?.observe(root);
  piActivity=window.AthenaPiActivity.create();
  piRuntime=window.AthenaPiRuntime.create();
- piView=window.AthenaConversationStream.mount(q('#ac-pi-transcript'),{icons,toast,getWorkspace:()=>workspaceStore?.getState(),getActivityFallback:()=>q('#aw-activity')});
+ piView=window.AthenaConversationStream.mount(q('#ac-pi-transcript'),{icons,toast,onBeforeLayout:beforeConversationLayout,onAfterLayout:afterConversationLayout,getWorkspace:()=>workspaceStore?.getState(),getActivityFallback:()=>q('#aw-activity')});
  piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
@@ -13418,7 +13758,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();
   toast(item.title+' excerpt added to the draft.');
  },onOpenArtifact:id=>openWorkspace('artifacts',{artifactId:id})});
- workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,placeActivity:(node,details)=>piView.placeActivity(node,details),removeActivity:id=>piView.removeActivity(id),hasConversationTool:id=>piView.hasTool(id),icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
+ workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,onBeforeLayout:beforeConversationLayout,onAfterLayout:afterConversationLayout,placeActivity:(node,details)=>piView.placeActivity(node,details),removeActivity:id=>piView.removeActivity(id),hasConversationTool:id=>piView.hasTool(id),icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
  syncLeftUI();
  layout=window.AthenaResize.mount(root,{onResize(){overlay();drawChart()}});
  settings=window.AthenaSettings.mount(root,{
