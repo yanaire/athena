@@ -66,6 +66,30 @@ The platform-specific preparation executable,
 packaging scripts, runtime deadline changes, Windows storage/ACL fixes and
 diagnostic tests are not part of this candidate.
 
+## Follow-up review: saved MCP credentials after a failed recheck
+
+The automatic review of the first stable commit identified
+[a connection-recheck regression](https://github.com/yanaire/athena/pull/16#discussion_r4693075481):
+the saved bearer credential reference was stored only inside a successful
+verification. A transient probe failure removed that verification and its
+reference, so later checks without a newly entered token could not find the
+credential that was still present in the host store.
+
+The correction keeps per-server credential references separately from current
+verification status. A failed probe still invalidates verification and disables
+the plugin, while a later probe of the same configuration can reuse its saved
+credential. Existing verification-only saved states retain their reference when
+read. This is not a recovery mechanism for references already lost before the
+upgrade: unrelated or orphaned vault entries are never guessed or rebound.
+
+The public snapshot exposes only the `credentialConfigured` boolean, not the
+reference or token. Replacing a plugin configuration clears its current saved
+references. Historical run pins retain their original immutable credential
+binding, and a deleted credential remains unavailable rather than silently
+switching to another one. Regression coverage exercises a real loopback MCP
+transport failure, restart and token-free recheck, together with stored-state
+compatibility and configuration-isolation boundaries.
+
 ## Why the platform work remains separate
 
 ### Windows
@@ -162,6 +186,24 @@ passing tests.
 The environment has no native Rust/WASI toolchain. Native sandbox execution,
 the Mac app, WebView behavior and live-account acceptance were not run locally;
 TypeScript, controlled-provider and DOM results do not establish those outcomes.
+
+The first stable commit, `b35cf79d3ace0a7d438b81b776ef11a2606d4141`, subsequently
+passed all three required jobs in
+[GitHub CI run 45586875373](https://github.com/yanaire/athena/actions/runs/45586875373).
+The actual Apple Silicon host suite passed **257/257 tests with zero skips**, the
+production dependency audit reported zero vulnerabilities, the generated UI and
+its 107/38/101 test groups passed, and the arm64 app bundle built and passed its
+file verification. The final Cargo desktop test-target command reported **zero
+Rust tests**; it must not be treated as native startup behavioral acceptance.
+Host startup regressions are part of the Node suite, and actual app/WebView
+acceptance remains separate.
+
+All four CodeQL language jobs passed for that first stable commit in
+[run 45586870515](https://github.com/yanaire/athena/actions/runs/45586870515), and
+the aggregate reported no new alerts in changed code. The MCP review correction
+above creates a newer candidate and therefore requires its own successful CI;
+the first stable result is preserved as historical evidence, not reused as its
+merge proof.
 
 Merge readiness requires successful `history-secrets`, `apple-silicon` and
 `browser-chat` checks on this exact candidate. The workflow retains the three

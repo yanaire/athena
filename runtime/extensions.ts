@@ -123,10 +123,13 @@ function manifest(value: unknown, builtin = false): PluginManifest {
 export const validatePluginManifest = (value: unknown) => manifest(value);
 
 type StoredPlugin = { id: string; revision: string; enabled: boolean; installedAt: number; updatedAt: number;
+  credentialRefs?: Record<string, string>;
   verifications: Record<string, ExternalVerification>; errors: Record<string, { message: string; checkedAt: number }> };
 type ProjectState = { schemaVersion: 1; revision: number; plugins: StoredPlugin[]; skillEnabled: Record<string, boolean>; uses: SkillUse[] };
 type Archive = { manifest: PluginManifest; builtin: boolean };
 type MetadataStorage = Pick<Storage, 'get' | 'set'>;
+const savedCredentialRef = (plugin: StoredPlugin, serverId: string) => plugin.credentialRefs && Object.hasOwn(plugin.credentialRefs, serverId)
+  ? plugin.credentialRefs[serverId] : undefined;
 const qualifiedSkillId = (plugin: PluginManifest, localId: string) => plugin.id === BUILTIN_SKILLS_ID ? localId : plugin.id + '/' + localId;
 const archiveKey = (revision: string) => 'extensions:package:' + revision;
 const stateKey = (projectId: string) => 'extensions:project:' + encodeURIComponent(text(projectId, 'project ID'));
@@ -190,10 +193,17 @@ export class ExtensionStore {
     if (value) {
       if (value.schemaVersion !== 1 || !Number.isSafeInteger(value.revision) || !Array.isArray(value.plugins) || value.plugins.length > EXTENSION_LIMITS.plugins
         || !object(value.skillEnabled) || !Array.isArray(value.uses)) throw new ExtensionError('EXTENSION_STATE_INVALID', 'Invalid saved project extension state.');
-      return clone(value);
+      const state = clone(value);
+      // Older states bound the saved credential only to a successful probe.
+      // Preserve that binding before a later failure invalidates verification.
+      for (const plugin of state.plugins) if (plugin.credentialRefs === undefined) {
+        plugin.credentialRefs = Object.fromEntries(Object.entries(plugin.verifications).flatMap(([serverId, verification]) =>
+          typeof verification.credentialRef === 'string' ? [[serverId, verification.credentialRef]] : []));
+      }
+      return state;
     }
     return { schemaVersion: 1, revision: 0, plugins: [{ id: BUILTIN_SKILLS_ID, revision: this.#builtin.revision,
-      enabled: true, installedAt: 0, updatedAt: 0, verifications: {}, errors: {} }], skillEnabled: {}, uses: [] };
+      enabled: true, installedAt: 0, updatedAt: 0, credentialRefs: {}, verifications: {}, errors: {} }], skillEnabled: {}, uses: [] };
   }
   #write(projectId: string, state: ProjectState, expectedRevision?: number) {
     const current = this.#state(projectId);
@@ -221,7 +231,7 @@ export class ExtensionStore {
         const verification = stored.verifications[server.id], error = stored.errors[server.id];
         const { credentialRef: _credential, ...safe } = verification ?? {};
         return { ...server, status: verification ? 'verified' : error ? 'failed' : 'not_checked',
-          credentialConfigured: Boolean(verification?.credentialRef), ...(verification ? { verification: safe as Omit<ExternalVerification, 'credentialRef'> } : {}),
+          credentialConfigured: server.auth === 'bearer' && Boolean(savedCredentialRef(stored, server.id)), ...(verification ? { verification: safe as Omit<ExternalVerification, 'credentialRef'> } : {}),
           ...(error ? { lastError: error.message, checkedAt: error.checkedAt } : {}) };
       });
       return { id: value.id, name: value.name, description: value.description, version: value.version, revision: stored.revision,
@@ -237,7 +247,7 @@ export class ExtensionStore {
     if (old && this.#readArchive(old.revision).manifest.version === value.version) throw new ExtensionError('PLUGIN_VERSION_CONFLICT', 'Change the plugin version before replacing its contents or configuration.');
     if (!old && state.plugins.length >= EXTENSION_LIMITS.plugins) throw new ExtensionError('PLUGIN_LIMIT', 'Project plugin limit reached.');
     this.#archive(value);
-    const next: StoredPlugin = { id: value.id, revision, enabled: false, installedAt: old?.installedAt ?? Date.now(), updatedAt: Date.now(), verifications: {}, errors: {} };
+    const next: StoredPlugin = { id: value.id, revision, enabled: false, installedAt: old?.installedAt ?? Date.now(), updatedAt: Date.now(), credentialRefs: {}, verifications: {}, errors: {} };
     state.plugins = old ? state.plugins.map(plugin => plugin.id === value.id ? next : plugin) : [...state.plugins, next];
     return this.#write(projectId, state, expectedRevision);
   }
@@ -272,7 +282,8 @@ export class ExtensionStore {
     if (!plugin) throw new ExtensionError('PLUGIN_NOT_FOUND', 'Plugin is not installed in this project.');
     const { manifest: value } = this.#readArchive(plugin.revision, pluginId), server = value.mcpServers?.find(item => item.id === serverId);
     if (!server) throw new ExtensionError('SERVER_NOT_FOUND', 'MCP server is not configured in this plugin.');
-    return freeze({ pluginRevision: plugin.revision, configurationRevision: state.revision, server, verification: plugin.verifications[serverId] });
+    return freeze({ pluginRevision: plugin.revision, configurationRevision: state.revision, server,
+      credentialRef: server.auth === 'bearer' ? savedCredentialRef(plugin, serverId) : undefined, verification: plugin.verifications[serverId] });
   }
   recordVerification(projectId: string, pluginId: string, serverId: string, verification: ExternalVerification,
     expectedPluginRevision: string, credentialRef?: string, expectedRevision?: number): ExtensionSnapshot {
@@ -287,6 +298,9 @@ export class ExtensionStore {
     const previous = plugin.verifications[serverId];
     if (plugin.enabled && (!previous || previous.digest !== verification.digest || previous.credentialRef !== credentialRef)) plugin.enabled = false;
     plugin.verifications[serverId] = clone({ ...verification, ...(credentialRef ? { credentialRef } : {}) });
+    const credentialRefs = plugin.credentialRefs ??= {};
+    if (credentialRef) credentialRefs[serverId] = credentialRef;
+    else delete credentialRefs[serverId];
     delete plugin.errors[serverId];
     return this.#write(projectId, state, expectedRevision);
   }

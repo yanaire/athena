@@ -67,6 +67,7 @@ async function body(req: IncomingMessage) {
 async function fixture(t: TestContext, handler: Handler) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'athena-manager-extensions-')));
   const hits: Wire[] = [], calls: { authorization: string | undefined; args: unknown }[] = [];
+  const connection = { available: true, authorizations: [] as (string | undefined)[] };
   const provider = createServer(async (req, res) => {
     try { const wire = await body(req) as Wire; hits.push(wire); await handler(wire, res); }
     catch (error) { res.writeHead(500).end(JSON.stringify({ error: String(error) })); }
@@ -74,6 +75,10 @@ async function fixture(t: TestContext, handler: Handler) {
   const mcp = createServer(async (req, res) => {
     if (req.method === 'DELETE') { res.writeHead(202).end(); return; }
     const message = await body(req);
+    if (message.method === 'initialize') {
+      connection.authorizations.push(req.headers.authorization);
+      if (!connection.available) { req.socket.destroy(); return; }
+    }
     if (String(message.method).startsWith('notifications/')) { res.writeHead(202).end(); return; }
     res.setHeader('content-type', 'application/json');
     let result: unknown;
@@ -114,7 +119,7 @@ async function fixture(t: TestContext, handler: Handler) {
       await rm(directory, { recursive: true, force: true });
     }
   });
-  return { directory, manifest, hits, calls,
+  return { directory, manifest, hits, calls, connection,
     async manager() {
       const credentials = await openLocalCredentials(join(directory, 'external-auth'));
       const manager = new TaskManager({ dataDir: directory, externalCredentials: credentials });
@@ -128,6 +133,71 @@ async function fixture(t: TestContext, handler: Handler) {
     },
   };
 }
+
+test('a failed MCP recheck preserves the saved credential across restart without restoring verification or permission', { timeout: 30000 }, async t => {
+  const f = await fixture(t, () => assert.fail('Checking an MCP connection must not call a model.'));
+  let { manager, credentials } = await f.manager();
+  const { project } = await manager.createProject({ name: 'Connection recovery' });
+  let state = await f.install(manager, project.id);
+  const saved = await credentials.list();
+  assert.equal(saved.length, 1);
+  const reference = saved[0]!.providerId;
+  const publicViews: unknown[] = [state];
+  f.connection.available = false;
+  await assert.rejects(manager.checkMcpServer(project.id, 'laboratory', 'remote', state.revision), { code: 'MCP_CONNECTION_FAILED' });
+  const failed = manager.getExtensions(project.id);
+  const failedPlugin = failed.plugins.find(plugin => plugin.id === 'laboratory')!;
+  assert.equal(failedPlugin.enabled, false);
+  assert.equal(failedPlugin.servers[0]?.status, 'failed');
+  assert.equal(failedPlugin.servers[0]?.verification, undefined);
+  assert.throws(() => manager.setPluginEnabled(project.id, 'laboratory', true, failed.revision), /verification/);
+  await manager.close();
+  ({ manager, credentials } = await f.manager());
+  const reopened = manager.getExtensions(project.id);
+  assert.deepEqual(await credentials.list(), saved, 'A failed probe does not delete or rotate the stored token.');
+  f.connection.available = true;
+  state = await manager.checkMcpServer(project.id, 'laboratory', 'remote', reopened.revision, {});
+  assert.equal(failedPlugin.servers[0]?.credentialConfigured, true);
+  assert.equal(reopened.plugins.find(plugin => plugin.id === 'laboratory')?.servers[0]?.credentialConfigured, true);
+  const recovered = state.plugins.find(plugin => plugin.id === 'laboratory')!;
+  assert.equal(recovered.servers[0]?.status, 'verified');
+  assert.equal(recovered.enabled, false, 'A successful recheck still requires explicit reenablement.');
+  assert.deepEqual(await credentials.list(), saved, 'Blank-token rechecks reuse the same immutable reference.');
+  assert.ok(f.connection.authorizations.every(value => value === 'Bearer ' + tokenA));
+  publicViews.push(failed, reopened, state);
+  state = manager.setPluginEnabled(project.id, 'laboratory', true, state.revision);
+
+  // Revocation stays authoritative: an orphaned reference cannot recreate a key.
+  await credentials.delete(reference);
+  const beforeRevokedCheck = f.connection.authorizations.length;
+  await assert.rejects(manager.checkMcpServer(project.id, 'laboratory', 'remote', state.revision), /credential is unavailable/);
+  assert.equal(f.connection.authorizations.length, beforeRevokedCheck);
+  assert.equal((await credentials.list()).length, 0);
+  state = manager.getExtensions(project.id);
+  assert.equal(state.plugins.find(plugin => plugin.id === 'laboratory')?.enabled, false);
+  state = await manager.checkMcpServer(project.id, 'laboratory', 'remote', state.revision, { token: tokenB });
+  const replacement = (await credentials.list())[0]!.providerId;
+  assert.notEqual(replacement, reference);
+
+  // A changed endpoint and a fresh installation must never inherit that token.
+  const changed: PluginManifest = { ...f.manifest, version: '2.0.0', mcpServers: [{ ...f.manifest.mcpServers![0]!,
+    url: f.manifest.mcpServers![0]!.url + '/changed' }] };
+  state = manager.installPlugin(project.id, changed, state.revision);
+  assert.equal(state.plugins.find(plugin => plugin.id === 'laboratory')?.servers[0]?.credentialConfigured, false);
+  const beforeChangedCheck = f.connection.authorizations.length;
+  await assert.rejects(manager.checkMcpServer(project.id, 'laboratory', 'remote', state.revision), /credential/);
+  assert.equal(f.connection.authorizations.length, beforeChangedCheck);
+  state = manager.removePlugin(project.id, 'laboratory', manager.getExtensions(project.id).revision);
+  state = manager.installPlugin(project.id, f.manifest, state.revision);
+  assert.equal(state.plugins.find(plugin => plugin.id === 'laboratory')?.servers[0]?.credentialConfigured, false);
+  await assert.rejects(manager.checkMcpServer(project.id, 'laboratory', 'remote', state.revision), /credential/);
+  assert.equal(f.connection.authorizations.length, beforeChangedCheck);
+  assert.equal((await credentials.list())[0]?.providerId, replacement, 'Removing current configuration preserves credentials owned by historical pins.');
+  publicViews.push(state, manager.getExtensions(project.id), manager.getSnapshot());
+  const publicText = JSON.stringify(publicViews);
+  for (const privateValue of [tokenA, tokenB, reference, replacement]) assert.ok(!publicText.includes(privateValue));
+  assert.equal(f.hits.length, 0);
+});
 
 test('actual Pi uses selected skill bodies and pinned external credentials across update, removal, restart and child retry', { timeout: 45000 }, async t => {
   let recovering = false, csvId = '';

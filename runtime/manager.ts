@@ -311,7 +311,7 @@ export class TaskManager implements AthenaTaskManager {
     let newReference:string|undefined;
     try {
       if (options.token !== undefined && !this.#externalCredentials) throw new ManagerError('MCP_CREDENTIAL_UNAVAILABLE','External MCP credential storage is unavailable.');
-      const reference=configured.server.auth==='bearer' ? configured.verification?.credentialRef : undefined;
+      const reference=configured.credentialRef;
       const token=options.token ?? await this.#externalToken(reference);
       const verification=await discoverExternalMcp(configured.server,{token});
       this.#extensionProject(projectId);
@@ -324,7 +324,7 @@ export class TaskManager implements AthenaTaskManager {
       }
       this.#extensionProject(projectId);
       this.#commit(()=>{this.#extensions.recordVerification(projectId,pluginId,serverId,verification,configured.pluginRevision,credentialRef,revision);});
-      newReference=undefined; // The immutable verification now owns this reference.
+      newReference=undefined; // Saved configuration and immutable verification now own this reference.
       return this.getExtensions(projectId);
     } catch(error) {
       if (newReference) await this.#externalCredentials?.delete(newReference);

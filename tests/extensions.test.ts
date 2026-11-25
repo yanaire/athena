@@ -142,6 +142,42 @@ test('bearer credential refs are host namespaced and excluded from the public sn
   } finally { s.close(); }
 });
 
+test('legacy verification-only credentials survive a failed probe without remaining verified or leaking references', () => {
+  const s = setup();
+  try {
+    const authenticated = { ...server, auth: 'bearer' as const };
+    const remote: PluginManifest = { ...plugin, skills: [], mcpServers: [authenticated] };
+    let view = s.store.install('project-a', remote);
+    const configured = s.store.getConfiguredServer('project-a', plugin.id, 'lab');
+    const reference = 'athena.external-mcp/cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    view = s.store.recordVerification('project-a', plugin.id, 'lab', verification(authenticated), configured.pluginRevision, reference, view.revision);
+    view = s.store.setEnabled('project-a', plugin.id, true, view.revision);
+    const pinned = s.store.pin('project-a');
+    const key = 'extensions:project:project-a';
+    const legacy = s.storage.get<{ plugins: { credentialRefs?: Record<string, string> }[] }>(key)!;
+    for (const entry of legacy.plugins) delete entry.credentialRefs;
+    s.storage.set(key, legacy);
+    const upgraded = new ExtensionStore(s.storage);
+    assert.equal(upgraded.getConfiguredServer('project-a', plugin.id, 'lab').credentialRef, reference);
+    view = upgraded.recordVerificationFailure('project-a', plugin.id, 'lab', 'Synthetic network failure', configured.pluginRevision, view.revision);
+    const reopened = new ExtensionStore(s.storage);
+    assert.equal(reopened.getConfiguredServer('project-a', plugin.id, 'lab').credentialRef, reference);
+    const failed = reopened.snapshot('project-a').plugins.find(entry => entry.id === plugin.id)!;
+    assert.equal(failed.enabled, false);
+    assert.equal(failed.servers[0]?.status, 'failed');
+    assert.equal(failed.servers[0]?.credentialConfigured, true);
+    assert.equal(failed.servers[0]?.verification, undefined);
+    assert.ok(!JSON.stringify(failed).includes(reference));
+    assert.throws(() => reopened.setEnabled('project-a', plugin.id, true, view.revision), /verification/);
+    assert.equal(reopened.getServer(pinned, 'lab-procedures/lab').verification.credentialRef, reference);
+    view = reopened.install('project-a', { ...remote, version: '2.0.0', mcpServers: [server] }, view.revision);
+    assert.equal(reopened.getConfiguredServer('project-a', plugin.id, 'lab').credentialRef, undefined);
+    assert.equal(view.plugins.find(entry => entry.id === plugin.id)?.servers[0]?.credentialConfigured, false);
+    assert.throws(() => reopened.recordVerification('project-a', plugin.id, 'lab', verification(),
+      reopened.getConfiguredServer('project-a', plugin.id, 'lab').pluginRevision, reference), /authentication mode/);
+  } finally { s.close(); }
+});
+
 test('manifest and archive validation reject code, namespace injection, unsupported transport and tampered pinned bodies', () => {
   const s = setup();
   try {
