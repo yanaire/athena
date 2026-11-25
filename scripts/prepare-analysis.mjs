@@ -31,7 +31,9 @@ function preparePythonBytecode(runtime, preparer) {
   // This separate build-only executable uses the same pinned Wasmtime engine
   // on every platform. It is not copied into staged or distributed runtimes.
   // Node's built-in uvwasi cannot iterate directories on Windows (ENOSYS).
-  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 300_000, windowsHide: true });
+  const started = performance.now();
+  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 600_000, windowsHide: true });
+  console.log(`Prepared bundled Python bytecode in ${((performance.now() - started) / 1000).toFixed(1)} seconds.`);
 }
 
 export async function prepareAnalysis(destination, binaryDestination) {
