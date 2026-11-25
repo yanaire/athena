@@ -555,7 +555,7 @@ export class TaskManager implements AthenaTaskManager {
   }
 
   #message(command: PiCommand, session: StoredSession): string {
-    if (typeof command.message !== 'string' || !command.message.trim()) throw new ManagerError('INVALID_INPUT', 'Message is required.');
+    if (typeof command.message !== 'string' || (!command.message.trim() && !(Array.isArray(command.fileReferences) && command.fileReferences.length))) throw new ManagerError('INVALID_INPUT', 'Enter a message or attach a file.');
     if (command.images !== undefined) throw new ManagerError('UNSUPPORTED_INPUT', 'This host accepts text messages and staged text files.');
     let message = command.message;
     if (command.fileReferences !== undefined) {
@@ -585,16 +585,20 @@ export class TaskManager implements AthenaTaskManager {
   #attachmentMessage(attempt: Attempt, runtime: ManagedPiSession): AttachmentMessage | undefined {
     if (attempt.parentTaskId !== null || attempt.kind === 'reconciliation' || !attempt.fileIds.length) return;
     let suffix = '';
+    const attachments = [];
     for (const fileId of attempt.fileIds) {
       const file = this.#storage.record<StoredFile>('file', fileId);
       if (!file || file.sessionId !== attempt.sessionId || file.projectId !== attempt.projectId) return;
       suffix += this.#attachmentInstruction(file);
+      // Display metadata comes from the owning attempt's persisted inputs,
+      // never from model text. Do not expose transport IDs or filesystem paths.
+      attachments.push({name: runtime.publicText?.(file.name) ?? file.name, mimeType: runtime.publicText?.(file.mimeType) ?? file.mimeType, size: file.size});
     }
     // Older attempts stored the full dispatch and file IDs. The immutable upload
     // metadata identifies their exact appended suffix without scanning user text.
     if (!attempt.prompt.endsWith(suffix)) return;
     const user = attempt.prompt.slice(0, -suffix.length);
-    return {dispatch: runtime.publicText?.(attempt.prompt) ?? attempt.prompt, user: runtime.publicText?.(user) ?? user};
+    return {dispatch: runtime.publicText?.(attempt.prompt) ?? attempt.prompt, user: runtime.publicText?.(user) ?? user, attachments};
   }
 
   async pi(sessionId: string, command: PiCommand): Promise<unknown> {

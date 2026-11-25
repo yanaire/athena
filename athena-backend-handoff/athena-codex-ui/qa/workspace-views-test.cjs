@@ -31,6 +31,7 @@ function env(overrides={},fetchFile,historyMessages=[{role:'assistant',content:'
  const records=window.AthenaResearchRecords.create({projectId:'project-rc'});
  records.ensureDocument({documentId:'research-note',text:'Current document v1',title:'Current research',version:'1',originalSample:true,evidence:[{sourceId:'source-a',version:'1'}],review:{status:'approved',version:'1'}});
  vm.runInNewContext(fs.readFileSync(base+'ui/result-files.js','utf8'),context);
+ vm.runInNewContext(fs.readFileSync(base+'ui/workflow-graph.js','utf8'),context);
  vm.runInNewContext(fs.readFileSync(base+'ui/workspace-views.js','utf8'),context);
  const host=document.querySelector('#host'),api=window.AthenaWorkspaceViews.mount(host,{store,records,onNavigate:(view,selection)=>nav.push({view,...selection})});
  const q=selector=>host.querySelector(selector),fire=(node,type)=>node.dispatchEvent(new window.Event(type,{bubbles:true,cancelable:true}));

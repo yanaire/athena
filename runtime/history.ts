@@ -30,16 +30,18 @@ function isTurnAnchor(message: unknown): boolean {
     message.customType === 'athena-reconciliation' && message.display === false));
 }
 
-export type AttachmentMessage = { readonly dispatch: string; readonly user: string };
+export type DisplayAttachment = { readonly name: string; readonly mimeType: string; readonly size: number };
+export type AttachmentMessage = { readonly dispatch: string; readonly user: string; readonly attachments?: readonly DisplayAttachment[] };
 
 /** Match the exact dispatch for the owning attempt, including any public redaction. */
 export function withoutAttachmentContext(message: unknown, attachment: AttachmentMessage | undefined): unknown {
   if (!attachment || !object(message) || message.role !== 'user') return message;
-  if (message.content === attachment.dispatch) return {...message, content: attachment.user};
+  const metadata = attachment.attachments ? {attachments: attachment.attachments} : {};
+  if (message.content === attachment.dispatch) return {...message, content: attachment.user, ...metadata};
   if (Array.isArray(message.content) && message.content.length === 1) {
     const [part] = message.content;
     if (object(part) && part.type === 'text' && part.text === attachment.dispatch)
-      return {...message, content: [{...part, text: attachment.user}]};
+      return {...message, content: [{...part, text: attachment.user}], ...metadata};
   }
   return message;
 }

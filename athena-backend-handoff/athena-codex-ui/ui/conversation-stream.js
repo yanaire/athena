@@ -7,6 +7,7 @@
   const text = content => typeof content === 'string' ? content : (Array.isArray(content) ? content : []).filter(block => block?.type === 'text').map(block => String(block.text || '')).join('\n');
   const context = value => value && typeof value.runId === 'string' && typeof value.attemptId === 'string' ? Object.fromEntries(['projectId', 'sessionId', 'runId', 'taskId', 'parentTaskId', 'agentSessionId', 'attemptId'].filter(key => typeof value[key] === 'string' || key === 'parentTaskId' && value[key] === null).map(key => [key, value[key]])) : null;
   const timestamp = value => Number.isFinite(value) ? value : typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+  const attachmentNames = value => (Array.isArray(value) ? value : []).filter(file => file && typeof file.name === 'string' && file.name).map(file => ({ name: file.name }));
 
   function mount(host, options = {}) {
     const view = window.AthenaPiSessionView.mount(host, { ...options, managedLayout: true });
@@ -84,11 +85,14 @@
           if (body.textContent !== entry.text) body.textContent = entry.text;
           node.hidden = !entry.text && !entry.attachments?.length;
           let attachmentList = node.querySelector('.ac-message-attachments');
-          if (entry.attachments?.length && !attachmentList) {
-            attachmentList = document.createElement('div'); attachmentList.className = 'ac-message-attachments';
-            for (const file of entry.attachments) { const label = document.createElement('span'); label.className = 'ac-message-attachment'; label.textContent = file.name; attachmentList.appendChild(label); }
-            node.appendChild(attachmentList);
-          }
+          if (entry.attachments?.length) {
+            if (!attachmentList) { attachmentList = document.createElement('div'); attachmentList.className = 'ac-message-attachments'; node.appendChild(attachmentList); }
+            const signature = JSON.stringify(entry.attachments.map(file => file.name));
+            if (attachmentList.dataset.attachments !== signature) {
+              attachmentList.replaceChildren(); attachmentList.dataset.attachments = signature;
+              for (const file of entry.attachments) { const label = document.createElement('span'); label.className = 'ac-message-attachment'; label.textContent = file.name; attachmentList.appendChild(label); }
+            }
+          } else attachmentList?.remove();
         }
       }
       layout();
@@ -111,7 +115,7 @@
         }
         if (!['user', 'assistant'].includes(message.role)) continue;
         if (message.role === 'user') {
-          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), athena: owner, at });
+          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), attachments: attachmentNames(message.attachments), athena: owner, at });
           continue;
         }
         const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content || [];
@@ -144,6 +148,7 @@
         }
         pendingUser.observed = true;
         pendingUser.text = text(event.message.content);
+        if (Array.isArray(event.message.attachments)) pendingUser.attachments = attachmentNames(event.message.attachments);
         pendingUser.at = timestamp(event.message.timestamp);
         pendingUser.athena = owner || pendingUser.athena;
         render();

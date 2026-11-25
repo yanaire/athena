@@ -2897,7 +2897,9 @@ test('Graph/list selection and inline log actions retain inspectable task output
   assert.equal(env.state().workspaceView.workflowMode, 'graph');
   env.click('[data-awv-task="analyze"]');
   assert.equal(env.state().workspaceView.taskId, 'analyze');
-  assert.equal(env.qa('.awv-graph-start .awv-task-node').length, 2);
+  assert.equal(env.qa('[data-awg-node]').length, workspace(env).tasks.length);
+  assert.equal(env.qa('[data-awg-edge="dependency"]').length, workspace(env).tasks.reduce((count, task) => count + task.dependencies.length, 0));
+  assert.equal(env.q('[data-awg-node="analyze"] [data-awv-task]').getAttribute('aria-pressed'), 'true');
   env.click('[data-awv-action="workflow-mode"][data-awv-value="list"]');
   assert.equal(env.q('[data-awv-task="analyze"]').getAttribute('aria-pressed'), 'true');
   env.click('[data-awv-task-detail] [data-awv-task="inspect"]');

@@ -25,6 +25,26 @@ function historyRun(context, start, title = 'Compare the measurement') {
 }
 const order = host => [...host.children].filter(node => !node.hidden).map(node => node.dataset.awAttempt ? 'attempt:' + node.dataset.awAttempt : node.dataset.role === 'user' ? 'user:' + node.querySelector('p').textContent : node.dataset.role === 'assistant' ? 'text:' + node.querySelector('p').textContent : node.querySelector('[data-ap-tool]') ? 'tool:' + node.querySelector('[data-ap-tool]').dataset.apTool : 'other');
 
+test('verified attachment labels survive history hydration including an attachment-only message', () => {
+  const e = environment(), context = owner();
+  const attachments = [{name: '<img onerror=alert(1)>.csv', mimeType: 'text/csv', size: 10}];
+  try {
+    e.view.beginUser('', [{name: 'local-name.csv'}]);
+    e.view.observe({type: 'message_start', ...context, message: {role: 'user', content: '', attachments}});
+    assert.equal(e.host.querySelector('.ac-message-attachment').textContent, attachments[0].name);
+    assert.equal(e.host.querySelector('img'), null);
+    const records = [{...message('user', '', context, 100), attachments}, message('assistant', 'File received.', context, 110)];
+    e.view.history(records);
+    assert.equal(e.host.querySelector('[data-role="user"]').hidden, false);
+    assert.equal(e.host.querySelector('[data-role="user"] .ac-stream-text').textContent, '');
+    assert.equal(e.host.querySelector('.ac-message-attachment').textContent, attachments[0].name);
+    e.view.history([message('user', 'Unrelated text', context, 200)]);
+    assert.equal(e.host.querySelector('.ac-message-attachments'), null);
+    e.view.history(records);
+    assert.equal(e.host.querySelectorAll('.ac-message-attachment').length, 1);
+  } finally { e.close(); }
+});
+
 test('live public text and tools retain observed order, duplicate text, exact user text and closed raw results', async () => {
   const e = environment(), pi = e.window.AthenaPiActivity.create({ now: () => 2000 });
   const off = pi.subscribe(snapshot => { if (snapshot.sequence) e.view.render(snapshot); });

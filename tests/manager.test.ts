@@ -223,6 +223,7 @@ test('attachment transport stays in the Pi dispatch while live and restored user
   const forwarded: Record<string, unknown>[] = [];
   manager.subscribePi(sessionId, event => forwarded.push(event));
   const command = {type:'prompt',id:'with-files',message,fileReferences};
+  const displayAttachments = fileReferences.map(file => ({name: file.name.replaceAll(secret, '[redacted]'), mimeType: file.mimeType, size: file.size}));
   const send = async (input: typeof command | {type: string; id: string; message: string}, whileStreaming?: () => Promise<void>) => {
     const done = Promise.withResolvers<void>();
     const detach = manager.subscribePi(sessionId, event => { if (event.type === 'agent_settled') done.resolve(); });
@@ -245,6 +246,8 @@ test('attachment transport stays in the Pi dispatch while live and restored user
       await dispatched;
       assert.deepEqual(forwarded.filter(event => event.type === 'message_start' && object(event.message) && event.message.role === 'user')
         .map(event => bodyText(event.message)), [message]);
+      assert.deepEqual(forwarded.filter(event => event.type === 'message_start' && object(event.message) && event.message.role === 'user')
+        .map(event => object(event.message) ? event.message.attachments : undefined), [displayAttachments]);
       const response = await manager.pi(sessionId, {type:'get_messages'});
       assert.ok(object(response) && object(response.data) && Array.isArray(response.data.messages));
       assert.deepEqual(users(response.data.messages), [message]);
@@ -273,6 +276,7 @@ test('attachment transport stays in the Pi dispatch while live and restored user
     const response = await manager.pi(sessionId, {type:'get_messages'});
     assert.ok(object(response) && object(response.data) && Array.isArray(response.data.messages));
     assert.deepEqual(users(response.data.messages), [message, publicWireMessage]);
+    assert.deepEqual(response.data.messages.filter(object).filter(item => item.role === 'user').map(item => item.attachments), [displayAttachments, undefined]);
     assert.deepEqual(owners(response.data.messages), liveOwners);
     assert.deepEqual(users((await manager.getAgentHistory(sessionId, sessionId)).messages), [message, publicWireMessage]);
     const entries = await manager.pi(sessionId, {type:'get_entries'});
@@ -309,6 +313,34 @@ test('attachment transport stays in the Pi dispatch while live and restored user
   assert.equal(await readFile(path, 'utf8'), persisted);
   assert.deepEqual(await manager.pi(sessionId, command), receipt);
   assert.equal(wire.requests.length, 3);
+});
+
+test('attachment-only chat preserves an empty user message and verified labels after restart without relaxing file scope', {timeout: 20000}, async t => {
+  const wire = await fixture(t);
+  let manager = await wire.manager();
+  const {sessionId} = await session(manager);
+  const {fileReferences} = await manager.stageFiles(sessionId, [{name: 'only.csv', mimeType: 'text/csv', data: Buffer.from('voltage\n7\n').toString('base64')}]);
+  await assert.rejects(manager.pi(sessionId, {type: 'prompt', id: 'empty', message: '', fileReferences: []}), {code: 'INVALID_INPUT'});
+  const pending = Promise.withResolvers<void>();
+  const off = manager.subscribePi(sessionId, event => { if (event.type === 'agent_settled') pending.resolve(); });
+  const accepted = await manager.pi(sessionId, {type: 'prompt', id: 'file-only', message: '', fileReferences});
+  await pending.promise; off();
+  assert.ok(object(accepted));
+  const verify = async () => {
+    const messages = (await manager.getAgentHistory(sessionId, sessionId)).messages.filter(object);
+    const user = messages.find(message => message.role === 'user');
+    assert.ok(user);
+    const content = typeof user.content === 'string' ? user.content : Array.isArray(user.content) ? user.content.filter(object).map(part => part.text).join('') : undefined;
+    assert.equal(content, '');
+    assert.deepEqual(user.attachments, [{name: 'only.csv', mimeType: 'text/csv', size: 10}]);
+  };
+  await verify();
+  await manager.close(); manager = await wire.manager();
+  await verify();
+  const foreign = await session(manager, 'Other scope');
+  const before = wire.requests.length;
+  await assert.rejects(manager.pi(foreign.sessionId, {type: 'prompt', id: 'foreign-only', message: '', fileReferences}), {code: 'FILE_SCOPE_MISMATCH'});
+  assert.equal(wire.requests.length, before);
 });
 
 test('attachment grants reject replacement files, links and excess permissions before invocation', { timeout: 20000 }, async t => {

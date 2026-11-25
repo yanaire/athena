@@ -17,6 +17,12 @@ export interface FileReference {
   versionId?: string;
 }
 
+/** Optional public message metadata, projected only from the owning host attempt. */
+export interface MessageDisplayMetadata {
+  /** Labels only: these records do not grant file access or expose local paths. */
+  attachments?: readonly { name: string; mimeType: string; size: number }[];
+}
+
 export interface ImageContent {
   type: 'image';
   mimeType: string;

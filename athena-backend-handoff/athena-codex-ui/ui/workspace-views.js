@@ -112,16 +112,26 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const store = options.store;
     const abort = new AbortController();
     const urls = new Set(), timers = new Set(), diagnosticState = new Map();
-    const state = { view: 'workflow', taskId: 'sources', workflowMode: 'list', artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
+    const state = { view: 'workflow', taskId: 'sources', workflowMode: 'graph', workflowRunId: null, workflowFollowLatest: true, graphZoom: 100, graphFit: false, artifactId: 'response-plot', artifactVersion: null, documentVersion: null, referenceOpen: false, codeTab: 'source', baseline: true, tolerance: true, table: false, noteMode: 'text', notePage: 1, noteZoom: 100, highlights: true, citation: null, agentSessionId: '', timelineTask: 'all', timelineType: 'all' };
     let snapshot = store.getState(), destroyed = false, unsubscribe = null, recordUnsubscribe = null, resizeObserver = null;
     let history = { key: '', messages: [], status: '', error: '' };
-    let researchService = options.researchService || null, researchBoard = null;
+    let researchService = options.researchService || null, researchBoard = null, graphModel = null;
     const q = selector => host.querySelector(selector);
     const qa = selector => Array.from(host.querySelectorAll(selector));
     const notify = message => options.toast?.(message);
     const refreshIcons = () => options.icons ? options.icons() : window.lucide?.createIcons({ attrs: { 'aria-hidden': 'true' } });
     const tasks = () => snapshot.tasks || [];
     const task = id => tasks().find(item => item.id === id);
+    const workflowRuns = () => {
+      const runs = new Map();
+      for (const item of tasks()) if (item.runId && !runs.has(item.runId)) runs.set(item.runId, { id: item.runId, firstTask: item });
+      if (snapshot.run?.id && !runs.has(snapshot.run.id)) runs.set(snapshot.run.id, { id: snapshot.run.id, firstTask: null });
+      return [...runs.values()];
+    };
+    const workflowRunId = () => state.workflowFollowLatest ? snapshot.run?.id || workflowRuns().at(-1)?.id || null : state.workflowRunId;
+    const workflowTasks = () => { const runId = workflowRunId(); return tasks().filter(item => !runId || !item.runId || item.runId === runId); };
+    const historicalWorkflow = () => live() && state.view === 'workflow' && workflowRunId() && workflowRunId() !== snapshot.run?.id;
+
     const labels = window.AthenaActivityLabels;
     const taskTitle = (item, fallback) => labels.task(item, tasks(), fallback);
     const agentTitle = agent => labels.agent(agent, tasks());
@@ -191,7 +201,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowShell() {
-      return '<div class="awv-scroll"><div data-awv-research-board></div><div class="awv-toolbar">' + segmented('Workflow layout', [['list', 'List', 'workflow-mode'], ['graph', 'Graph', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><div data-awv-measurements></div><section class="awv-task-detail" data-awv-task-detail></section></div>';
+      return '<div class="awv-scroll"><label class="awv-artifact-selector" data-awv-run-selector hidden><span>Conversation request</span><select data-awv-run-select aria-label="Select conversation request"></select></label><div class="awv-toolbar">' + segmented('Workflow layout', [['graph', 'Graph', 'workflow-mode'], ['list', 'List', 'workflow-mode']]) + '<span class="awv-caption" data-awv-task-count></span></div><div data-awv-workflow-map></div><section class="awv-task-detail" data-awv-task-detail></section><div data-awv-measurements></div><div data-awv-research-board></div></div>';
     }
 
     function artifactShell() {
@@ -213,12 +223,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     function updateHeading() {
       const run = snapshot.run || {};
-      setText('[data-awv-mode-label]', live() ? 'Current conversation' : snapshot.mode === 'demo' ? 'Local demo' : 'UI preview');
-      setHTML('[data-awv-context-details]', live() ? labels.diagnostics([['Session ID', snapshot.sessionId], ['Run ID', run.id]], 'view-context') : '');
+      setText('[data-awv-mode-label]', historicalWorkflow() ? 'Earlier conversation request' : live() ? 'Current conversation' : snapshot.mode === 'demo' ? 'Local demo' : 'UI preview');
+      setHTML('[data-awv-context-details]', live() ? labels.diagnostics([['Session ID', snapshot.sessionId], ['Run ID', historicalWorkflow() ? workflowRunId() : run.id]], 'view-context') : '');
       setText('[data-awv-view-description]', live() && state.view === 'artifacts' ? 'Artifacts reported for this session, with exact source versions.' : VIEWS[state.view][1]);
-      setHTML('[data-awv-run-status]', badge(run.status || 'ready'));
+      setHTML('[data-awv-run-status]', historicalWorkflow() ? '<span class="awv-caption">Saved task records</span>' : badge(run.status || 'ready'));
       const elapsed = Math.floor((run.elapsedMs || 0) / 1000);
-      setText('[data-awv-run-time]', run.startedAt ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0') + ' elapsed' : live() && run.id ? 'Start time not reported' : 'Not started');
+      setText('[data-awv-run-time]', historicalWorkflow() ? 'Select a task to inspect its recorded outcome' : run.startedAt ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0') + ' elapsed' : live() && run.id ? 'Start time not reported' : 'Not started');
     }
 
     function syncSelect(selector, items, value) {
@@ -240,7 +250,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       let result = pending && can('decideApproval') ? '<button type="button" class="awv-button awv-button-accent" data-awv-approval="' + esc(pending.id) + '" data-awv-focus="approval-' + esc(pending.id) + '">' + icon('shield-check') + 'Review approval</button>' : '';
       if (can('retryTask') && (live() ? item.parentTaskId && item.retryable === true || retry?.pending || retry?.accepted : ['failed', 'cancelled'].includes(item.status) || item.status === 'blocked' && !pending)) result += '<button type="button" class="awv-button" data-awv-retry="' + esc(item.id) + '" data-awv-focus="retry-' + esc(item.id) + '"' + (retry?.pending || retry?.accepted ? ' disabled aria-busy="' + Boolean(retry.pending) + '"' : '') + '>' + icon('rotate-ccw') + (retry?.pending ? 'Retrying…' : retry?.accepted ? 'Retry queued' : 'Retry task') + '</button>';
       if (live() && can('cancelTask') && ['queued', 'running', 'blocked'].includes(item.status)) result += '<button type="button" class="awv-button" data-awv-cancel-task="' + esc(item.id) + '" data-awv-focus="cancel-' + esc(item.id) + '"' + (retry?.pending ? ' disabled' : '') + '>' + icon('square') + 'Cancel task</button>';
-      if (can('cancelRun') && (live() ? ['queued', 'running', 'blocked'] : ['queued', 'running', 'paused', 'blocked']).includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
+      if (can('cancelRun') && (!live() || !item.runId || item.runId === snapshot.run?.id) && (live() ? ['queued', 'running', 'blocked'] : ['queued', 'running', 'paused', 'blocked']).includes(snapshot.run?.status)) result += '<button type="button" class="awv-button" data-awv-action="cancel-run" data-awv-focus="cancel-run" title="' + (live() ? 'Request cancellation from TaskManager' : 'Cancel the entire local demo run') + '">' + icon('square') + 'Cancel run</button>';
       return result;
     }
 
@@ -274,10 +284,26 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function workflowMap() {
-      if (live() && state.workflowMode === 'graph') return '<div class="awv-live-graph" aria-label="Task dependencies">' + tasks().map(item => '<section class="awv-live-graph-row">' + taskNode(item, true) + '<p class="awv-caption">Depends on: ' + ((item.dependencies || []).map(id => esc(taskTitle(id, 'Related task'))).join(' · ') || 'No dependencies') + '</p></section>').join('') + '</div><p class="awv-caption">Dependencies come from TaskManager. The UI does not schedule these tasks.</p>';
-      if (state.workflowMode === 'list') return '<div class="awv-task-list">' + tasks().map(item => taskNode(item)).join('') + '</div>';
-      const first = tasks().filter(item => !item.dependencies?.length), rest = tasks().filter(item => item.dependencies?.length);
-      return '<div class="awv-graph" aria-label="Dependency graph"><div class="awv-graph-start">' + first.map(item => taskNode(item, true)).join('') + '</div>' + rest.map((item, index) => '<div class="awv-graph-connector' + (index === 0 && first.length > 1 ? ' awv-graph-join' : '') + '" aria-hidden="true"><span></span></div><div class="awv-graph-step"><span class="awv-sr-only">Depends on ' + esc(item.dependencies.map(id => taskTitle(id, 'Related task')).join(' and ')) + '.</span>' + taskNode(item, true) + '</div>').join('') + '</div><p class="awv-caption awv-graph-caption">' + (first.length > 1 ? 'The first two tasks can run together. Both finish before analysis begins.' : 'Lines show which tasks must finish first.') + '</p>';
+      if (state.workflowMode === 'list' || !window.AthenaWorkflowGraph) {
+        graphModel = null;
+        return '<div class="awv-task-list">' + workflowTasks().map(item => taskNode(item)).join('') + '</div>';
+      }
+      graphModel = window.AthenaWorkflowGraph.project({ ...snapshot, run: { ...snapshot.run, id: workflowRunId() }, tasks: workflowTasks() });
+      return window.AthenaWorkflowGraph.render(graphModel, { selectedTaskId: state.taskId, taskTitle, taskOwner, avatar: ava });
+    }
+
+    function updateGraphViewport() {
+      const viewport = q('[data-awg-viewport]'), canvas = q('[data-awg-canvas]'), plane = q('[data-awg-plane]');
+      if (!graphModel || !viewport || !canvas || !plane) return;
+      if (state.graphFit) state.graphZoom = clamp(Math.floor(((viewport.clientWidth || host.clientWidth || 360) - 4) / graphModel.width * 100), 35, 100);
+      const scale = state.graphZoom / 100;
+      canvas.style.transform = 'scale(' + scale + ')';
+      plane.style.width = Math.ceil(graphModel.width * scale) + 'px';
+      plane.style.height = Math.ceil(graphModel.height * scale) + 'px';
+      setText('[data-awg-zoom]', state.graphZoom + '%');
+      const out = q('[data-awv-action="graph-zoom-out"]'), inside = q('[data-awv-action="graph-zoom-in"]');
+      if (out) out.disabled = state.graphZoom <= 35;
+      if (inside) inside.disabled = state.graphZoom >= 150;
     }
 
     function processButton(process) {
@@ -306,11 +332,25 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     }
 
     function updateWorkflow() {
-      if (!task(state.taskId)) state.taskId = tasks()[0]?.id || null;
+      const runs = workflowRuns();
+      if (!state.workflowFollowLatest && !runs.some(run => run.id === state.workflowRunId)) state.workflowFollowLatest = true;
+      state.workflowRunId = workflowRunId();
+      const visibleTasks = workflowTasks();
+      if (!visibleTasks.some(item => item.id === state.taskId)) state.taskId = visibleTasks[0]?.id || null;
+      const runSelector = q('[data-awv-run-selector]');
+      if (runSelector) runSelector.hidden = !live() || runs.length < 2;
+      syncSelect('[data-awv-run-select]', runs.map((run, index) => {
+        const root = tasks().find(item => item.runId === run.id && !item.parentTaskId) || run.firstTask;
+        return [run.id, (run.id === snapshot.run?.id ? 'Current · ' : 'Request ' + (index + 1) + ' · ') + (root ? taskTitle(root) : 'Waiting for tasks')];
+      }).reverse(), state.workflowRunId || '');
       press('[data-awv-action="workflow-mode"]', state.workflowMode);
-      setText('[data-awv-task-count]', tasks().filter(t => t.status === 'succeeded').length + ' / ' + tasks().length + ' complete');
+      setText('[data-awv-task-count]', visibleTasks.filter(t => t.status === 'succeeded').length + ' / ' + visibleTasks.length + ' complete');
+      const viewport = q('[data-awg-viewport]'), scrollLeft = viewport?.scrollLeft || 0, scrollTop = viewport?.scrollTop || 0;
       setHTML('[data-awv-workflow-map]', workflowMap());
-      const calculations = live() ? (snapshot.processes || []).filter(p => p.runId === snapshot.run.id && p.job?.mcp) : [];
+      updateGraphViewport();
+      const nextViewport = q('[data-awg-viewport]');
+      if (nextViewport) { nextViewport.scrollLeft = scrollLeft; nextViewport.scrollTop = scrollTop; }
+      const calculations = live() ? (snapshot.processes || []).filter(p => p.runId === state.workflowRunId && p.job?.mcp) : [];
       setHTML('[data-awv-measurements]', calculations.map(p => {
         const file = p.status === 'succeeded' && artifactList().find(f => f.processId === p.id && f.id === p.job.artifact?.id);
         const registered = window.AthenaResultFiles?.mcp(p.job.mcp);
@@ -666,6 +706,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (chosen.taskId || tasks().some(item => item.id === id)) state.taskId = chosen.taskId || id;
       const toolId = chosen.toolId || (snapshot.tools || []).find(item => item.id === id)?.id;
       if (toolId) { state.taskId = (snapshot.tools || []).find(item => item.id === toolId)?.taskId || state.taskId; }
+      if (view === 'workflow' && (chosen.taskId || tasks().some(item => item.id === id) || toolId)) { const selected = task(state.taskId); if (selected?.runId) { state.workflowRunId = selected.runId; state.workflowFollowLatest = false; } }
       const artifactId = chosen.artifactId || (artifactList().some(item => item.id === id) ? id : null);
       if (artifactId) { state.artifactId = artifactId; state.artifactVersion = chosen.version ?? chosen.artifactVersion ?? null; state.documentVersion = chosen.documentVersion ?? (!live() ? chosen.version : null) ?? null; state.referenceOpen = false; }
       if (chosen.page) state.notePage = clamp(Number(chosen.page) || 1, 1, PAGES.length);
@@ -750,7 +791,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (!button || !host.contains(button) || button.disabled) return;
       if (button.dataset.awvTask) {
         state.taskId = button.dataset.awvTask;
-        updateWorkflow(); refreshIcons();
+        const selected = task(state.taskId); if (selected?.runId) { state.workflowRunId = selected.runId; state.workflowFollowLatest = false; }
+        updateHeading(); updateWorkflow(); refreshIcons();
         return;
       }
       if (button.dataset.awvOpenTool) {
@@ -778,6 +820,12 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const action = button.dataset.awvAction;
       if (action === 'cancel-run' && can('cancelRun')) store.cancel();
       if (action === 'workflow-mode') { state.workflowMode = button.dataset.awvValue; updateWorkflow(); }
+      if (['graph-zoom-in', 'graph-zoom-out', 'graph-fit', 'graph-actual'].includes(action)) {
+        state.graphFit = action === 'graph-fit';
+        if (!state.graphFit) state.graphZoom = action === 'graph-actual' ? 100 : clamp(state.graphZoom + (action === 'graph-zoom-in' ? 10 : -10), 35, 150);
+        updateGraphViewport();
+        if (state.graphFit) { const viewport = q('[data-awg-viewport]'); if (viewport) { viewport.scrollLeft = 0; viewport.scrollTop = 0; } }
+      }
       if (action === 'code-tab') { state.codeTab = button.dataset.awvValue; updateCode(); }
       if (action === 'copy-artifact') { const value = currentArtifactText(); if (value != null) copy(value); }
       if (action === 'download-artifact') downloadArtifact();
@@ -803,6 +851,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     host.addEventListener('change', event => {
       const el = event.target;
+      if (el.matches('[data-awv-run-select]') && workflowRuns().some(run => run.id === el.value)) { state.workflowRunId = el.value; state.workflowFollowLatest = false; state.taskId = workflowTasks()[0]?.id || null; state.graphZoom = 100; state.graphFit = false; update(); }
       if (el.matches('[data-awv-artifact-select]')) { const selected = artifactList().find(item => (live() ? artifactKey(item) : item.id) === el.value); if (selected) { state.artifactId = selected.id; state.artifactVersion = live() ? artifactVersion(selected) : null; state.documentVersion = null; state.referenceOpen = false; state.citation = null; updateArtifacts(true); } }
       if (el.matches('[data-awv-series]')) { state[el.dataset.awvSeries] = el.checked; redrawPlot(); }
       if (el.matches('[data-awv-page-select]')) { state.notePage = clamp(Number(el.value) || 1, 1, PAGES.length); updateDocument(); }
@@ -826,10 +875,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
 
     shell();
     if (typeof window.ResizeObserver === 'function') {
-      resizeObserver = new window.ResizeObserver(() => { if (!destroyed) redrawPlot(); });
+      resizeObserver = new window.ResizeObserver(() => { if (!destroyed) { redrawPlot(); updateGraphViewport(); } });
       resizeObserver.observe(host);
     }
-    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { qa('[data-aw-diagnostics]').forEach(detail => { detail.open = false; }); diagnosticState.clear(); lastScope = scope; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
+    unsubscribe = store.subscribe(next => { snapshot = next || store.getState(); const scope = scopeKey(snapshot); if (scope !== lastScope) { qa('[data-aw-diagnostics]').forEach(detail => { detail.open = false; }); diagnosticState.clear(); lastScope = scope; state.workflowRunId = null; state.workflowFollowLatest = true; state.graphZoom = 100; state.graphFit = false; const first = artifactList()[0]; state.artifactId = first?.id || null; state.artifactVersion = live() && first ? artifactVersion(first) : null; state.documentVersion = null; state.referenceOpen = false; state.taskId = tasks()[0]?.id || null; state.agentSessionId = ''; history = { key: '', messages: [], status: '', error: '' }; state.timelineTask = 'all'; state.timelineType = 'all'; } update(); });
     recordUnsubscribe = options.records?.subscribe(() => { if (!destroyed && state.view === 'artifacts') { updateArtifacts(true); refreshIcons(); } });
     return {
       open,
