@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
@@ -13,7 +13,7 @@ import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
 import { artifactRef, type ArtifactRow } from '../runtime/orchestration.ts';
 import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { Storage } from '../runtime/storage.ts';
-import { assertKilled, assertPrivatePermissions, systemEnvironment, windows } from './platform-test-helpers.ts';
+import { assertKilled, assertPrivatePermissions, restorePrivatePermissions, systemEnvironment, windows } from './platform-test-helpers.ts';
 
 const marker = 'ATHENA_DESKTOP_BOOTSTRAP';
 const authPath = (directory: string) => join(directory, 'auth/credentials.v2.json');
@@ -27,11 +27,49 @@ const prohibitKeychain = `import cp from 'node:child_process';
   syncBuiltinESMExports();`;
 const script = fileURLToPath(new URL('../runtime/server.ts', import.meta.url));
 const hex = () => randomBytes(32).toString('hex');
+const ownedChildren = new WeakMap<TestContext, Set<() => Promise<void>>>();
 
 async function workspace(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-desktop-test-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(async () => {
+    // Windows cannot remove a workspace while its host still owns SQLite files.
+    const closed = await Promise.allSettled([...(ownedChildren.get(t) ?? [])].map(close => close()));
+    await rm(directory, { recursive: true, force: true });
+    const failure = closed.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  });
+  // Match the private/current-user precondition for a freshly created test root.
+  await restorePrivatePermissions(directory, 0o700);
   return directory;
+}
+
+function ownChild(t: TestContext, start: () => ChildProcessWithoutNullStreams) {
+  t.signal.throwIfAborted();
+  let owned: ChildProcessWithoutNullStreams | undefined;
+  let completion: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined;
+  const stop = () => {
+    if (owned && owned.exitCode === null && owned.signalCode === null) owned.kill('SIGKILL');
+  };
+  const close = async () => {
+    t.signal.removeEventListener('abort', stop);
+    stop();
+    await completion;
+  };
+  const children = ownedChildren.get(t) ?? new Set<() => Promise<void>>();
+  children.add(close);
+  ownedChildren.set(t, children);
+  t.after(close); // Register ownership before a timed-out callback can create a child.
+  t.signal.addEventListener('abort', stop, { once: true });
+  t.signal.throwIfAborted();
+  const child = start();
+  owned = child;
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once('close', (code, signal) => resolve({ code, signal }));
+    child.once('error', reject);
+  });
+  completion = exited;
+  void exited.catch(() => undefined); // Awaiters below still observe spawn errors.
+  return { child, exited };
 }
 
 function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, throughParent = false) {
@@ -39,10 +77,10 @@ function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, 
     const host = spawn(process.execPath, [process.argv[1], '--desktop'], { stdio: ['pipe', 'inherit', 'inherit'] });
     process.stdin.pipe(host.stdin);
     host.once('exit', code => process.exit(code ?? 1));`;
-  const child = spawn(process.execPath, throughParent ? ['--input-type=commonjs', '-e', relay, script] : [script, '--desktop'], {
+  const { child, exited } = ownChild(t, () => spawn(process.execPath, throughParent ? ['--input-type=commonjs', '-e', relay, script] : [script, '--desktop'], {
     cwd: directory, stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...systemEnvironment(), HOME: directory, USERPROFILE: directory, ATHENA_DATA_DIR: directory, ATHENA_PORT: 'not-a-port', NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(prohibitKeychain)}`, ...env },
-  });
+  }));
   const output: string[] = [];
   const stdout = createInterface({ input: child.stdout });
   stdout.on('line', line => output.push(line));
@@ -50,18 +88,11 @@ function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, 
   const stderr = child.stderr.setEncoding('utf8');
   let diagnostics = '';
   stderr.on('data', chunk => { diagnostics += chunk; });
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-    child.once('close', (code, signal) => resolve({ code, signal }));
-    child.once('error', reject);
-  });
-  t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-    await exited;
-  });
-  return { child, output, lines, exited, diagnostics: () => diagnostics };
+  return { child, output, lines, exited, testSignal: t.signal, diagnostics: () => diagnostics };
 }
 
 async function ready(host: ReturnType<typeof launch>) {
+  host.testSignal.throwIfAborted();
   const { value } = await host.lines.next();
   assert.ok(typeof value === 'string', host.diagnostics());
   const port = /^ATHENA_DESKTOP_READY ([1-9][0-9]{0,4})$/.exec(value)?.[1];
@@ -71,6 +102,7 @@ async function ready(host: ReturnType<typeof launch>) {
 
 async function start(t: TestContext, directory: string, startup: { readonly token: string } = { token: hex() }) {
   const host = launch(t, directory);
+  t.signal.throwIfAborted();
   assert.equal((await host.lines.next()).value, marker);
   host.child.stdin.write(JSON.stringify(startup) + '\n');
   return { ...host, base: await ready(host), cookie: `athena_desktop=${startup.token}` };
@@ -112,14 +144,10 @@ test('private migration pipe accepts explicit key replies and rejects malformed 
         } catch (error) { console.log('RESULT ' + error.code); }
         process.stdin.destroy();
       `;
-      const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
-        env: { ...systemEnvironment(), HOME: await workspace(t) }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      const exited = new Promise<number | null>(resolve => child.once('close', resolve));
-      t.after(async () => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        await exited;
-      });
+      const fixtureHome = await workspace(t);
+      const { child, exited } = ownChild(t, () => spawn(process.execPath, ['--input-type=module', '-e', source], {
+        env: { ...systemEnvironment(), HOME: fixtureHome }, stdio: ['pipe', 'pipe', 'pipe'],
+      }));
       const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
       child.stdin.write(JSON.stringify({ token: hex() }) + '\n');
       assert.equal((await lines.next()).value, `ATHENA_DESKTOP_IMPORT ${account}`);
@@ -129,7 +157,7 @@ test('private migration pipe accepts explicit key replies and rejects malformed 
         child.stdin.write(reply.slice(12) + '\n');
       }
       assert.equal((await lines.next()).value, `RESULT ${expected}`);
-      assert.equal(await exited, 0);
+      assert.deepEqual(await exited, { code: 0, signal: null });
     });
   }
 });
@@ -247,7 +275,8 @@ test('desktop rejects cookie ambiguity, other secret transports and invalid host
   }
 });
 
-test('desktop fails closed with a structured frame for invalid startup input', { timeout: 25_000 }, async t => {
+// Fifteen independent host starts exceeded the old 25s budget on native Intel CI.
+test('desktop fails closed with a structured frame for invalid startup input', { timeout: 60_000 }, async t => {
   const directory = await workspace(t);
   const token = 'a'.repeat(64), key = hex();
   const valid = JSON.stringify({ token });

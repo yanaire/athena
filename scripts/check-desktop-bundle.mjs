@@ -124,7 +124,8 @@ if (!mode) {
   }
 }
 
-const workspace = await mkdtemp(join(tmpdir(), 'athena-bundle-check-'));
+const fixtureDirectory = await mkdtemp(join(tmpdir(), 'athena-bundle-check-'));
+const workspace = join(fixtureDirectory, 'workspace');
 const fixtureKey = randomBytes(32).toString('hex');
 const mcpFixtureKey = randomBytes(32).toString('hex');
 let successfulRequests = 0;
@@ -239,6 +240,13 @@ async function withHost(step) {
 }
 
 try {
+  // A PowerShell runner may give mkdtemp's directory an Administrators owner.
+  // Create a fresh child through the shipped private-storage helper; an existing
+  // user store must still be rejected rather than having its permissions repaired.
+  execFileSync(binary, ['--input-type=module', '--eval', `
+    import { createPrivateDirectory } from './runtime/private-storage.ts';
+    createPrivateDirectory(process.argv[1]);
+  `, workspace], { cwd: host, env: environment, timeout: 20_000, stdio: 'inherit' });
   await promisify(execFile)(binary, ['--input-type=module', '--eval', `
     import assert from 'node:assert/strict';
     import { JobRunner } from './runtime/jobs.ts';
@@ -364,5 +372,5 @@ try {
 } finally {
   fixture.closeAllConnections();
   await new Promise(resolve => fixture.close(resolve));
-  await rm(workspace, { recursive: true, force: true });
+  await rm(fixtureDirectory, { recursive: true, force: true });
 }

@@ -183,13 +183,13 @@ jobs:
       - name: Check Windows credential permissions before the native build
         if: runner.os == 'Windows'
         timeout-minutes: 10
-        run: node --test tests/local-credentials.test.ts
+        run: node --test --test-reporter=tap tests/local-credentials.test.ts tests/private-storage.test.ts
       - name: Prepare and test the native analysis runtime
         run: |
           npm run analysis:prepare
           cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path sandbox/Cargo.toml --locked
       - name: Run host and controlled provider tests on this OS
-        run: node --test --test-concurrency=2 tests/*.test.*
+        run: node --test --test-reporter=tap --test-concurrency=2 tests/*.test.*
       - name: Build and verify the native application
         run: npm run desktop:build
       - name: Test desktop startup safeguards

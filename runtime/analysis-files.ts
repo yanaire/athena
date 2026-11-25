@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
-import { createPrivateDirectory, hasPrivatePermissions } from './private-storage.ts';
+import { createPrivateDirectory, hasPrivatePermissions, writeNewPrivateFileSync } from './private-storage.ts';
 
 export type AnalysisScope = { readonly projectId: string; readonly sessionId: string; readonly taskId: string };
 type Attempt = AnalysisScope & { readonly attemptId: string };
@@ -115,7 +115,7 @@ function readBytes(path: string): Buffer {
 function replace(path: string, bytes: Uint8Array | string, mode: number): void {
   const temp = join(path, '..', '.' + randomUUID());
   try {
-    writeFileSync(temp, bytes, { flag: 'wx', mode, flush: true });
+    writeNewPrivateFileSync(temp, bytes, { mode, flush: true });
     renameSync(temp, path);
   } catch (error) {
     if (lstatSync(temp, { throwIfNoEntry: false })) rmSync(temp, { force: true });
