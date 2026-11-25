@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, win32 } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export const NODE_VERSION = '24.22.3';
 
@@ -99,7 +100,8 @@ export function macOSEjectTarget(attachment, ownership) {
 
 export const MACOS_IMAGE_EJECT_ATTEMPTS = 4;
 
-export function detachMacOSImage(readAttachment, eject, attempts = MACOS_IMAGE_EJECT_ATTEMPTS) {
+export async function detachMacOSImage(readAttachment, eject, attempts = MACOS_IMAGE_EJECT_ATTEMPTS,
+  waitForAttachment = () => delay(1_000)) {
   const failures = [];
   let attachment = readAttachment();
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -107,6 +109,11 @@ export function detachMacOSImage(readAttachment, eject, attempts = MACOS_IMAGE_E
     try { eject(attachment.target); }
     catch (error) { failures.push(error); }
     attachment = readAttachment();
+    // The disk registry and mount table can briefly disagree after ejection begins.
+    for (let probe = 0; attachment.state === 'ambiguous' && probe < 10; probe += 1) {
+      await waitForAttachment();
+      attachment = readAttachment();
+    }
   }
   if (attachment.state !== 'detached') {
     throw new AggregateError(failures, 'The scratch disk image is still attached or its mount cannot be confirmed.');

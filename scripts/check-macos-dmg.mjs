@@ -67,9 +67,9 @@ function readAttachment() {
   return macOSImageAttachment(images, attachedImage, mount, statSync(mount).dev !== mountDevice);
 }
 
-function detach() {
+async function detach() {
   // Share the retry budget so a late ejection can still finish packaging.
-  detachMacOSImage(() => macOSEjectTarget(readAttachment(), ownedPartition),
+  await detachMacOSImage(() => macOSEjectTarget(readAttachment(), ownedPartition),
     target => {
       if (ejectAttemptsRemaining < MACOS_IMAGE_EJECT_ATTEMPTS) console.log('Retrying ejection of the private disk image.');
       ejectAttemptsRemaining -= 1;
@@ -92,14 +92,14 @@ try {
   image('create', '-size', volumeSize, '-type', 'SPARSE', '-fs', 'HFS+', '-volname', 'Athena', volumeImage);
   attach(volumeImage);
   run('/usr/bin/ditto', [app, join(mount, 'Athena.app')], 600_000);
-  detach();
+  await detach();
   image('convert', volumeImage, '-format', 'UDRO', '-o', candidate);
   console.log(`Created ${name} in ${((performance.now() - imageStarted) / 1000).toFixed(1)} seconds.`);
   image('verify', candidate);
   attach(candidate, true);
   const installed = join(installation, 'Athena.app');
   run('/usr/bin/ditto', [join(mount, 'Athena.app'), installed]);
-  detach();
+  await detach();
   run(process.execPath, ['scripts/check-desktop-bundle.mjs', '--verify-only', installed]);
   run(process.execPath, ['scripts/smoke-installed-desktop.mjs', installed]);
 } catch (error) {
@@ -107,7 +107,7 @@ try {
 }
 
 try {
-  if (attachedImage) detach();
+  if (attachedImage) await detach();
   if (failures.length === 0) {
     const digest = createHash('sha256');
     for await (const chunk of createReadStream(candidate)) digest.update(chunk);
