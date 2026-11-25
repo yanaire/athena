@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { createPrivateDirectory, windowsPowerShellEnvironment, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
+import { fileURLToPath } from 'node:url';
+import { createPrivateDirectory, windowsPowerShellEnvironment, windowsStorageEnvironment, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
 import { assertPrivatePermissions, makePublicPermissions } from './platform-test-helpers.ts';
 
 async function fixture(t: TestContext) {
@@ -26,6 +28,20 @@ test('fixed Windows PowerShell cannot inherit a different edition or user module
   assert.equal(environment.SystemRoot, inherited.SystemRoot);
   assert.equal(environment.PATH, inherited.PATH);
   assert.deepEqual(inherited, before);
+});
+
+test('the native storage helper receives only OS locations, with case-insensitive environment keys', () => {
+  const inherited = { systemroot: String.raw`C:\Windows`, temp: String.raw`C:\Temp`,
+    USERPROFILE: String.raw`C:\Users\fixture`, PATH: String.raw`C:\untrusted`,
+    COR_ENABLE_PROFILING: '1', COR_PROFILER_PATH: 'untrusted.dll', NODE_OPTIONS: '--inspect',
+    OPENAI_API_KEY: 'synthetic-not-a-secret', PSModulePath: String.raw`C:\user-modules` };
+  const before = { ...inherited };
+  assert.deepEqual(windowsStorageEnvironment(inherited), {
+    SystemRoot: String.raw`C:\Windows`, TEMP: String.raw`C:\Temp`, USERPROFILE: String.raw`C:\Users\fixture`,
+    PATH: String.raw`C:\Windows\System32`,
+  });
+  assert.deepEqual(inherited, before);
+  assert.throws(() => windowsStorageEnvironment({ SystemRoot: 'relative' }), /system directory/);
 });
 
 test('private directory creation secures every new level on its first attempt', async t => {
@@ -81,4 +97,47 @@ test('an explicitly namespaced Windows storage path protects the same new direct
     createPrivateDirectory(win32.toNamespacedPath(directory));
     await assertPrivatePermissions(directory, 0o700);
     assert.deepEqual(await readdir(root), ['private']);
+  });
+
+test('the fixed Windows helper checks fresh ACLs under restricted desktop environments and rejects ambiguous input',
+  { skip: process.platform !== 'win32' ? 'The managed ACL helper requires native Windows.' : false }, async t => {
+    const root = await fixture(t);
+    const directory = join(root, 'private');
+    createPrivateDirectory(directory);
+    const executable = fileURLToPath(new URL('../runtime/windows-private-storage.exe', import.meta.url));
+    const minimal = windowsStorageEnvironment({ ...process.env, USERPROFILE: root });
+    delete minimal.APPDATA; delete minimal.LOCALAPPDATA;
+    const environments = [minimal, { ...minimal, APPDATA: join(root, 'AppData', 'Roaming'),
+      LOCALAPPDATA: join(root, 'AppData', 'Local') }];
+    for (const env of environments) {
+      assert.equal(execFileSync(executable, ['--version'], { env, encoding: 'utf8', timeout: 15_000, windowsHide: true }),
+        'athena-windows-private-storage/1 .NETFramework/4.8');
+      for (const input of [directory, win32.toNamespacedPath(directory)]) {
+        assert.equal(execFileSync(executable, ['check'], { env, input, encoding: 'utf8', timeout: 15_000, windowsHide: true }),
+          'ATHENA_PRIVATE_STORAGE_OK');
+      }
+    }
+    for (const [operation, input] of [['check', 'C:relative'], ['check', '\\relative'], ['check', 'x'.repeat(32768)],
+      ['check', String.raw`\\?\C:relative`], ['check', directory + '\0suffix'], ['unknown', directory]] as const) {
+      const result = spawnSync(executable, [operation], { env: minimal, input, encoding: 'utf8', timeout: 15_000, windowsHide: true });
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /^ATHENA_PRIVATE_STORAGE_REJECTED:invalid_(?:path|operation)$/);
+    }
+    await makePublicPermissions(directory, 0o755);
+    const changed = spawnSync(executable, ['check'], { env: minimal, input: directory, encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    assert.equal(changed.status, 1);
+    assert.equal(changed.stdout, '');
+    assert.equal(changed.stderr, 'ATHENA_PRIVATE_STORAGE_REJECTED:external_access');
+    await assert.rejects(assertPrivatePermissions(directory, 0o700));
+    const junction = join(root, 'junction');
+    await symlink(directory, junction, 'junction');
+    for (const operation of ['check', 'protect']) {
+      const linked = spawnSync(executable, [operation], { env: minimal, input: junction, encoding: 'utf8', timeout: 15_000, windowsHide: true });
+      assert.equal(linked.status, 1);
+      assert.equal(linked.stdout, '');
+      assert.equal(linked.stderr, 'ATHENA_PRIVATE_STORAGE_REJECTED:reparse_point');
+    }
+    // A failed protect request must not silently repair the junction's target.
+    await assert.rejects(assertPrivatePermissions(directory, 0o700));
   });
