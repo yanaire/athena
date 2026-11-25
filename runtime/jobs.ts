@@ -12,6 +12,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 import { callExternalMcp, EXTERNAL_MCP_LIMITS, validateExternalVerification, matchesExternalSchema, extensionDigest } from './external-mcp-client.ts';
 import type { PinnedExternalServer } from './extensions.ts';
+import { createPrivateDirectory } from './private-storage.ts';
 
 type Scope = { readonly projectId: string; readonly sessionId: string };
 type FileVersion = Scope & { readonly fileId: string; readonly versionId: string; readonly name: string };
@@ -57,9 +58,10 @@ function text(value: unknown, label: string, limit = 256): string {
 }
 
 async function privateDirectory(path: string): Promise<string> {
-  await mkdir(path, { recursive: true, mode: 0o700 });
+  try { createPrivateDirectory(path); }
+  catch (cause) { throw new CsvJobError('INVALID_FILE', 'Job storage must be a private directory owned by the host process.', { cause }); }
   const st = await lstat(path);
-  if (!st.isDirectory() || (st.mode & 0o077) !== 0 || st.uid !== process.getuid?.()) {
+  if (!st.isDirectory()) {
     throw new CsvJobError('INVALID_FILE', 'Job storage must be a private directory owned by the host process.');
   }
   return realpath(path);
@@ -68,10 +70,13 @@ async function privateDirectory(path: string): Promise<string> {
 async function readBounded(directory: string, name: string, limit: number): Promise<Buffer> {
   // All paths below the private root use fixed names and generated/digested IDs.
   if (await realpath(directory) !== directory) throw new CsvJobError('INVALID_FILE', 'Job storage path changed.');
-  const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const path = join(directory, name);
+  const before = await lstat(path);
+  if (!before.isFile()) throw new CsvJobError('INVALID_FILE', 'Invalid job file.');
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const st = await file.stat();
-    if (!st.isFile() || st.nlink !== 1 || st.size > limit) throw new CsvJobError('INVALID_FILE', 'Invalid job file.');
+    if (!st.isFile() || st.nlink !== 1 || st.dev !== before.dev || st.ino !== before.ino || st.size > limit) throw new CsvJobError('INVALID_FILE', 'Invalid job file.');
     const buffer = Buffer.allocUnsafe(limit + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -192,8 +197,8 @@ export class JobRunner {
   #closePromise?: Promise<void>;
 
   constructor(options: JobRunnerOptions) {
-    if (process.release.name !== 'node' || !['darwin', 'linux'].includes(process.platform) || Number(process.versions.node.split('.')[0]) < 24) {
-      throw new CsvJobError('UNSUPPORTED_PLATFORM', 'Job execution requires Node 24+ on macOS or Linux.');
+    if (process.release.name !== 'node' || !['darwin', 'linux', 'win32'].includes(process.platform) || Number(process.versions.node.split('.')[0]) < 24) {
+      throw new CsvJobError('UNSUPPORTED_PLATFORM', 'Job execution requires Node 24+ on macOS, Windows or Linux.');
     }
     this.#directory = resolve(options.dataDir, 'csv-jobs');
     this.#files = new AnalysisFiles(options.dataDir);
@@ -628,6 +633,9 @@ export class JobRunner {
         stop:reason=>this.#stop(pending,reason)});
       exitCode=result.exitCode;
       exitSignal=result.signal;
+      // Unix may deliver the cumulative native CPU limit before the wall or
+      // guest-epoch watchdog exits. It is still a confirmed execution timeout.
+      if (exitSignal === 'SIGXCPU') this.#stop(pending,'timed_out');
       ctl.signal.throwIfAborted();
       pending.exited=true;
       const phase = result.started ? 'during analysis' : 'before the interpreter was ready';
@@ -670,7 +678,8 @@ export class JobRunner {
   }
 
   #execute(pending: Pending, cwd: string, args: readonly string[], registration:Registration): Promise<ProcessResult> {
-    const child = spawn(pending.attempt.program, args, { cwd, env: ENV, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(pending.attempt.program, args, { cwd, env: ENV, shell: false,
+      detached: process.platform !== 'win32', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     return new Promise(resolveResult => {
       let ended = false;
       let signalled = false;
@@ -715,7 +724,11 @@ export class JobRunner {
         let termination: ProcessResult['termination'] = pending.stop ? 'unknown' : 'not_requested';
         if (pending.stop && pid === undefined) termination = 'confirmed';
         if (pending.stop && pending.exited && pid !== undefined && (signalled || pending.stop === 'output_limit')) {
-          try { process.kill(-pid, 0); } catch (failure) { if (errorCode(failure) === 'ESRCH') termination = 'confirmed'; }
+          // The permission-confined, fixed MCP worker cannot spawn children.
+          // Windows has no POSIX process groups; observing its exit confirms
+          // termination of this sole process, without PID-based tree killing.
+          if (process.platform === 'win32') termination = 'confirmed';
+          else try { process.kill(-pid, 0); } catch (failure) { if (errorCode(failure) === 'ESRCH') termination = 'confirmed'; }
         }
         for (const [stream, sink] of [['stdout', stdout], ['stderr', stderr]] as const) {
           const rest = sink.decoder.end();
@@ -732,7 +745,7 @@ export class JobRunner {
       pending.terminate = () => {
         const pid = child.pid;
         if (pid !== undefined && !pending.exited && child.exitCode === null && child.signalCode === null) {
-          try { signalled = process.kill(-pid, 'SIGKILL'); } catch (failure) {
+          try { signalled = process.platform === 'win32' ? child.kill('SIGKILL') : process.kill(-pid, 'SIGKILL'); } catch (failure) {
             if (errorCode(failure) !== 'ESRCH') error = 'Could not signal the live MCP process group.';
           }
         }

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import type { AuthOperationOptions, Credential, CredentialInfo, CredentialStore } from '@earendil-works/pi-ai';
 import { object } from './connections.ts';
+import { hasPrivatePermissions, setWindowsPrivate } from './private-storage.ts';
 
 export type CredentialMode = 'keychain' | 'operator_key' | 'memory';
 export type DesktopVaultKey = { readonly key: string; readonly source: Exclude<CredentialMode, 'memory'> };
@@ -47,11 +48,13 @@ export async function readLegacyCredentials(path: string, key: Buffer): Promise<
     let bytes: Buffer;
     try {
       const { constants } = await import('node:fs');
+      const expected = await lstat(path);
+      if (!expected.isFile()) throw invalid;
       const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = await file.stat();
-        if (!stat.isFile() || stat.uid !== process.getuid?.() || stat.nlink !== 1
-          || (stat.mode & 0o7777) !== 0o600 || stat.size < 30 || stat.size > 4 * 1024 * 1024) throw invalid;
+        if (!stat.isFile() || stat.nlink !== 1 || stat.dev !== expected.dev || stat.ino !== expected.ino
+          || !hasPrivatePermissions(path, stat, 0o600) || stat.size < 30 || stat.size > 4 * 1024 * 1024) throw invalid;
         bytes = await file.readFile();
       } finally { await file.close(); }
     } catch { throw invalid; }
@@ -122,7 +125,10 @@ class EncryptedCredentialStore implements CredentialStore {
     const temporary = join(this.#root, `provider-secrets-${randomUUID()}.tmp`);
     try {
       const file = await open(temporary, 'wx', 0o600);
-      try { await file.writeFile(Buffer.concat([nonce, cipher.getAuthTag(), encrypted])); await file.sync(); }
+      try {
+        if (process.platform === 'win32') setWindowsPrivate(temporary);
+        await file.writeFile(Buffer.concat([nonce, cipher.getAuthTag(), encrypted])); await file.sync();
+      }
       finally { await file.close(); }
       if (initialize) await link(temporary, this.#path);
       else await rename(temporary, this.#path);

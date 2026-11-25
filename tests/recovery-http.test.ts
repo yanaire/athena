@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import type { WorkspaceSnapshot } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 
 function complete(res: ServerResponse, value: string | { name: string; args: object }) {
@@ -43,7 +44,7 @@ test('HTTP host retries its original endpoint without a saved profile and durabl
   });
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
   const address = provider.address(); assert.ok(address && typeof address !== 'string');
-  const directory = await mkdtemp(join(tmpdir(), 'athena-recovery-http-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-recovery-http-'));
   const stops: (() => Promise<void>)[] = [];
   t.after(async () => {
     for (const stop of stops) await stop();

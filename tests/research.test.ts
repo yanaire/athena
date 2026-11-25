@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { hash } from '../runtime/orchestration.ts';
 import type { Attempt, Context } from '../runtime/orchestration.ts';
 import { ResearchLedger } from '../runtime/research.ts';
@@ -10,7 +11,7 @@ import type { ResearchResolver, ResearchTarget } from '../runtime/research.ts';
 import { Storage } from '../runtime/storage.ts';
 
 function setup(t: { after: (fn: () => void) => void }) {
-  const directory = mkdtempSync(join(tmpdir(), 'athena-research-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-research-'));
   let storage = new Storage(directory);
   storage.putProject({ id: 'project', name: 'Research' });
   storage.putProject({ id: 'other-project', name: 'Other research' });

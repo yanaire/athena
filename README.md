@@ -83,6 +83,17 @@ workflow inspired by Hyra 2.0, not an imported Hyra runtime.
 [Research workflow and Books](docs/research-workflow.md) ·
 [Candidate acceptance and Mac handoff](docs/ecosystem/ACCEPTANCE.md)
 
+### Workflow and desktop platform candidate
+
+The `feature/athena-cross-platform` follow-up includes the recorded Workflow DAG,
+verified chat fixes, native Intel Mac builds and Windows x64 NSIS packaging.
+`npm run desktop:build` selects the native target; explicit Intel Mac and Windows
+commands are documented in the [installation guide](docs/installation.md) and
+[한국어 설치 안내](docs/installation.ko.md). The current branch's CI result is the
+source of truth for platform verification. Signed releases and real-account
+acceptance remain separate. See the [UI capability audit](docs/ui-capability-audit.md)
+for Browser, Device, Files and Diff features that are still unavailable.
+
 ## Architecture
 
 ```mermaid

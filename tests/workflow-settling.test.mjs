@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 
 const root = new URL('../', import.meta.url);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -27,7 +28,7 @@ Path('/outputs/result.json').write_text(json.dumps({'excluded':excluded,'median_
 // The model is a loopback wire fixture. Pi, tools, WASI, storage, HTTP and SSE are real.
 test('settling CSV flows through two Pi agents, WASI outputs, streamed prose and durable restore',
   { timeout: 60_000 }, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-settling-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-settling-'));
   const input = await readFile(new URL('../docs/m21/settling.csv', import.meta.url));
   const wireErrors = [];
   let requests = 0;

@@ -15,8 +15,7 @@ fn usage() -> Result<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn usage() -> Result<u64> {
-    let status = std::fs::read_to_string("/proc/self/status")?;
+fn linux_usage(status: &str) -> Result<u64> {
     let rss = status.lines().find_map(|line| line.strip_prefix("VmRSS:"))
         .context("Missing native memory accounting")?;
     let mut fields = rss.split_whitespace();
@@ -25,12 +24,42 @@ fn usage() -> Result<u64> {
     kib.checked_mul(1024).context("RSS overflow")
 }
 
+#[cfg(target_os = "linux")]
+fn sampler() -> Result<impl FnMut() -> Result<u64> + Send> {
+    use std::io::{Read, Seek};
+    // Keep the accounting descriptor open: a guest reaching its descriptor
+    // bound must not prevent the independent watchdog from sampling itself.
+    let mut file = std::fs::File::open("/proc/self/status")?;
+    let mut status = String::with_capacity(4096);
+    Ok(move || {
+        file.rewind()?;
+        status.clear();
+        file.read_to_string(&mut status)?;
+        linux_usage(&status)
+    })
+}
+
+#[cfg(all(target_os = "linux", test))]
+fn usage() -> Result<u64> { sampler()?() }
+
+#[cfg(not(target_os = "linux"))]
+fn sampler() -> Result<impl FnMut() -> Result<u64> + Send> { Ok(usage) }
+
+#[cfg(target_os = "windows")]
+fn usage() -> Result<u64> {
+    let info = memory_stats::memory_stats().context("Missing Windows process memory accounting")?;
+    // On Windows these fields are working set and private pagefile usage.
+    // Count committed private pages even when the OS pages them out.
+    Ok(u64::try_from(info.physical_mem.max(info.virtual_mem))?)
+}
+
 // This independent thread covers compilation and host calls as well as guest
 // execution. It is sampled enforcement, not an allocation-time OS memory quota.
 pub fn start(limit: u64) -> Result<()> {
-    ensure!(usage()? <= limit, "Native helper memory limit exceeded at startup");
+    let mut measure = sampler()?;
+    ensure!(measure()? <= limit, "Native helper memory limit exceeded at startup");
     thread::Builder::new().name("athena-memory".into()).spawn(move || loop {
-        match usage() {
+        match measure() {
             Ok(bytes) if bytes <= limit => {}
             // Do not write to guest pipes here: a blocked pipe must not prevent
             // termination. The parent translates the reserved native exit code.

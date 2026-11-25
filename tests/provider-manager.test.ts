@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -8,6 +8,7 @@ import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
 import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { ProviderError, ProviderManager } from '../runtime/provider-manager.ts';
+import { assertPrivatePermissions } from './platform-test-helpers.ts';
 
 test('the Athena catalog exposes each Pi factory, without claiming unverified access or exposing Claude subscription login', async t => {
   t.mock.method(process, 'loadEnvFile', () => undefined);
@@ -58,7 +59,7 @@ test('SDK key setup and logout survive reopening the encrypted vault without dis
   await manager.saveApiKey('anthropic', anthropicKey);
   await assert.rejects(manager.saveApiKey('anthropic', ''), (error: unknown) => error instanceof ProviderError && error.code === 'INVALID_KEY');
   const path = join(directory, 'provider-secrets.v1');
-  assert.equal((await stat(path)).mode & 0o777, 0o600);
+  await assertPrivatePermissions(path, 0o600);
   const bytes = await readFile(path);
   process.env.ATHENA_CREDENTIAL_KEY = randomBytes(32).toString('hex');
   await assert.rejects(openProviderCredentials(directory), /could not be decrypted/);

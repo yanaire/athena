@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { readFile, realpath, rm } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { JobRunner } from '../runtime/jobs.ts';
 import { TaskManager } from '../runtime/manager.ts';
 import type { ResearchEvidence, ResearchMission, ResearchReview } from '../runtime/research.ts';
@@ -45,7 +46,7 @@ function when(manager: TaskManager, predicate: (snapshot: Snapshot) => boolean):
 const terminal = (manager: TaskManager) => when(manager, snapshot => ['succeeded', 'failed', 'cancelled', 'paused'].includes(snapshot.run.status));
 
 async function fixture(t: TestContext, cancelFirstReview = false) {
-  const directory = await realpath(await mkdtemp(join(tmpdir(), 'athena-research-manager-')));
+  const directory = await realpath(privateTestDirectory(join(tmpdir(), 'athena-research-manager-')));
   const failures: unknown[] = []; const hits: Wire[] = [];
   const state = { recovering: false, inputId: '', missionId: '', evidenceId: '', authorArtifactId: '', initialReviewId: '',
     reviewerInputs: [] as string[], reviewerQuestions: [] as string[] };

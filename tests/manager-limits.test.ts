@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
+import { privateTestDirectory, assertKilled, posixSignalsOnly } from './platform-test-helpers.ts';
 
 type Wire = {
   messages: { role: string; content: unknown }[];
@@ -50,7 +51,7 @@ async function fixture(t: TestContext, names: readonly string[], child: (name: s
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); assert.ok(address && typeof address !== 'string');
-  const directory = await mkdtemp(join(tmpdir(), 'athena-manager-limits-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-manager-limits-'));
   const settings = { ATHENA_ENDPOINT: `http://127.0.0.1:${address.port}/v1`, ATHENA_MODEL: 'limits', ATHENA_API_KEY: '',
     ATHENA_MODEL_CONCURRENCY: '2', ATHENA_MAX_CHILDREN: String(names.length), ATHENA_MAX_DEPTH: '1', ATHENA_PROCESS_CONCURRENCY: '1' };
   const previous = Object.entries(settings).map(([key, value]) => {
@@ -118,7 +119,7 @@ test('two child provider requests overlap at limit two; a queued third enters on
   }
 });
 
-test('cancelRun aborts both children, closes the held model request and terminates the active CSV process group', { timeout: 15000 }, async t => {
+test('cancelRun aborts both children, closes the held model request and terminates the active CSV process group', { timeout: 15000, skip: posixSignalsOnly }, async t => {
   const names = ['CSV worker', 'Streaming worker'];
   const streaming = Promise.withResolvers<void>(), disconnected = Promise.withResolvers<void>();
   const { manager, sessionId } = await fixture(t, names, (name, res) => {
@@ -198,7 +199,8 @@ for (const action of ['cancel', 'crash'] as const) {
       const host = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
       t.after(() => { if (host.exitCode === null && host.signalCode === null) host.kill('SIGKILL'); });
       const [[snapshot]] = await Promise.all([once(host, 'message'), held.promise]); before = snapshot;
-      const exited = once(host, 'exit'); host.kill('SIGKILL'); assert.deepEqual(await exited, [null, 'SIGKILL']);
+      const exited = once(host, 'exit'); assert.equal(host.kill('SIGKILL'), true);
+      const [code, signal] = await exited; assertKilled(code, signal);
     }
     assert.equal(before.run.status, 'blocked');
     const root = before.attempts.find(a => !a.parentTaskId), child = before.attempts.find(a => a.parentTaskId);

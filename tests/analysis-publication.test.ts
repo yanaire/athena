@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { AnalysisFiles } from '../runtime/analysis-files.ts';
 
@@ -20,13 +20,30 @@ for (const failure of ['blob_write', 'index_commit'] as const) {
     const [key] = await readdir(join(root, 'analysis-files'));
     assert.ok(key);
     const versions = await realpath(join(root, 'analysis-files', key, 'versions'));
+    const canonicalVersions = fs.realpathSync.native(versions);
     const originalBlobs = await readdir(versions);
+    const open = fs.openSync;
+    const close = fs.closeSync;
     const write = fs.writeFileSync;
     const rename = fs.renameSync;
     const fault = new Error('Synthetic storage failure');
+    const opened = new Map<number, string>();
     let writes = 0;
+    t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+      const descriptor = open(...args);
+      opened.set(descriptor, String(args[0]));
+      return descriptor;
+    });
+    t.mock.method(fs, 'closeSync', (descriptor: number) => {
+      close(descriptor);
+      opened.delete(descriptor);
+    });
     t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
-      if (failure === 'blob_write' && String(args[0]).startsWith(versions + '/') && ++writes === 2) {
+      const path = typeof args[0] === 'number' ? opened.get(args[0]) : String(args[0]);
+      // Resolve aliases with the same native API for both sides. Windows can
+      // express the same directory with a short name or a namespaced path.
+      const versionWrite = path !== undefined && fs.realpathSync.native(dirname(path)) === canonicalVersions;
+      if (failure === 'blob_write' && versionWrite && ++writes === 2) {
         write(...args); // A failed write can leave a partially created file.
         throw fault;
       }
@@ -41,6 +58,7 @@ for (const failure of ['blob_write', 'index_commit'] as const) {
       await assert.rejects(files.publish({ ...scope, attemptId: 'next' },
         ['report.txt', 'new.txt'], [snapshot('report.txt', 'replacement'), snapshot('new.txt', 'new')],
         snapshot('main.py', 'print(1)')), error => error === fault);
+      if (failure === 'blob_write') assert.equal(writes, 2);
     } finally {
       t.mock.restoreAll();
       syncBuiltinESMExports();
