@@ -8,9 +8,13 @@
   <p><strong>A local-first workspace for AI-assisted research.</strong></p>
   <p>Research with agents. Inspect their work. Keep the evidence.</p>
 
-  <a href="https://github.com/yanaire/athena-1/actions/workflows/verify.yml"><img alt="Verify Athena" src="https://github.com/yanaire/athena-1/actions/workflows/verify.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/yanaire/athena/actions/workflows/verify.yml"><img alt="Verify Athena" src="https://github.com/yanaire/athena/actions/workflows/verify.yml/badge.svg?branch=main"></a>
   <img alt="Platform: macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-555555?style=flat">
   <img alt="Development stage: source preview" src="https://img.shields.io/badge/stage-source%20preview-B39A62?style=flat">
+
+  <p>
+    <strong>English</strong> · <a href="README.ko.md">한국어</a> · <a href="README.ja.md">日本語</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.de.md">Deutsch</a> · <a href="README.pt-BR.md">Português (Brasil)</a>
+  </p>
 
   <p>
     <a href="#overview">Overview</a> ·
@@ -221,7 +225,7 @@ This uses real model tokens and a temporary workspace. It checks actual file rea
 ## Repository layout
 
 ```text
-athena-1/
+athena/
 ├── runtime/                 # Local agent host and TaskManager
 ├── src-tauri/               # Rust/Tauri desktop shell
 ├── sandbox/                 # Rust/WASI analysis helper
