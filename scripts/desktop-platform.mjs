@@ -65,3 +65,17 @@ export function isolatedRuntimeEnvironment(home, environment = process.env, plat
   return { ...result, PATH: [win32.join(windows, 'System32'), windows].join(';'),
     HOME: home, USERPROFILE: home, APPDATA: win32.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: win32.join(home, 'AppData', 'Local') };
 }
+
+export function detachMacOSImage(readAttachment, detach) {
+  const failures = [];
+  for (const force of [false, true]) {
+    const attachment = readAttachment();
+    if (attachment === 'detached') return;
+    if (attachment !== 'mounted') break;
+    try { detach(force); }
+    catch (error) { failures.push(error); }
+  }
+  if (readAttachment() !== 'detached') {
+    throw new AggregateError(failures, 'The scratch disk image is still attached or its mount cannot be confirmed.');
+  }
+}

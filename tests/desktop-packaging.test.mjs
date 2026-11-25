@@ -2,7 +2,42 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { desktopBuildPlan } from '../scripts/build-desktop.mjs';
-import { isolatedRuntimeEnvironment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
+import { detachMacOSImage, isolatedRuntimeEnvironment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
+
+test('macOS packaging confirms detachment despite a late DiskArbitration response', () => {
+  const calls = [];
+  let attachment = 'mounted';
+  detachMacOSImage(() => attachment, force => {
+    calls.push(force);
+    if (!force) throw new Error('timeout for DiskArbitration expired');
+    attachment = 'detached';
+    throw new Error('No such file or directory');
+  });
+  assert.deepEqual(calls, [false, true]);
+
+  attachment = 'mounted';
+  calls.length = 0;
+  detachMacOSImage(() => attachment, force => {
+    calls.push(force);
+    attachment = 'detached';
+    throw new Error('timeout for DiskArbitration expired');
+  });
+  assert.deepEqual(calls, [false]);
+
+  attachment = 'mounted';
+  calls.length = 0;
+  assert.throws(() => detachMacOSImage(() => attachment, force => {
+    calls.push(force);
+    attachment = 'attached';
+    throw new Error('drive not detached');
+  }), /still attached/);
+  assert.deepEqual(calls, [false]);
+
+  attachment = 'mounted';
+  calls.length = 0;
+  assert.throws(() => detachMacOSImage(() => attachment, force => calls.push(force)), /still attached/);
+  assert.deepEqual(calls, [false, true]);
+});
 
 test('each native platform selects a distinct pinned Node archive and matching sidecar ABI', () => {
   const variants = [

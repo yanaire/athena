@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, statSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveDesktopPlatform } from './desktop-platform.mjs';
+import { detachMacOSImage, resolveDesktopPlatform } from './desktop-platform.mjs';
 
 const { platform, target } = resolveDesktopPlatform();
 assert.equal(platform, 'darwin', 'DMG verification requires a native Mac build.');
@@ -28,20 +28,31 @@ const mount = join(work, 'mount');
 const installation = join(work, 'Installed Athena');
 const volumeImage = join(work, 'Athena.sparseimage');
 const candidate = join(work, name);
-let mounted = false;
+let attachedImage;
 let mountDevice;
 const failures = [];
 
 function attach(path, readOnly = false) {
   // Arm cleanup before the command in case it fails after attaching the volume.
-  mounted = true;
+  attachedImage = path;
   image('attach', readOnly ? '-readonly' : '-readwrite', '-nobrowse', '-noautoopen', '-mountpoint', mount, path);
 }
 
 function detach() {
-  try { image('detach', mount); }
-  catch { image('detach', '-force', mount); }
-  mounted = false;
+  detachMacOSImage(() => {
+    // DiskArbitration can time out even when the requested ejection eventually succeeds.
+    const input = execFileSync('/usr/bin/hdiutil', ['info', '-plist'], { timeout: 30_000 });
+    const report = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'],
+      { input, encoding: 'utf8', timeout: 30_000 });
+    const { images } = JSON.parse(report);
+    assert.ok(Array.isArray(images), 'Missing disk image attachment state.');
+    const entry = images.find(item => item['image-path'] === attachedImage);
+    const mountedHere = statSync(mount).dev !== mountDevice;
+    if (!entry && !mountedHere) return 'detached';
+    if (mountedHere && entry?.['system-entities']?.some(entity => entity['mount-point'] === mount)) return 'mounted';
+    return 'attached';
+  }, force => image('detach', ...(force ? ['-force'] : []), mount));
+  attachedImage = undefined;
 }
 
 try {
@@ -72,8 +83,7 @@ try {
 }
 
 try {
-  if (mounted && (await stat(mount)).dev === mountDevice) mounted = false;
-  if (mounted) detach();
+  if (attachedImage) detach();
   if (failures.length === 0) {
     const digest = createHash('sha256');
     for await (const chunk of createReadStream(candidate)) digest.update(chunk);
@@ -84,7 +94,7 @@ try {
 } catch (error) {
   failures.push(error);
 } finally {
-  if (!mounted) {
+  if (!attachedImage) {
     try { await rm(work, { recursive: true, force: true }); }
     catch (error) { failures.push(error); }
   }
