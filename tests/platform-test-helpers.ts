@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmod, lstat, symlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export const windows = process.platform === 'win32';
 export const posixSignalsOnly = windows ? 'SIGSTOP and process-group signals are POSIX-specific; owned live-worker cancellation is also tested without those signals.' : false;
@@ -15,10 +15,13 @@ export function systemEnvironment(): NodeJS.ProcessEnv {
 
 function powershell(path: string, body: string): string {
   const executable = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  // A PowerShell 7 parent advertises incompatible module paths to Windows
+  // PowerShell 5.1. Inspect ACLs with the fixed OS installation's own modules.
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
   return execFileSync(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
     "$ErrorActionPreference='Stop'; $path=$env:ATHENA_TEST_ACL_PATH; " + body], {
     encoding: 'utf8', windowsHide: true,
-    env: { ...process.env, ATHENA_TEST_ACL_PATH: path },
+    env: { ...environment, PSModulePath: join(dirname(executable), 'Modules'), ATHENA_TEST_ACL_PATH: path },
   }).trim();
 }
 

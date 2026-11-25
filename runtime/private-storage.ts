@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdirSync, type Stats } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { isAbsolute, resolve, win32 } from 'node:path';
 
 // Node's Windows mode bits do not express ownership or a DACL. This fixed,
 // host-owned script uses SIDs, not localized account names, and receives paths
@@ -51,13 +51,23 @@ export function windowsPowerShell(): string {
   return win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 
+export function windowsPowerShellEnvironment(executable = windowsPowerShell(), environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  // PowerShell 7 exports its own PSModulePath to child processes. Windows
+  // PowerShell 5.1 cannot load those modules; load only its fixed OS modules.
+  // Remove every casing so Windows' case-insensitive environment cannot select
+  // an inherited duplicate instead of the value below.
+  const inherited = Object.fromEntries(Object.entries(environment).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
+  return { ...inherited, PSModulePath: win32.join(win32.dirname(executable), 'Modules') };
+}
+
 function windowsAcl(path: string, operation: 'check' | 'protect'): void {
   if (process.platform !== 'win32') throw new Error('Windows ACL operations require Windows.');
   if (!isAbsolute(path) || path.includes('\0')) throw new Error('Expected an absolute storage path.');
-  const response = execFileSync(windowsPowerShell(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
+  const executable = windowsPowerShell();
+  const response = execFileSync(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
     Buffer.from(aclScript, 'utf16le').toString('base64')], {
     input: JSON.stringify({ path, operation }), encoding: 'utf8', timeout: 15_000,
-    windowsHide: true, maxBuffer: 16 * 1024, stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true, maxBuffer: 16 * 1024, stdio: ['pipe', 'pipe', 'pipe'], env: windowsPowerShellEnvironment(executable),
   });
   if (response !== 'ATHENA_PRIVATE_STORAGE_OK') throw new Error('Private Windows storage could not be verified.');
 }
@@ -81,10 +91,17 @@ export function createPrivateDirectory(path: string): void {
   const absolute = resolve(path);
   const created = mkdirSync(absolute, { recursive: true, mode: 0o700 });
   if (process.platform === 'win32' && created) {
+    // Node returns the first created path with a \\?\ namespace prefix on
+    // Windows. Compare like forms: mixed prefixes make relative() return an
+    // absolute drive path, not the remaining newly created descendants.
+    const remainder = win32.relative(win32.toNamespacedPath(created), win32.toNamespacedPath(absolute));
+    if (win32.isAbsolute(remainder) || remainder === '..' || remainder.startsWith('..\\')) {
+      throw new Error('The created directory is outside the requested storage path.');
+    }
     setWindowsPrivate(created);
     let next = created;
-    for (const part of relative(created, absolute).split(sep).filter(Boolean)) {
-      next = join(next, part);
+    for (const part of remainder.split(win32.sep).filter(Boolean)) {
+      next = win32.join(next, part);
       setWindowsPrivate(next);
     }
   }
