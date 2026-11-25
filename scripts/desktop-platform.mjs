@@ -97,10 +97,12 @@ export function macOSEjectTarget(attachment, ownership) {
   return { state: 'ambiguous' };
 }
 
-export function detachMacOSImage(readAttachment, eject) {
+export const MACOS_IMAGE_EJECT_ATTEMPTS = 4;
+
+export function detachMacOSImage(readAttachment, eject, attempts = MACOS_IMAGE_EJECT_ATTEMPTS) {
   const failures = [];
   let attachment = readAttachment();
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (!attachment.target) break;
     try { eject(attachment.target); }
     catch (error) { failures.push(error); }

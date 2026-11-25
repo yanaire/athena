@@ -29,6 +29,15 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
 
   attachment = mounted;
   calls.length = 0;
+  detachMacOSImage(() => attachment, uuid => {
+    calls.push(uuid);
+    if (calls.length < 3) throw new Error('Disk Arbitration has not finished ejecting the image');
+    attachment = detached;
+  });
+  assert.deepEqual(calls, [target, target, target]);
+
+  attachment = mounted;
+  calls.length = 0;
   assert.throws(() => detachMacOSImage(() => attachment, device => {
     calls.push(device);
     attachment = { state: 'ambiguous' };
@@ -39,7 +48,8 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
   attachment = mounted;
   calls.length = 0;
   assert.throws(() => detachMacOSImage(() => attachment, device => calls.push(device)), /still attached/);
-  assert.deepEqual(calls, [target, target]);
+  assert.deepEqual(calls, [target, target, target, target]);
+  assert.throws(() => detachMacOSImage(() => attachment, () => assert.fail('Ejection budget exhausted'), 0), /still attached/);
 });
 
 test('macOS packaging finds the owned partition after unmount and retries with its media UUID', () => {
