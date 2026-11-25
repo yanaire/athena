@@ -23,9 +23,11 @@ Research mission stages remain plans unless separate execution/evidence records 
 
 ## Chat corrections
 
-The UI previously accepted a draft consisting only of staged attachments, while the host required a nonempty message. The host now accepts a string message with at least one valid staged reference and runs the same ownership, session, project, version, byte and metadata checks before creating an attempt. Empty input with no files remains invalid.
+The UI previously accepted a draft consisting only of staged attachments, while the host required a nonempty message. The host now accepts a string message with at least one valid staged reference and runs the same ownership, session, project, version, byte and metadata checks before creating an attempt. Empty input with no files remains invalid. The UI transport retains that validated empty string instead of dropping the message field during parameter normalization.
 
 Attachment names previously disappeared when live chat was replaced by saved history. The owning host attempt now projects display-only `attachments` metadata (`name`, `mimeType`, `size`) onto an exactly matched user message. This metadata exposes no file path, content or access grant. Existing credential redaction applies to its text. History and live rendering use text nodes for these labels, including a message with an empty body. The original user body and durable Pi transcript format remain unchanged.
+
+Conversation updates preserve the pre-update scroll intent across nested message, child-activity and history replacements. A reader at the bottom follows new work and the final answer. A reader who scrolls up keeps that position; a later history replacement must not treat the temporary cleared transcript as permission to jump down.
 
 ## Repeatable checks
 

@@ -69,7 +69,14 @@
       }
       host.hidden = !arranged.length && !error;
     }
+    function withLayout(change) {
+      options.onBeforeLayout?.();
+      try { return change(); } finally { options.onAfterLayout?.(); }
+    }
     function render() {
+      if (!destroyed) return withLayout(renderContents);
+    }
+    function renderContents() {
       if (destroyed) return;
       view.render({ runId: 'conversation', tools: currentTools(), error });
       const present = new Set(entries.map(entry => entry.key));
@@ -105,6 +112,13 @@
       view.reset(); host.hidden = true;
     }
     function history(messages) {
+      if (destroyed) return;
+      // History replacement must start its transaction before clear() removes
+      // the old height; a render-only hook would mistake that empty view for
+      // a user at the bottom and pull someone reading earlier messages down.
+      return withLayout(() => restoreHistory(messages));
+    }
+    function restoreHistory(messages) {
       clear(true);
       for (const [index, message] of (messages || []).entries()) {
         const owner = context(message.athena), at = timestamp(message.timestamp);
@@ -188,8 +202,8 @@
     return Object.freeze({
       history, beginUser, observe, render: live, reset: finish, clear, refresh: render,
       revealTool: view.revealTool, hasTool: id => tools.has(id),
-      removeActivity(id) { const item = activities.get(id); item?.node.remove(); activities.delete(id); },
-      placeActivity(node, details) { const key = details.attemptId || details.key, previous = activities.get(key); if (previous && previous.node !== node) previous.node.remove(); const item = { node, ...details, at: timestamp(details.at) }; activities.set(key, item); layout(); return entries.some(entry => entry.athena?.runId === details.runId); },
+      removeActivity(id) { return withLayout(() => { const item = activities.get(id); item?.node.remove(); activities.delete(id); }); },
+      placeActivity(node, details) { return withLayout(() => { const key = details.attemptId || details.key, previous = activities.get(key); if (previous && previous.node !== node) previous.node.remove(); const item = { node, ...details, at: timestamp(details.at) }; activities.set(key, item); layout(); return entries.some(entry => entry.athena?.runId === details.runId); }); },
       destroy() { if (destroyed) return; clear(); view.destroy(); destroyed = true; }
     });
   }

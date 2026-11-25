@@ -20,6 +20,26 @@
  let opener=null,dialogOpener=null,dialogAction=null,toastTimer=0,reconcileTimer=0;
  const listen=(el,type,fn,options={})=>el.addEventListener(type,fn,{...options,signal});
  const icons=()=>{if(window.lucide)window.lucide.createIcons({attrs:{'aria-hidden':'true'}})};
+ // Parent messages and host child snapshots can grow the same transcript in
+ // separate callbacks. Capture before the first DOM mutation, not after a
+ // child card has already grown. Nested renders share one scroll decision.
+ let conversationLayoutDepth=0,conversationLayoutAnchor=null;
+ function beforeConversationLayout(){
+  if(conversationLayoutDepth===0){
+   const scroller=q('.ac-conversation-inner');
+   conversationLayoutAnchor=scroller?{scroller,top:scroller.scrollTop,follow:scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<90}:null;
+  }
+  conversationLayoutDepth++;
+ }
+ function afterConversationLayout(){
+  if(conversationLayoutDepth<=0||--conversationLayoutDepth!==0)return;
+  const anchor=conversationLayoutAnchor;conversationLayoutAnchor=null;
+  if(appDestroyed||!anchor?.scroller.isConnected)return;
+  // A user reading earlier messages keeps that position through history
+  // replacement as well. No follow preference leaks into another callback.
+  anchor.scroller.scrollTop=anchor.follow?anchor.scroller.scrollHeight:anchor.top;
+ }
+
  const files={
   'baseline.cir':'* Athena UI example — ideal RC low-pass\nV1 in 0 AC 1\nR1 in out 1k\nC1 out 0 100n\n.ac dec 100 10 100k\n.end',
   'ac_response.csv':'# Illustrative values for UI design\nfrequency_hz,gain_db\n100,-0.0171\n1000,-1.4451\n1592,-3.0103\n10000,-16.0722',
@@ -442,8 +462,9 @@
   if(appDestroyed||snapshot.sequence===0)return;
   if(workspaceStore?.getState().sessionBound===false)return;
   if(!piEngaged&&snapshot.settled&&snapshot.phase==='idle'&&!snapshot.tools.length&&!snapshot.messages.length)return;
+  beforeConversationLayout();
+  try{
   q('#ac-live-reply').hidden=false;
-  const scroller=q('.ac-conversation-inner'),follow=scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<90;
   if(piRunId!==snapshot.runId||!piEngaged){
    piRunId=snapshot.runId;piText='';piEngaged=true;
    reply.begin({phase:snapshot.phase,previewLabel:piPreviewActive?'Local event preview':''});
@@ -467,7 +488,7 @@
    state.busy=true;composer.setBusy(true,snapshot.label,{canStop:piPreviewActive||typeof piSession?.abort==='function'});
   }
   chatModelPicker?.sync();
-  if(follow)scroller.scrollTop=scroller.scrollHeight;
+  }finally{afterConversationLayout()}
  }
  function handlePiEvent(event){if(appDestroyed)return false;return piRuntime?piRuntime.receive(event):piActivity.receive(event)}
  function usePiDraft(text){
@@ -660,7 +681,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  const resize=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{syncLeftUI();layout?.refresh();overlay();drawChart()}):null;resize?.observe(root);
  piActivity=window.AthenaPiActivity.create();
  piRuntime=window.AthenaPiRuntime.create();
- piView=window.AthenaConversationStream.mount(q('#ac-pi-transcript'),{icons,toast,getWorkspace:()=>workspaceStore?.getState(),getActivityFallback:()=>q('#aw-activity')});
+ piView=window.AthenaConversationStream.mount(q('#ac-pi-transcript'),{icons,toast,onBeforeLayout:beforeConversationLayout,onAfterLayout:afterConversationLayout,getWorkspace:()=>workspaceStore?.getState(),getActivityFallback:()=>q('#aw-activity')});
  piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
@@ -677,7 +698,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();
   toast(item.title+' excerpt added to the draft.');
  },onOpenArtifact:id=>openWorkspace('artifacts',{artifactId:id})});
- workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,placeActivity:(node,details)=>piView.placeActivity(node,details),removeActivity:id=>piView.removeActivity(id),hasConversationTool:id=>piView.hasTool(id),icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
+ workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,onBeforeLayout:beforeConversationLayout,onAfterLayout:afterConversationLayout,placeActivity:(node,details)=>piView.placeActivity(node,details),removeActivity:id=>piView.removeActivity(id),hasConversationTool:id=>piView.hasTool(id),icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
  syncLeftUI();
  layout=window.AthenaResize.mount(root,{onResize(){overlay();drawChart()}});
  settings=window.AthenaSettings.mount(root,{

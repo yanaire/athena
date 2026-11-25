@@ -275,7 +275,10 @@
         return {message:validateMessage('/'+p.name+(argumentsText?' '+argumentsText:'')),...(state.session.isStreaming?{streamingBehavior:'followUp'}:{})};
       }
       const allowed=new Set(spec.fields.map(f=>f.name));if(['prompt','steer','follow_up'].includes(id)){allowed.add('images');allowed.add('fileReferences');}
-      return Object.fromEntries(Object.entries(p).filter(([k,v])=>allowed.has(k)&&v!==''&&v!==undefined));
+      // A validated attachment-only message is deliberately empty, not absent.
+      // The host still requires the string field and independently checks files.
+      const messageAction=['prompt','steer','follow_up'].includes(id);
+      return Object.fromEntries(Object.entries(p).filter(([k,v])=>allowed.has(k)&&v!==undefined&&(v!==''||messageAction&&k==='message')));
     }
     async function direct(command,p,current){
       if(command==='get_state')return {model:current.model,thinkingLevel:current.thinkingLevel,isStreaming:current.isStreaming,isCompacting:current.isCompacting,steeringMode:current.steeringMode,followUpMode:current.followUpMode,sessionFile:current.sessionFile,sessionId:current.sessionId,sessionName:current.sessionName,autoCompactionEnabled:current.autoCompactionEnabled,autoRetryEnabled:current.autoRetryEnabled,messageCount:current.messages?.length,pendingMessageCount:current.pendingMessageCount,steering:current.getSteeringMessages?.(),followUp:current.getFollowUpMessages?.()};

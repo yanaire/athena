@@ -102,6 +102,12 @@ test('file references require explicit host support and complete staging acknowl
   assert.deepEqual(plain(result.fileReferences), [reference]);
   await binding.session.prompt('Read the entire file', result);
   assert.deepEqual(plain(supported.calls.at(-1).fileReferences), [reference]);
+  await binding.session.prompt('', result);
+  assert.equal(supported.calls.at(-1).message, '', 'Attachment-only input must keep its validated empty message field on the wire.');
+  assert.deepEqual(plain(supported.calls.at(-1).fileReferences), [reference]);
+  const accepted = supported.calls.length;
+  await assert.rejects(binding.session.prompt('', { fileReferences: [] }), /required|Enter a message/);
+  assert.equal(supported.calls.length, accepted, 'An empty draft without files must not reach the transport.');
   assert.equal(runtime.getInputContract().maxMessageCharacters, 20);
   await assert.rejects(binding.session.prompt('x'.repeat(21)), error => error.code === 'INPUT_TOO_LARGE');
   supported.stageFiles = async () => ({ fileReferences: [] });

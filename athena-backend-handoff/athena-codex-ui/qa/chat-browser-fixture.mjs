@@ -47,8 +47,11 @@ export async function createFixture() {
       let next, before = '';
       if (coordinator && input.startsWith(prompts.cancel)) {
         response.writeHead(200, { 'content-type': 'text/event-stream' });
+        const closed = once(response, 'close');
         response.write(frame({ role: 'assistant', content: 'Waiting for cancellation. This response is still streaming.' }));
-        await once(response, 'close'); return;
+        await delay(1800); // A second real stream update while the reader scrolls up.
+        if (!response.destroyed) response.write(frame({ content: ' More text arrived while the reader reviewed earlier work.' }));
+        await closed; return;
       }
       if (coordinator && !input.startsWith(prompts.compare)) {
         next = input.startsWith('Please preserve this identifier exactly:')

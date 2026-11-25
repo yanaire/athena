@@ -295,6 +295,13 @@
 
     function render(state) {
       if (destroyed) return;
+      // Existing attempt sections may already live inside the conversation.
+      // Begin before replacing their innerHTML, not only before placement.
+      options.onBeforeLayout?.();
+      try { return renderContents(state); } finally { options.onAfterLayout?.(); }
+    }
+
+    function renderContents(state) {
       snapshot = state;
       const runKey = JSON.stringify([state.mode, state.sessionId]);
       if (currentRunKey && currentRunKey !== runKey) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); expandedDiagnostics.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }

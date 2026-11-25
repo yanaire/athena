@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const { parseHTML } = require('linkedom');
 const base = path.resolve(__dirname, '..');
 
-function environment() {
+function environment(options = {}) {
   const { window, document } = parseHTML('<html><body><main id="root"><section id="transcript"></section><section id="aw-activity"></section></main></body></html>');
   Object.defineProperty(window.HTMLElement.prototype, 'open', { configurable: true, get() { return this.hasAttribute('open'); }, set(value) { this.toggleAttribute('open', Boolean(value)); } });
   const copied = [], context = vm.createContext({ window, document, AbortController, URL, Blob, Date, setTimeout, clearTimeout, navigator: { clipboard: { writeText: async value => copied.push(value) } } });
@@ -15,7 +15,7 @@ function environment() {
   window.AthenaAvatars = { html: () => '<span></span>' };
   let state = { mode: 'runtime', revision: 1, sessionId: 'session-one', run: { id: 'run-one', status: 'running' }, tasks: [], agents: [], attempts: [], tools: [], processes: [], artifacts: [], approvals: [], events: [], capabilities: { retryTask: true } };
   const host = document.querySelector('#transcript'), fallback = document.querySelector('#aw-activity');
-  const view = window.AthenaConversationStream.mount(host, { getWorkspace: () => state, getActivityFallback: () => fallback });
+  const view = window.AthenaConversationStream.mount(host, { getWorkspace: () => state, getActivityFallback: () => fallback, ...options });
   return { window, document, host, fallback, view, copied, get state() { return state; }, set state(value) { state = value; }, click(node) { assert.ok(node); node.dispatchEvent(new window.Event('click', { bubbles: true })); }, close() { view.destroy(); } };
 }
 const owner = (runId = 'run-one', attemptId = 'attempt-parent-one') => ({ projectId: 'project-one', sessionId: 'session-one', runId, taskId: 'parent-' + runId, parentTaskId: null, agentSessionId: 'agent-' + runId, attemptId });
@@ -179,5 +179,69 @@ test('unmatched ownership is kept in fallback and session/branch changes remove 
     assert.equal(e.host.textContent.includes('Original child work'), false);
     assert.equal(e.host.querySelectorAll('[data-aw-attempt]').length, 0);
     assert.equal(e.fallback.querySelectorAll('[data-aw-attempt]').length, 0);
+  } finally { e.close(); }
+});
+
+test('history layout transaction captures the old transcript before clear and encloses its nested render', () => {
+  const events = []; let depth = 0, e;
+  const hooks = {
+    onBeforeLayout() { events.push({ phase: 'before', depth: depth++, text: e.host.textContent }); },
+    onAfterLayout() { events.push({ phase: 'after', depth: --depth, text: e.host.textContent }); }
+  };
+  e = environment(hooks);
+  try {
+    e.view.history([message('user', 'Earlier request retained for reading.', owner(), 100), message('assistant', 'Earlier response.', owner(), 110)]);
+    events.length = 0;
+    e.view.history([message('user', 'Newly hydrated request.', owner(), 100), message('assistant', 'Complete hydrated response.', owner(), 110)]);
+    assert.equal(events[0].phase, 'before'); assert.equal(events[0].depth, 0);
+    assert.match(events[0].text, /Earlier request retained for reading/);
+    assert.deepEqual(events.map(event => [event.phase, event.depth]), [['before', 0], ['before', 1], ['after', 1], ['after', 0]]);
+    assert.match(events.at(-1).text, /Complete hydrated response/); assert.equal(depth, 0);
+  } finally { e.close(); }
+});
+
+test('separate host snapshots begin layout before replacing an already inline child card', () => {
+  const events = []; let depth = 0, e;
+  const hooks = {
+    onBeforeLayout() { events.push({ phase: 'before', depth: depth++, text: e.host.textContent }); },
+    onAfterLayout() { events.push({ phase: 'after', depth: --depth, text: e.host.textContent }); }
+  };
+  e = environment(hooks); e.view.history(historyRun(owner(), 100));
+  const child = { id: 'child-layout', parentTaskId: owner().taskId, runId: 'run-one', title: 'Calculate measurements', status: 'running', attemptId: 'attempt-layout' };
+  const attempt = { id: child.attemptId, taskId: child.id, parentTaskId: child.parentTaskId, runId: child.runId, status: 'running', acceptedAt: 130, result: 'Short prior child result.' };
+  e.state = { ...e.state, tasks: [child], attempts: [attempt] };
+  let update; const store = { getState: () => e.state, subscribe(fn) { update = fn; fn(e.state); return () => {}; } };
+  const chrome = e.window.AthenaWorkspaceChrome.mount(e.document.querySelector('#root'), { store, ...hooks, placeActivity: e.view.placeActivity, removeActivity: e.view.removeActivity, hasConversationTool: e.view.hasTool });
+  try {
+    const originalCard = e.host.querySelector('[data-aw-attempt="attempt-layout"]'); assert.ok(originalCard);
+    events.length = 0;
+    const newResult = 'Updated child result with saved calculation and output details.';
+    e.state = { ...e.state, revision: 2, attempts: [{ ...attempt, status: 'succeeded', result: newResult }] };
+    update(e.state);
+    assert.equal(e.host.querySelector('[data-aw-attempt="attempt-layout"]'), originalCard);
+    assert.match(events[0].text, /Short prior child result/);
+    assert.equal(events[0].text.includes(newResult), false, 'The outer scroll owner observes height before existing card contents grow.');
+    assert.deepEqual(events.map(event => [event.phase, event.depth]), [['before', 0], ['before', 1], ['after', 1], ['after', 0]]);
+    assert.match(events.at(-1).text, /Updated child result/); assert.equal(depth, 0);
+    assert.throws(() => update({ ...e.state, revision: 3, tools: null }), /filter/);
+    assert.equal(depth, 0, 'A failed host render still releases the scroll transaction.');
+    update({ ...e.state, revision: 4 }); assert.equal(depth, 0);
+  } finally { chrome.destroy(); e.close(); }
+});
+
+test('stream render and history failures always close layout hooks before a later successful update', () => {
+  let depth = 0, before = 0, after = 0, fail = false;
+  const e = environment({
+    onBeforeLayout() { depth++; before++; }, onAfterLayout() { depth--; after++; },
+    getWorkspace() { if (fail) throw new Error('Injected workspace read failure'); return null; }
+  });
+  try {
+    fail = true;
+    assert.throws(() => e.view.beginUser('A retained draft'), /Injected workspace read failure/);
+    assert.equal(depth, 0); assert.equal(before, after);
+    assert.throws(() => e.view.history({ not: 'messages' }), /entries/);
+    assert.equal(depth, 0); assert.equal(before, after);
+    fail = false; e.view.history([message('assistant', 'Rendering recovered.', owner(), 200)]);
+    assert.equal(depth, 0); assert.equal(before, after); assert.match(e.host.textContent, /Rendering recovered/);
   } finally { e.close(); }
 });
