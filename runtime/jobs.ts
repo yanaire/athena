@@ -672,8 +672,11 @@ export class JobRunner {
     }
     const stop=pending.stop;
     const status=cancellation==='unknown' ? 'failed' : stop==='output_limit' ? 'failed' : stop ?? (failure ? 'failed' : 'succeeded');
+    const timeoutError=pending.attempt.startedAt === null
+      ? 'The analysis runtime did not become ready before its startup deadline.'
+      : 'Analysis exceeded its time limit.';
     const error=cancellation==='unknown' ? failure : stop==='output_limit' ? 'Analysis exceeded its output limit.' :
-      stop==='timed_out' ? 'Analysis exceeded its time limit.' : stop==='cancelled' ? undefined : failure;
+      stop==='timed_out' ? timeoutError : stop==='cancelled' ? undefined : failure;
     this.#finish(pending,{status,exitCode,signal:exitSignal,artifacts,cancellation,error});
   }
 

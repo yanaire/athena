@@ -60,7 +60,7 @@ async function fixture(t: TestContext, timeoutMs = 5_000) {
   return { child, result, stops, starts: () => starts };
 }
 
-for (const startup of [100, 20_000]) {
+for (const startup of [100, 30_000]) {
   test(`a ${startup}ms startup leaves the same bounded guest fallback after readiness`, async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const { child, result, stops, starts } = await fixture(t);
@@ -79,7 +79,7 @@ for (const startup of [100, 20_000]) {
 test('an interpreter that never becomes ready has a bounded startup deadline', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { result, stops, starts } = await fixture(t);
-  t.mock.timers.tick(20_999);
+  t.mock.timers.tick(30_999);
   assert.deepEqual(stops, []);
   t.mock.timers.tick(1);
   assert.deepEqual(stops, ['timed_out']);

@@ -11,7 +11,7 @@ import { ANALYSIS_FILE_LIMITS, type AnalysisSnapshot } from './analysis-files.ts
 export const ANALYSIS_LIMITS = Object.freeze({ guestLinearMemoryMiB: 192, hostMemoryMiB: 768, hostMemorySampleMs: 10, openFiles: 96,
   fileBytes: ANALYSIS_FILE_LIMITS.fileBytes, streamBytes: 16384, maxArgs: 16, argBytes: 256,
   snapshotBytes: 2 * 1024 * 1024, maxFiles: ANALYSIS_FILE_LIMITS.batchFiles, maxTimeoutMs: 30000 });
-const startupMs = 20_000;
+const startupMs = 30_000;
 const ready = Buffer.from('ATHENA_SANDBOX_READY\n');
 const bundled = fileURLToPath(new URL('../analysis-runtime', import.meta.url));
 const staged = fileURLToPath(new URL('../.analysis-runtime/staged', import.meta.url));
