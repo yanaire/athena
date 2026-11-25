@@ -4,7 +4,7 @@ import { pending, object, hash, artifactRef } from './orchestration.ts';
 import type { Context, Attempt, TaskRow, ArtifactRow, ProcessRow } from './orchestration.ts';
 import type { Run } from './manager.ts';
 import type { Status, Tool } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
-import type { CsvJobEvent } from './jobs.ts';
+import type { JobEvent } from './jobs.ts';
 
 type Event = Readonly<Record<string, unknown>> & { readonly type: string };
 export const context = ({projectId, sessionId, runId, taskId, parentTaskId, agentSessionId, attemptId}:Context):Context =>
@@ -81,7 +81,9 @@ export class Journal {
   finishRun(run:Run,status:Status,error?:string) {
     this.db.putRecord('run',{...run,status,endedAt:Date.now(),error});
     const receipt=this.db.receipt(run.sessionId,run.requestId);
-    if(receipt)this.db.putReceipt({...receipt,state:status==='paused'?'interrupted':status==='succeeded'?'completed':'failed',
+    // A manual recovery may reopen the run projection, but never rewrites a previously
+    // settled prompt receipt. Its own retry receipt names the newly accepted attempts.
+    if(receipt?.state==='accepted')this.db.putReceipt({...receipt,state:status==='paused'?'interrupted':status==='succeeded'?'completed':'failed',
       response:status==='succeeded'?receipt.response:{type:'response',command:'prompt',id:run.requestId,success:false,
         error:error??('Run '+status+'.'),data:{runId:run.id,taskId:run.taskId,status}}});
     const root=this.db.record<TaskRow>('task',run.taskId);
@@ -115,7 +117,7 @@ export class Journal {
     const task=this.db.record<TaskRow>('task',a.taskId);
     if(task&&!task.toolIds.includes(id))this.db.putRecord('task',{...task,toolIds:[...task.toolIds,id]});
   }
-  process(event:CsvJobEvent) {
+  process(event:JobEvent) {
     const job=event.attempt,tool=this.db.record<Tool & Context>('tool',job.toolId);
     if(!tool || tool.projectId!==job.projectId || tool.sessionId!==job.sessionId || tool.taskId!==job.taskId)throw new Error('Process has no owning tool.');
     const ctx=context(tool), processId=job.attemptId;

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { AnalysisFiles } from '../runtime/analysis-files.ts';
 
@@ -20,15 +20,20 @@ for (const failure of ['blob_write', 'index_commit'] as const) {
     const [key] = await readdir(join(root, 'analysis-files'));
     assert.ok(key);
     const versions = await realpath(join(root, 'analysis-files', key, 'versions'));
+    const versionDirectory = fs.statSync(versions, { bigint: true });
     const originalBlobs = await readdir(versions);
     const write = fs.writeFileSync;
     const rename = fs.renameSync;
     const fault = new Error('Synthetic storage failure');
     let writes = 0;
     t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
-      if (failure === 'blob_write' && String(args[0]).startsWith(versions + '/') && ++writes === 2) {
-        write(...args); // A failed write can leave a partially created file.
-        throw fault;
+      if (failure === 'blob_write') {
+        // Windows can spell the same directory with ordinary or extended paths.
+        const parent = fs.statSync(dirname(String(args[0])), { bigint: true });
+        if (parent.dev === versionDirectory.dev && parent.ino === versionDirectory.ino && ++writes === 2) {
+          write(...args); // A failed write can leave a partially created file.
+          throw fault;
+        }
       }
       return write(...args);
     });

@@ -7,8 +7,9 @@
  function savedLeftOpen(){try{return window.localStorage.getItem(LEFT_VISIBILITY_KEY)!=='false'}catch(_){return true}}
  const state={panelOpen:false,panelTab:'results',sideView:'surface',artifact:'response',leftOpen:savedLeftOpen(),leftDrawer:false,documentEditing:false,busy:false,taskState:'needs-confirmation',newAssignments:true,lastSubmission:null};
  let surfaces=null,layout=null,settings=null,workspaceStore=null,workspaceViews=null,workspaceChrome=null,knowledge=null,modelSettings=null,chatModelPicker=null,demoStore=null,connectionManager=null,records=null,recordToolbar=null,workspaceOff=null,connectionOff=null,recordsOff=null;
- let providerProfiles=null,modelProfilesAdapter=null;
+ let providerProfiles=null,modelProfilesAdapter=null,extensions=null,extensionService=null;
  let piActivity=null,piView=null,piSubscription=null,piSession=null,piSessionUnsubscribe=null,piSessionEpoch=0,piRunId=null,piText='',piEngaged=false,piPreviewActive=false,appDestroyed=false;
+ let piHistoryAfterSettle=-1;
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
  const piManualTools=new Map(), sessionDrafts=new Map();
  const failedDrafts=[];
@@ -19,6 +20,26 @@
  let opener=null,dialogOpener=null,dialogAction=null,toastTimer=0,reconcileTimer=0;
  const listen=(el,type,fn,options={})=>el.addEventListener(type,fn,{...options,signal});
  const icons=()=>{if(window.lucide)window.lucide.createIcons({attrs:{'aria-hidden':'true'}})};
+ // Parent messages and host child snapshots can grow the same transcript in
+ // separate callbacks. Capture before the first DOM mutation, not after a
+ // child card has already grown. Nested renders share one scroll decision.
+ let conversationLayoutDepth=0,conversationLayoutAnchor=null;
+ function beforeConversationLayout(){
+  if(conversationLayoutDepth===0){
+   const scroller=q('.ac-conversation-inner');
+   conversationLayoutAnchor=scroller?{scroller,top:scroller.scrollTop,follow:scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<90}:null;
+  }
+  conversationLayoutDepth++;
+ }
+ function afterConversationLayout(){
+  if(conversationLayoutDepth<=0||--conversationLayoutDepth!==0)return;
+  const anchor=conversationLayoutAnchor;conversationLayoutAnchor=null;
+  if(appDestroyed||!anchor?.scroller.isConnected)return;
+  // A user reading earlier messages keeps that position through history
+  // replacement as well. No follow preference leaks into another callback.
+  anchor.scroller.scrollTop=anchor.follow?anchor.scroller.scrollHeight:anchor.top;
+ }
+
  const files={
   'baseline.cir':'* Athena UI example — ideal RC low-pass\nV1 in 0 AC 1\nR1 in out 1k\nC1 out 0 100n\n.ac dec 100 10 100k\n.end',
   'ac_response.csv':'# Illustrative values for UI design\nfrequency_hz,gain_db\n100,-0.0171\n1000,-1.4451\n1592,-3.0103\n10000,-16.0722',
@@ -194,7 +215,7 @@
   const previousSession=root.dataset.sessionId;
   if(snapshot.mode==='runtime'&&previousSession&&snapshot.sessionId!==previousSession&&(snapshot.sessionId||snapshot.taskManagerConnected)&&!lifecyclePending){
    sessionDrafts.set(previousSession,composer.captureDraft());preservePendingSubmission('The workspace switched conversations.');resetPiActivity();
-   q('#ac-pi-transcript').replaceChildren();q('#ac-pi-transcript').hidden=true;q('#ac-live-user').hidden=true;piHistorySignature='';piManualTools.clear();piManualView?.reset();
+   piView?.clear?.();q('#ac-pi-transcript').hidden=true;q('#ac-live-user').hidden=true;piHistorySignature='';piManualTools.clear();piManualView?.reset();
    composer.restoreDraft(sessionDrafts.get(snapshot.sessionId||'preview')||{value:'',attachments:[],mentions:[]});
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
@@ -221,20 +242,20 @@
    if(live&&!snapshot.projects.length){const info=document.createElement('p');info.className='ac-project-empty';info.textContent=snapshot.taskManagerConnected?'No projects yet.':snapshot.taskManagerStatus==='connecting'?'Loading projects…':'Project storage is not connected.';list.appendChild(info);}
    for(const project of snapshot.projects||[]){
     const group=document.createElement('details');group.open=project.id===snapshot.projectId;group.className='ac-live-project';
-    const summary=document.createElement('summary');summary.className='ac-project-label cursor-interaction';summary.textContent=project.name||project.id;group.appendChild(summary);
-    for(const session of (snapshot.sessions||[]).filter(item=>item.projectId===project.id)){const button=document.createElement('button');button.type='button';button.className='ac-thread-item cursor-interaction';button.dataset.openSession=session.id;button.textContent=session.title||session.id;if(session.id===snapshot.sessionId)button.setAttribute('aria-current','page');button.disabled=!snapshot.capabilities?.openSession;group.appendChild(button);}
+    const summary=document.createElement('summary');summary.className='ac-project-label cursor-interaction';summary.textContent=window.AthenaActivityLabels.text(project.name,'Untitled project',[project.id]);group.appendChild(summary);
+    for(const session of (snapshot.sessions||[]).filter(item=>item.projectId===project.id)){const button=document.createElement('button');button.type='button';button.className='ac-thread-item cursor-interaction';button.dataset.openSession=session.id;button.textContent=window.AthenaActivityLabels.text(session.title,'New conversation',[session.id]);if(session.id===snapshot.sessionId)button.setAttribute('aria-current','page');button.disabled=!snapshot.capabilities?.openSession;group.appendChild(button);}
     list.appendChild(group);
    }
   }
   if(live){
    const current=(snapshot.sessions||[]).find(item=>item.id===snapshot.sessionId),project=(snapshot.projects||[]).find(item=>item.id===snapshot.projectId);
-   q('#ac-thread-title').textContent=current?.title||'New conversation';
-   q('.ac-header-title > span').textContent=project?.name||'Connected workspace';
-   q('.ac-composer-caption > span').lastChild.textContent=project?.name||'No project selected';
+   q('#ac-thread-title').textContent=window.AthenaActivityLabels.text(current?.title,'New conversation',[snapshot.sessionId]);
+   q('.ac-header-title > span').textContent=window.AthenaActivityLabels.text(project?.name,'Connected workspace',[snapshot.projectId]);
+   q('.ac-composer-caption > span').lastChild.textContent=window.AthenaActivityLabels.text(project?.name,'No project selected',[snapshot.projectId]);
    if(!piSession)q('#ac-pi-session-status').textContent=snapshot.taskManagerConnected?'TaskManager connected · model session not connected':'Workspace service is not connected';
    if(snapshot.sessionBound===false){q('#ac-pi-session-status').textContent='Connect the model to this conversation';preservePendingSubmission('The selected conversation is no longer bound to the model connection.');if(piEngaged)resetPiActivity();}
   }
-  settings?.refresh?.();icons();
+  piView?.refresh();piManualView?.refresh();settings?.refresh?.();extensions?.setWorkspace();icons();
  }
  function resolvedNewSessionModel(workspace,projectId){const projectModel=projectId===workspace.projectId?workspace.modelScopes?.projectDefault:workspace.projects.find(project=>project.id===projectId)?.defaultModel;return projectModel||connectionManager.getDefaultModel()||null;}
  function canCreateSession(){return !nativeSessionTransition&&Boolean(workspaceStore.getState().capabilities?.createSession||connectionManager.getState().capabilities.createSession||piRuntime.available('new_session'));}
@@ -245,7 +266,7 @@
   preservePendingSubmission('The active conversation changed before the host accepted the message.');
   workspaceStore.confirmSession({...result,sessionId,title:result.title||result.session?.title||title||sessionId});
   if(result.connection)attachPiSession(result.connection,{label:result.connection.label});
-  resetPiActivity();q('#ac-pi-transcript').replaceChildren();piHistorySignature='';q('#ac-live-user').hidden=true;
+  resetPiActivity();piView?.clear?.();piHistorySignature='';q('#ac-live-user').hidden=true;
   q('#ac-thread-title').textContent=result.title||result.session?.title||title||sessionId;
   composer.restoreDraft(sessionDrafts.get(sessionId)||{value:'',attachments:[],mentions:[]});
   closeDialog();composer.focus();return result;
@@ -339,15 +360,9 @@
   piRuntime.validateMessage(message);
   return {message,...(images.length?{images}:{})};
  }
- function appendHistory(role,text){
-  if(!text)return;const host=q('#ac-pi-transcript'),article=document.createElement('article'),label=document.createElement('strong'),body=document.createElement('p');
-  article.className='ac-pi-history-message';article.dataset.role=role;label.textContent=role==='user'?'You':'Athena';body.textContent=text;article.append(label,body);host.appendChild(article);host.hidden=false;
-  while(host.children.length>80)host.firstElementChild.remove();
- }
  function archiveLiveTurn(){
   if(!piEngaged)return;
-  if(!q('#ac-live-user').hidden)appendHistory('user',q('#ac-live-user').textContent);
-  appendHistory('assistant',reply.getState().text);q('#ac-live-user').hidden=true;
+  piView?.reset();q('#ac-live-user').hidden=true;
  }
  function sameDraftContext(files,mentions){return files.length===composer.getAttachments().length&&files.every((file,i)=>file===composer.getAttachments()[i])&&JSON.stringify(mentions.map(m=>m.id))===JSON.stringify(composer.getSelections().map(m=>m.id))}
  function keepUnsent(draft,reason){
@@ -392,7 +407,7 @@
   }
   message.hidden=false;q('#ac-live-reply').hidden=false;if(composer.getValue()===value)composer.setValue('');if(!piSession&&sameDraftContext(attachments,mentions))composer.clearContext();composer.setBusy(true,'Waiting',{canStop:!piSession||typeof piSession.abort==='function'});icons();
   if(piSession){
-   piEngaged=true;reply.begin({phase:'waiting'});
+   piEngaged=true;piView.beginUser(value,attachments);q('#ac-live-user').hidden=true;reply.setConversationMode(true);reply.begin({phase:'waiting'});
    const activeSession=piSession,epoch=piSessionEpoch,turn=piTurnEpoch,conversation=conversationBinding();
    piSubmittedContext={session:activeSession,epoch,turn,value,attachments,mentions,sessionId:conversation.sessionId};
    Promise.resolve().then(()=>{if(appDestroyed||piSession!==activeSession||piSessionEpoch!==epoch||piTurnEpoch!==turn||!sameConversation(conversation))throw new Error('The active conversation changed before this message was sent.');return activeSession.prompt(prepared.message,{images:prepared.images,fileReferences:prepared.fileReferences});}).then(result=>{
@@ -409,7 +424,7 @@
    const scroller=q('.ac-conversation-inner');scroller.scrollTop=scroller.scrollHeight;return;
   }
   const response=attachments.length?'Added '+attachments.map(file=>file.name).join(', ')+' to this conversation. This preview shows how attachments work; it has not analyzed the files or run a calculation. A connected runtime can receive these files and the selected tools.':'To compare component tolerances, first define the resistor and capacitor ranges. For example, use ±1% for the resistor and ±5% for the capacitor. The next step would be to compare the cutoff frequencies with the baseline circuit. This is a sample response; no calculation has been submitted.';
-  reply.start({text:response,onPhase(phase,descriptor){if(state.busy&&descriptor.active)composer.setBusy(true,descriptor.label)},onDone(){state.busy=false;composer.setBusy(false);chatModelPicker?.sync();announce('Sample response complete.')}});
+  reply.setConversationMode(false);reply.start({text:response,onPhase(phase,descriptor){if(state.busy&&descriptor.active)composer.setBusy(true,descriptor.label)},onDone(){state.busy=false;composer.setBusy(false);chatModelPicker?.sync();announce('Sample response complete.')}});
   const scroller=q('.ac-conversation-inner');scroller.scrollTop=scroller.scrollHeight;
  }
  const reply=window.AthenaReply.mount(q('#ac-live-reply'));
@@ -447,26 +462,33 @@
   if(appDestroyed||snapshot.sequence===0)return;
   if(workspaceStore?.getState().sessionBound===false)return;
   if(!piEngaged&&snapshot.settled&&snapshot.phase==='idle'&&!snapshot.tools.length&&!snapshot.messages.length)return;
+  beforeConversationLayout();
+  try{
   q('#ac-live-reply').hidden=false;
-  const scroller=q('.ac-conversation-inner'),follow=scroller.scrollHeight-scroller.clientHeight-scroller.scrollTop<90;
   if(piRunId!==snapshot.runId||!piEngaged){
    piRunId=snapshot.runId;piText='';piEngaged=true;
    reply.begin({phase:snapshot.phase,previewLabel:piPreviewActive?'Local event preview':''});
   }
-  piView.render(snapshot);workspaceStore?.observeActivity?.(snapshot);
+  reply.setConversationMode(true);piView.render(snapshot);workspaceStore?.observeActivity?.(snapshot);
   if(snapshot.text!==piText){
    if(snapshot.text.startsWith(piText))reply.append(snapshot.text.slice(piText.length));else reply.replaceText(snapshot.text);
    piText=snapshot.text;
   }
   reply.setPhase(snapshot.phase);
   if(snapshot.settled){
+   const justSettled=state.busy;
    reply.end({text:snapshot.text,status:snapshot.phase,detail:snapshot.error||''});
    state.busy=false;composer.setBusy(false);clearPiPreview();
+   if(justSettled&&piSession&&piRuntime.available('get_messages')){
+    // Only a history read accepted after settlement can replace this live turn.
+    // A prefix read accepted during streaming must not erase its later messages.
+    piHistoryAfterSettle=piRuntime.getState().historyRevision||0;
+   }
   }else{
    state.busy=true;composer.setBusy(true,snapshot.label,{canStop:piPreviewActive||typeof piSession?.abort==='function'});
   }
   chatModelPicker?.sync();
-  if(follow)scroller.scrollTop=scroller.scrollHeight;
+  }finally{afterConversationLayout()}
  }
  function handlePiEvent(event){if(appDestroyed)return false;return piRuntime?piRuntime.receive(event):piActivity.receive(event)}
  function usePiDraft(text){
@@ -479,10 +501,10 @@
   root.dataset.piConnected=String(snapshot.connected);
   const currentId=snapshot.session.sessionId||snapshot.session.id||'';
   if(snapshot.connected&&currentId&&piSessionIdentity&&currentId!==piSessionIdentity){
-   piTurnEpoch++;preservePendingSubmission('The model connection changed conversations.');resetPiActivity();q('#ac-live-user').hidden=true;q('#ac-pi-transcript').replaceChildren();piHistorySignature='';piManualTools.clear();piManualView?.reset();
+   piTurnEpoch++;preservePendingSubmission('The model connection changed conversations.');resetPiActivity();q('#ac-live-user').hidden=true;piView?.clear?.();piHistorySignature='';piManualTools.clear();piManualView?.reset();
   }
   if(currentId)piSessionIdentity=currentId;
-  if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=snapshot.session.sessionName;
+  if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=window.AthenaActivityLabels.text(snapshot.session.sessionName,'New conversation',[snapshot.session.sessionId,snapshot.session.id]);
   const percent=Number.isFinite(snapshot.context?.percent)?Math.round(snapshot.context.percent):null;
   q('#ac-pi-session-status').textContent=snapshot.connected?(snapshot.session.isCompacting?'Compacting context':snapshot.session.isStreaming?'Pi is working':snapshot.connectionLabel)+(percent===null?'':' · '+percent+'% context'):workspaceStore?.getState().mode==='runtime'?'Model session is not connected':'UI preview · sample data';
   const queued=snapshot.queues.steering.length+snapshot.queues.followUp.length;
@@ -509,16 +531,16 @@
    if(pending.binding===piSession&&pending.epoch===piSessionEpoch){nativeSessionTransition=null;activateSession({sessionId:currentId,title:snapshot.session.sessionName||pending.title},pending.title);toast('The new conversation is confirmed. Check its model and reasoning settings before sending.');}
   }
   if(workspaceStore?.getState().sessionBound===false){q('#ac-pi-transcript').hidden=true;q('#ac-pi-session-status').textContent='Connect the model to this conversation';return;}
-  if(snapshot.connected&&!piEngaged){
+  if(snapshot.connected&&(!piEngaged||!state.busy&&(snapshot.historyRevision||0)>piHistoryAfterSettle)){
    if(workspaceStore?.getState().sessionBound===false){q('#ac-pi-transcript').hidden=true;q('#ac-pi-session-status').textContent='Connect the model to this conversation';return;}
    const history=JSON.stringify(snapshot.messages);
-   if(history!==piHistorySignature){piHistorySignature=history;q('#ac-pi-transcript').replaceChildren();for(const m of snapshot.messages){if(!['user','assistant'].includes(m.role))continue;const content=typeof m.content==='string'?m.content:(m.content||[]).filter(b=>b.type==='text').map(b=>b.text||'').join('\n');appendHistory(m.role,content);}q('#ac-pi-transcript').hidden=!q('#ac-pi-transcript').children.length;}
+   if(history!==piHistorySignature){piHistorySignature=history;piView.history(snapshot.messages);workspaceChrome?.refresh();if(piEngaged){piEngaged=false;piRunId=null;q('#ac-live-reply').hidden=true;}}
   }
  }
  function receivePiEvent(event){
   if(appDestroyed)return;
   if(event.type==='host_session_changed'||event.type==='session_changed'){
-   piTurnEpoch++;preservePendingSubmission('The host changed conversations before acceptance.');resetPiActivity();piManualTools.clear();piManualView?.reset();q('#ac-live-user').hidden=true;q('#ac-pi-transcript').replaceChildren();piHistorySignature='';piSessionIdentity='';return;
+   piTurnEpoch++;preservePendingSubmission('The host changed conversations before acceptance.');resetPiActivity();piManualTools.clear();piManualView?.reset();q('#ac-live-user').hidden=true;piView?.clear?.();piHistorySignature='';piSessionIdentity='';return;
   }
   if(workspaceStore?.getState().sessionBound===false)return;
   if(event.type==='host_command_start'){
@@ -538,9 +560,8 @@
   const controlOnly=['compaction_start','compaction_end','auto_compaction_start','auto_compaction_end','extension_error'].includes(event.type)||String(event.type).startsWith('summarization_retry_');
   if(controlOnly&&!(piEngaged&&state.busy)&&!piRuntime?.getState().session.isStreaming)return;
   if(event.type==='agent_start'){acceptSubmittedContext();if(piActivity.getState().settled&&piActivity.getState().sequence)archiveLiveTurn();}
-  if(event.type==='message_start'&&event.message?.role==='user'){
-   const c=event.message.content;q('#ac-live-user').textContent=typeof c==='string'?c:(c||[]).filter(b=>b.type==='text').map(b=>b.text||'').join('\n');q('#ac-live-user').hidden=false;
-  }
+  piView.observe(event);
+  if(event.type==='message_start'&&event.message?.role==='user')q('#ac-live-user').hidden=true;
   piActivity.receive(event);
  }
  function detachPiSession(){
@@ -553,7 +574,7 @@
   if(appDestroyed)return false;
   if(!session||typeof session.subscribe!=='function')throw new TypeError('Pi session needs subscribe(listener).');
   detachPiSession();clearPiPreview();reply.stop();state.busy=false;composer.setBusy(false);piActivity.reset();piView.reset();
-  q('#ac-pi-transcript').replaceChildren();q('#ac-pi-transcript').hidden=true;piHistorySignature='';q('#ac-live-user').hidden=true;q('#ac-live-reply').hidden=true;piManualTools.clear();piManualView.reset();
+  piView?.clear?.();q('#ac-pi-transcript').hidden=true;piHistorySignature='';q('#ac-live-user').hidden=true;q('#ac-live-reply').hidden=true;piManualTools.clear();piManualView.reset();
   const epoch=++piSessionEpoch;
   const binding=piRuntime.attach(session,options);piSession=binding.session;piSessionUnsubscribe=binding.detach;
   const current=piSession;
@@ -660,8 +681,8 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  const resize=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{syncLeftUI();layout?.refresh();overlay();drawChart()}):null;resize?.observe(root);
  piActivity=window.AthenaPiActivity.create();
  piRuntime=window.AthenaPiRuntime.create();
- piView=window.AthenaPiSessionView.mount(reply.getActivityHost(),{icons,toast});
- piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast});
+ piView=window.AthenaConversationStream.mount(q('#ac-pi-transcript'),{icons,toast,onBeforeLayout:beforeConversationLayout,onAfterLayout:afterConversationLayout,getWorkspace:()=>workspaceStore?.getState(),getActivityFallback:()=>q('#aw-activity')});
+ piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
  demoStore=window.AthenaWorkspaceStore.create();
@@ -677,7 +698,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();
   toast(item.title+' excerpt added to the draft.');
  },onOpenArtifact:id=>openWorkspace('artifacts',{artifactId:id})});
- workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
+ workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,onBeforeLayout:beforeConversationLayout,onAfterLayout:afterConversationLayout,placeActivity:(node,details)=>piView.placeActivity(node,details),removeActivity:id=>piView.removeActivity(id),hasConversationTool:id=>piView.hasTool(id),icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
  syncLeftUI();
  layout=window.AthenaResize.mount(root,{onResize(){overlay();drawChart()}});
  settings=window.AthenaSettings.mount(root,{
@@ -687,9 +708,14 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   onResetLayout:()=>layout?.reset(),
   getDemoMode:()=>workspaceStore.getState().mode==='demo',onDemoModeChange:enabled=>workspaceStore.setDevelopment(enabled),isRuntimeConnected:()=>workspaceStore.getState().mode==='runtime',onRuntimeSection:section=>piWorkbench?.open(section),
   onChange(preferences){composer.setSendKey?.(preferences.sendKey);drawChart()},
-  onOpen(){overlay();announce('Settings opened.')},
+  onOpen(){overlay();extensions?.refresh();announce('Settings opened.')},
   onClose(){overlay();announce('Settings closed.')}
  });
+ extensions=window.AthenaExtensions?.mount(q('#ast-extensions-slot'),{icons,getWorkspace:()=>workspaceStore.getState(),onUseSkill(skill){
+  const request='Use the "'+skill.name+'" skill ('+skill.id+') for this task.';
+  composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+request);
+  settings?.close(false);overlay();composer.focus();toast('Skill added to your draft. Send the request to use it.');
+ }});
  modelSettings=window.AthenaModelSettings.mount(q('#ast-model-settings-slot'),{icons,toast,connectionManager,hosted,onSetProjectDefaultModel:value=>workspaceStore.setProjectDefaultModel(value),onSetProjectExecution:(id,enabled)=>workspaceStore.setProjectExecution(id,enabled),onChange(config){
   chatModelPicker?.setPreferences(config);
   workspaceStore.configure?.({parallelLimit:config.parallelLimit});
@@ -720,9 +746,10 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
   openPi,executePi:(action,params)=>piRuntime.execute(action,params),refreshPi:()=>piRuntime.refresh(),respondPiUI:(id,response)=>piRuntime.respondUI(id,response),
   attachModelProfiles:adapter=>{modelProfilesAdapter=adapter||null;providerProfiles?.setModelProfiles(adapter);chatModelPicker?.setModelProfiles(adapter);if(adapter)renderWorkspace(workspaceStore.getState());},
+  attachExtensions:adapter=>{extensionService=adapter||null;extensions?.setService(extensionService);extensions?.setWorkspace();workspaceViews?.setResearchService(extensionService);},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
-  getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),extensions:extensions?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();

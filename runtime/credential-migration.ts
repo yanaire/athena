@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { isMissing } from './local-credential-files.ts';
 import type { LocalCredentialStore } from './local-credentials.ts';
 import { CredentialVaultError, readLegacyCredentials } from './provider-credentials.ts';
+import { hasPrivatePermissions } from './private-storage.ts';
 
 type MigrationStatus = 'absent' | 'imported' | 'approval_required' | 'unavailable';
 type KeyReader = (account: string) => Promise<Buffer | undefined>;
@@ -25,8 +26,8 @@ export class CredentialMigration {
     if (await this.#store.migrated(this.#source)) return 'imported';
     try {
       const info = await lstat(this.#legacyPath);
-      if (!info.isFile() || info.uid !== process.getuid?.() || info.nlink !== 1
-        || (info.mode & 0o7777) !== 0o600 || info.size < 30 || info.size > 4 * 1024 * 1024) return 'unavailable';
+      if (!info.isFile() || info.nlink !== 1
+        || !hasPrivatePermissions(this.#legacyPath, info, 0o600) || info.size < 30 || info.size > 4 * 1024 * 1024) return 'unavailable';
       return this.#requestKey ? 'approval_required' : 'unavailable';
     } catch (error) { return isMissing(error) ? 'absent' : 'unavailable'; }
   }

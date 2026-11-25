@@ -1,0 +1,92 @@
+{
+  "verified_on": "2026-11-25",
+  "scope": "New Windows x64 sandbox memory-accounting dependency edge only; not a complete binary notice inventory",
+  "target": "x86_64-pc-windows-msvc",
+  "lock_file": "sandbox/Cargo.lock",
+  "packages": [
+    {
+      "crate": "memory-stats",
+      "version": "1.2.0",
+      "source": "https://static.crates.io/crates/memory-stats/memory-stats-1.2.0.crate",
+      "archive_sha256": "c73f5c649995a115e1a0220b35e4df0a1294500477f97a91d0660fb5abeb574a",
+      "declared_license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "archive_path": "memory-stats-1.2.0/LICENSE-APACHE",
+          "copy": "memory-stats-1.2.0-LICENSE-APACHE.txt",
+          "sha256": "37376b983b780413240509c87520961fe1ab927bc09a96704e4fb783171b6149",
+          "bytes": 11340
+        },
+        {
+          "archive_path": "memory-stats-1.2.0/LICENSE-MIT",
+          "copy": "memory-stats-1.2.0-LICENSE-MIT.txt",
+          "sha256": "93b7d5c9d405e91c1526532a02e020458064e0614b0ca4ca57d175e7267faa92",
+          "bytes": 1053
+        }
+      ]
+    },
+    {
+      "crate": "windows-sys",
+      "version": "0.52.0",
+      "source": "https://static.crates.io/crates/windows-sys/windows-sys-0.52.0.crate",
+      "archive_sha256": "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d",
+      "declared_license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "archive_path": "windows-sys-0.52.0/license-apache-2.0",
+          "copy": "windows-rs-0.52-LICENSE-APACHE.txt",
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
+          "bytes": 11351
+        },
+        {
+          "archive_path": "windows-sys-0.52.0/license-mit",
+          "copy": "windows-rs-0.52-LICENSE-MIT.txt",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "bytes": 1141
+        }
+      ]
+    },
+    {
+      "crate": "windows-targets",
+      "version": "0.52.6",
+      "source": "https://static.crates.io/crates/windows-targets/windows-targets-0.52.6.crate",
+      "archive_sha256": "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973",
+      "declared_license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "archive_path": "windows-targets-0.52.6/license-apache-2.0",
+          "copy": "windows-rs-0.52-LICENSE-APACHE.txt",
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
+          "bytes": 11351
+        },
+        {
+          "archive_path": "windows-targets-0.52.6/license-mit",
+          "copy": "windows-rs-0.52-LICENSE-MIT.txt",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "bytes": 1141
+        }
+      ]
+    },
+    {
+      "crate": "windows_x86_64_msvc",
+      "version": "0.52.6",
+      "source": "https://static.crates.io/crates/windows_x86_64_msvc/windows_x86_64_msvc-0.52.6.crate",
+      "archive_sha256": "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec",
+      "declared_license": "MIT OR Apache-2.0",
+      "notices": [
+        {
+          "archive_path": "windows_x86_64_msvc-0.52.6/license-apache-2.0",
+          "copy": "windows-rs-0.52-LICENSE-APACHE.txt",
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
+          "bytes": 11351
+        },
+        {
+          "archive_path": "windows_x86_64_msvc-0.52.6/license-mit",
+          "copy": "windows-rs-0.52-LICENSE-MIT.txt",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "bytes": 1141
+        }
+      ]
+    }
+  ]
+}

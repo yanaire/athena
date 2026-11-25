@@ -6,11 +6,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
+const crypto = require('node:crypto');
 const source = fs.readFileSync(path.resolve(__dirname, '../ui/workspace-session.js'), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return { promise,resolve,reject }; };
 
-function create(t) {
+function create(t, { storage = new Map(), storageFailure = false } = {}) {
   let state = { connected: false, session: {}, model: null, thinkingLevel: null };
   const subscribers = new Set(), eventSubscribers = new Set(), demoSubscribers = new Set(), calls = [];
   const runtime = {
@@ -23,11 +24,11 @@ function create(t) {
   const demoState = { run: { id: 'sample-run', status: 'ready' }, tasks: [{ id: 'sample-task' }], agents: [], tools: [{ id: 'sample-tool' }], artifacts: [{ id: 'sample-artifact' }], events: [], approvals: [] };
   const demo = { getState: () => plain(demoState), subscribe(fn) { demoSubscribers.add(fn); fn(demoState); return () => demoSubscribers.delete(fn); } };
   for (const method of ['start','pause','resume','reset','cancel','configure','setScenario','retryTask','decideApproval']) demo[method] = (...args) => { calls.push({ method,args }); for (const fn of demoSubscribers) fn(demoState); return true; };
-  const context = vm.createContext({ window: {}, Date }); vm.runInContext(source, context);
+  const context = vm.createContext({ window: { crypto: crypto.webcrypto, localStorage: { getItem: key => storage.get(key) ?? null, setItem(key, value) { if (storageFailure) throw new Error('Storage unavailable'); storage.set(key, String(value)); } } }, Date }); vm.runInContext(source, context);
   const errors = [];
   const workspace = context.window.AthenaWorkspaceSession.create({ demo, runtime, onError: message => errors.push(message) });
   t.after(() => workspace.destroy());
-  return { workspace,runtime,calls,errors };
+  return { workspace,runtime,calls,errors,storage };
 }
 function snapshot(revision = 1, patch = {}) {
   const scope = { projectId: 'project-1', sessionId: 'session-1', runId: 'run-1' };
@@ -52,10 +53,105 @@ function manager(initial, capabilities = []) {
     callback() { return listener; },
     async createProject(input) { calls.push(['createProject', input]); return { project: { id: 'created-project', name: input.name } }; },
     async createSession(input) { calls.push(['createSession', input]); return { sessionId: 'created-session' }; },
-    async retryTask(taskId) { calls.push(['retryTask', taskId]); },
+    async retryTask(taskId, request) { calls.push(['retryTask', taskId, request]); return { taskId, parentTaskId: 'root-task', runId: 'run-1', attemptId: 'retry-attempt', agentSessionId: 'agent-session', status: 'queued', reconciliationAttemptId: 'reconcile-attempt' }; },
     async cancelRun(runId) { calls.push(['cancelRun', runId]); }
   };
 }
+function retrySnapshot(revision = 1, patch = {}) {
+  const current = snapshot(revision);
+  return { ...current, tasks: [{ ...current.tasks[0], parentTaskId: 'root-task', attemptId: 'attempt-1', status: 'paused', retryable: true }], attempts: [{ id: 'attempt-1', taskId: 'task-1', status: 'paused', error: 'Host restarted.' }], ...patch };
+}
+
+test('host snapshots retain registered MCP metadata and artifact receipts through hydration and process updates', async t => {
+  const { circuits } = await import(path.resolve(__dirname, '../../../runtime/mcp-contract.mjs'));
+  const { workspace } = create(t), scope = { projectId: 'project-1', sessionId: 'session-1', runId: 'run-1' };
+  const metadata = { ...circuits, phase: 'tools/list' };
+  const process = { ...scope, id: 'process-rc', processId: 'process-rc', taskId: 'task-1', attemptId: 'attempt-rc', toolId: 'tool-1', status: 'running', job: { mcp: metadata } };
+  const initial = snapshot(1, { processes: [process], artifacts: [] }), host = manager(initial);
+  await workspace.attach(host);
+  assert.deepEqual(plain(workspace.getState().processes[0].job.mcp), metadata);
+  metadata.displayName = 'Mutated outside the accepted snapshot';
+  assert.equal(workspace.getState().processes[0].job.mcp.displayName, circuits.displayName);
+  const file = { ...scope, id: 'rc-file', attemptId: 'process-rc', name: 'rc-response.json', mimeType: 'application/json', bytes: 150, sha256: 'a'.repeat(64), mcpAlias: circuits.alias };
+  const complete = { ...process, status: 'succeeded', job: { mcp: { ...circuits, phase: 'tools/call' }, artifact: file } };
+  const artifact = { ...scope, id: file.id, processId: process.id, taskId: process.taskId, version: 'file-v1', title: file.name, status: 'ready', file };
+  host.emit(snapshot(2, { processes: [complete], artifacts: [artifact] }));
+  assert.deepEqual(plain(workspace.getState().processes[0]), complete);
+  assert.deepEqual(plain(workspace.getState().artifacts[0]), artifact);
+  workspace.confirmSession({ sessionId: 'session-other', projectId: 'project-other' });
+  assert.deepEqual(plain(workspace.getState().processes), []); assert.deepEqual(plain(workspace.getState().artifacts), []);
+});
+
+test('manual retry deduplicates pending clicks and preserves reported history until the host updates it', async t => {
+  const { workspace } = create(t), pending = deferred();
+  const initial = retrySnapshot(), host = manager(initial, ['retry_task']);
+  host.retryTask = (taskId, request) => { host.calls.push(['retryTask', taskId, request]); return pending.promise; };
+  await workspace.attach(host);
+  const before = workspace.getState();
+  const first = workspace.retryTask('task-1'), second = workspace.retryTask('task-1');
+  assert.equal(first, second); assert.equal(workspace.getState().retryOperations['task-1'].pending, true);
+  await Promise.resolve(); assert.equal(host.calls.length, 1);
+  assert.equal(host.calls[0][2].expectedAttemptId, 'attempt-1');
+  for (const field of ['tasks', 'attempts', 'tools', 'artifacts']) assert.deepEqual(workspace.getState()[field], before[field]);
+  pending.resolve({ taskId: 'task-1', runId: 'run-1', attemptId: 'attempt-2', status: 'queued' });
+  await first;
+  assert.equal(workspace.getState().retryOperations['task-1'].pending, false);
+  assert.equal(workspace.getState().retryOperations['task-1'].accepted, true);
+  await workspace.retryTask('task-1'); assert.equal(host.calls.length, 1, 'An accepted receipt cannot resubmit a still-stale task projection.');
+  host.emit(retrySnapshot(2, { tasks: [{ ...initial.tasks[0], status: 'running', retryable: false, attemptId: 'attempt-2' }], attempts: [...initial.attempts, { id: 'attempt-2', taskId: 'task-1', status: 'running', retryOfAttemptId: 'attempt-1' }] }));
+  assert.equal(workspace.getState().retryOperations['task-1'], undefined);
+  assert.equal(workspace.getState().attempts[0].error, 'Host restarted.');
+  assert.equal(workspace.getState().attempts.length, 2);
+});
+
+test('an uncertain retry response stays task-local and reuses the durable request after reload', async t => {
+  const storage = new Map(), first = create(t, { storage }), calls = [];
+  const initial = retrySnapshot(), host = manager(initial, ['retry_task']);
+  host.retryTask = async (taskId, request) => { calls.push(plain(request)); throw new Error('Connection lost for task-1 and attempt-1.'); };
+  await first.workspace.attach(host);
+  assert.equal(await first.workspace.retryTask('task-1'), null);
+  assert.match(first.workspace.getState().retryOperations['task-1'].error, /Connection lost/);
+  assert.equal(first.workspace.getState().error, null);
+  assert.equal(first.workspace.getState().taskManagerStatus, 'connected'); assert.deepEqual(first.errors, []);
+  await first.workspace.retryTask('task-1'); assert.deepEqual(calls[1], calls[0]);
+  first.workspace.destroy();
+  const reloaded = create(t, { storage }); await reloaded.workspace.attach(host);
+  await reloaded.workspace.retryTask('task-1'); assert.deepEqual(calls[2], calls[0]);
+  const saved = [...storage.values()].join('');
+  assert.equal(saved.includes('Connection lost'), false); assert.equal(saved.includes('Host restarted'), false);
+  assert.equal(saved.includes(calls[0].requestId), true);
+});
+
+test('new attempts receive new request identities and late failures do not leak across conversations', async t => {
+  const { workspace } = create(t), pending = deferred(), initial = retrySnapshot();
+  const host = manager(initial, ['retry_task']);
+  host.retryTask = (taskId, request) => { host.calls.push(plain(request)); return host.calls.length === 1 ? pending.promise : Promise.resolve({ taskId, runId: 'run-1', attemptId: 'attempt-3', status: 'queued' }); };
+  await workspace.attach(host);
+  const first = workspace.retryTask('task-1'); await Promise.resolve();
+  host.emit(retrySnapshot(2, { tasks: [{ ...initial.tasks[0], attemptId: 'attempt-2' }] }));
+  pending.reject(new Error('The old attempt changed.')); await first;
+  assert.equal(workspace.getState().retryOperations['task-1'], undefined);
+  await workspace.retryTask('task-1');
+  assert.notEqual(host.calls[0].requestId, host.calls[1].requestId);
+  assert.equal(host.calls[1].expectedAttemptId, 'attempt-2');
+  workspace.confirmSession({ sessionId: 'another-session', projectId: 'another-project' });
+  assert.deepEqual(plain(workspace.getState().retryOperations), {});
+  assert.equal(await workspace.retryTask('task-1'), null);
+  assert.equal(host.calls.length, 2);
+});
+
+test('retry sends nothing if durable identity storage is unavailable or the host changes before dispatch', async t => {
+  const first = create(t, { storageFailure: true }), host = manager(retrySnapshot(), ['retry_task']);
+  await first.workspace.attach(host); await first.workspace.retryTask('task-1');
+  assert.equal(host.calls.length, 0); assert.match(first.workspace.getState().retryOperations['task-1'].error, /could not be saved/);
+  const second = create(t), oldHost = manager(retrySnapshot(), ['retry_task']), newHost = manager(retrySnapshot(8), ['retry_task']);
+  await second.workspace.attach(oldHost);
+  const result = second.workspace.retryTask('task-1');
+  await second.workspace.attach(newHost); await result;
+  assert.equal(oldHost.calls.some(call => call[0] === 'retryTask'), false);
+  assert.equal(newHost.calls.length, 0);
+  assert.deepEqual(plain(second.workspace.getState().retryOperations), {});
+});
 
 test('real connections isolate sample data and never run the demo scheduler', async t => {
   const { workspace,runtime,calls } = create(t);
@@ -66,9 +162,10 @@ test('real connections isolate sample data and never run the demo scheduler', as
   const before = calls.length;
   for (const method of ['start','pause','resume','reset']) assert.equal(workspace[method](), false);
   assert.equal(workspace.configure({ parallelLimit: 4 }), false); assert.equal(calls.length, before);
-  const host = manager(snapshot(), ['retry_task']); await workspace.attach(host);
+  const host = manager(retrySnapshot(), ['retry_task']); await workspace.attach(host);
   assert.equal(workspace.getState().tasks[0].id, 'task-1'); assert.equal(workspace.getState().taskManagerConnected, true);
-  await workspace.retryTask('task-1'); assert.deepEqual(host.calls[0], ['retryTask','task-1']);
+  await workspace.retryTask('task-1'); assert.deepEqual(host.calls[0].slice(0, 2), ['retryTask','task-1']);
+  assert.equal(host.calls[0][2].expectedAttemptId, 'attempt-1'); assert.ok(host.calls[0][2].requestId);
   assert.equal(calls.some(call => call.method === 'start'), false);
 });
 

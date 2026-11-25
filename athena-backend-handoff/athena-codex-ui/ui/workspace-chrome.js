@@ -11,9 +11,11 @@
     const controller = new AbortController();
     const { signal } = controller;
     const listen = (element, type, callback, settings = {}) => element.addEventListener(type, callback, { ...settings, signal });
+    const attemptSections = new Map();
     const expanded = new Set();
     const expandedTools = new Set();
     const expandedProcesses = new Set();
+    const expandedDiagnostics = new Set();
     const requestedTools = new Set();
     const outputModes = new Map();
     const copyFallbacks = new Map();
@@ -24,12 +26,26 @@
     let openerKey = null;
     let demoOptionsOpen = false;
     let thinkingOpen = true;
-    let currentRunId = '';
+    let currentRunKey = '';
     let destroyed = false;
     let renderSignature = '';
     let lastRunStatus = '';
-    const q = selector => host.querySelector(selector);
+    const all = selector => [...new Set([...host.querySelectorAll(selector), ...[...attemptSections.values()].flatMap(node => [...node.querySelectorAll(selector)])])];
+    const contains = node => host.contains(node) || [...attemptSections.values()].some(section => section.contains(node));
+    const q = selector => all(selector)[0] || null;
     const refreshIcons = () => options.icons?.();
+    const labels = window.AthenaActivityLabels;
+    const identifiers = state => [state.sessionId, state.run?.id, ...['tasks', 'agents', 'tools', 'attempts', 'processes'].flatMap(key => (state[key] || []).flatMap(item => [item.id, item.taskId, item.parentTaskId, item.agentSessionId, item.attemptId, item.processId, item.toolId, item.toolCallId])), ...Object.values(state.retryOperations || {}).map(item => item.requestId)].filter(Boolean);
+    const displayText = (value, fallback = '', state = snapshot) => labels.text(value, fallback, identifiers(state));
+    function rememberDiagnostics() {
+      for (const element of all('[data-aw-diagnostics]')) {
+        if (element.open) expandedDiagnostics.add(element.dataset.awDiagnostics);
+        else expandedDiagnostics.delete(element.dataset.awDiagnostics);
+      }
+    }
+    function restoreDiagnostics() {
+      for (const element of all('[data-aw-diagnostics]')) element.open = expandedDiagnostics.has(element.dataset.awDiagnostics);
+    }
     const backdrop = document.createElement('div');
     backdrop.id = 'aw-approval-backdrop';
     backdrop.className = 'aw-approval-backdrop';
@@ -47,16 +63,21 @@
     }
     function captureKey(element) {
       if (!element) return null;
+      if (element.matches?.('[data-aw-diagnostics] > summary')) return { attribute: 'data-aw-diagnostics', value: element.parentElement.dataset.awDiagnostics, summary: true };
       if (element.dataset?.awToolAction) return { attribute: 'data-aw-tool-action', value: element.dataset.awToolAction, tool: element.dataset.awTool };
       if (element.dataset?.awOutputMode) return { attribute: 'data-aw-output-mode', value: element.dataset.awOutputMode, tool: element.dataset.awTool };
-      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-awv-focus', 'data-awv-action']) {
+      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-aw-retry', 'data-aw-task-details', 'data-awv-focus', 'data-awv-action']) {
         const value = element.getAttribute?.(attribute);
         if (value != null) return { attribute, value };
       }
       return null;
     }
     function resolveKey(key) {
-      return key ? Array.from(root.querySelectorAll('[' + key.attribute + ']')).find(element => element.getAttribute(key.attribute) === key.value && (!key.tool || element.dataset.awTool === key.tool) && focusable(element)) : null;
+      if (!key) return null;
+      return Array.from(root.querySelectorAll('[' + key.attribute + ']'))
+        .filter(element => element.getAttribute(key.attribute) === key.value && (!key.tool || element.dataset.awTool === key.tool))
+        .map(element => key.summary ? element.querySelector('summary') : element)
+        .find(focusable) || null;
     }
     function closeApproval(restore = true) {
       if (!openedApproval) return;
@@ -109,7 +130,8 @@
       const fallback = copyFallbacks.get(tool.id);
       const progress = state.mode === 'runtime' ? Number.isFinite(task.progress) && Number.isFinite(task.total) && task.total > 0 ? task.progress + ' / ' + task.total + ' reported steps' : 'Progress not reported' : task.progress + ' / ' + task.total + ' demo steps';
       const action = (name, label, glyph) => '<button type="button" class="aw-text-button cursor-interaction" data-aw-tool-action="' + name + '" data-aw-tool="' + esc(tool.id) + '">' + icon(glyph) + label + '</button>';
-      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(task.title) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(tool.name) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + results.map(result => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(result.title) + '</button>').join('') + resultFilesHTML(results) + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + '</div>';
+      const diagnostics = state.mode === 'runtime' ? labels.diagnostics([['Task ID', tool.taskId], ['Tool ID', tool.id], ['Agent session ID', tool.agentSessionId], ['Attempt ID', tool.attemptId]], 'tool:' + tool.id) : '';
+      return '<div class="aw-agent-detail" data-aw-tool-details="' + esc(tool.id) + '"><p class="aw-tool-task">' + esc(labels.task(task, state.tasks, 'Session tool')) + ' <span aria-hidden="true">·</span> ' + esc(progress) + '</p><dl class="aw-tool-context"><div><dt>Directory</dt><dd>' + esc(tool.cwd) + '</dd></div><div><dt>Exit code</dt><dd data-aw-exit="' + esc(tool.id) + '">' + (tool.exitCode == null ? '—' : esc(tool.exitCode)) + '</dd></div></dl><code class="aw-tool-command" data-aw-command="' + esc(tool.id) + '">' + esc(tool.command) + '</code><div class="aw-tool-tabs" aria-label="Tool output format"><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="log" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'log') + '">Log</button><button type="button" class="aw-text-button cursor-interaction" data-aw-output-mode="output" data-aw-tool="' + esc(tool.id) + '" aria-pressed="' + (mode === 'output') + '">Output</button></div><pre class="aw-tool-log" data-aw-log="' + esc(tool.id) + '" aria-label="' + esc(displayText(tool.name, 'Tool', state)) + ' ' + (mode === 'output' ? 'output' : 'log') + '">' + esc(logText(tool, mode === 'output') || (state.mode === 'runtime' ? 'No output has been reported.' : 'No output yet. This tool has not started.')) + '</pre><div class="aw-agent-links">' + action('copy-command', 'Copy command', 'copy') + action('copy-log', 'Copy log', 'copy') + action('download-log', 'Download log', 'download') + (state.mode !== 'runtime' && task.status === 'failed' ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '">' + icon('rotate-ccw') + 'Retry step</button>' : '') + (approval ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(approval.id) + '">' + icon('shield-check') + 'Review request</button>' : '') + results.map(result => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(result.id) + '" data-aw-artifact-version="' + esc(result.version || '') + '">' + icon('file-check') + esc(displayText(result.title, 'Result file', state)) + '</button>').join('') + resultFilesHTML(results) + '<button type="button" class="aw-text-button cursor-interaction" data-aw-timeline="' + esc(task.id) + '">Timeline' + icon('arrow-up-right') + '</button></div>' + (fallback != null ? '<label class="aw-copy-label">Select and copy manually<textarea class="aw-copy-fallback" data-aw-copy-fallback="' + esc(tool.id) + '" readonly aria-label="Copy tool text manually">' + esc(fallback) + '</textarea></label>' : '') + diagnostics + '</div>';
     }
 
     function toolEventHTML(tool, state, agent = null) {
@@ -119,18 +141,38 @@
       const open = expandedTools.has(tool.id) || (agent && expanded.has(agent.id));
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
       const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
-      const presentation = window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, task.status);
+      // A retry changes the task's current attempt, not the recorded tool outcome.
+      // A successful worker process can still be followed by a failed tool wrapper.
+      const activityStatus = state.mode === 'runtime' ? tool.status : task.status;
+      const presentation = window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, activityStatus, state.tasks);
       const glyph = window.AthenaPiActivity.iconHTML(presentation.icon, { active: presentation.active });
-      return '<details class="aw-agent-event" ' + identity + ' data-aw-event-tool="' + esc(tool.id) + '" data-pi-tool="' + esc(tool.sdkToolName || 'custom') + '"' + (open ? ' open' : '') + '><summary class="cursor-interaction" ' + summaryKey + '>' + glyph + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(presentation.label) + '<span class="aw-agent-owner">' + (agent ? ' · ' + esc(agent.name) : '') + '</span><span class="aw-status" data-status="' + esc(task.status) + '">' + esc(LABELS[task.status] || task.status) + '</span></span><span class="aw-tool-target">' + esc(presentation.detail) + '</span>' + (latest ? '<span class="aw-tool-activity" data-aw-progress="' + esc(tool.id) + '">' + esc(latest.text) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>' + toolDetailsHTML(tool, task, state) + '</details>';
+      const owner = agent ? labels.agent(agent, state.tasks) : '';
+      const status = LABELS[activityStatus] || displayText(activityStatus, 'Working', state);
+      const summary = latest && displayText(latest.text, [owner, status].filter(Boolean).join(' · '), state);
+      return '<details class="aw-agent-event" ' + identity + ' data-aw-event-tool="' + esc(tool.id) + '" data-pi-tool="' + esc(tool.sdkToolName || 'custom') + '"' + (open ? ' open' : '') + '><summary class="cursor-interaction" ' + summaryKey + '>' + glyph + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(presentation.label) + '<span class="aw-agent-owner">' + (owner ? ' · ' + esc(owner) : '') + '</span><span class="aw-status" data-status="' + esc(activityStatus) + '">' + esc(status) + '</span></span><span class="aw-tool-target">' + esc(presentation.detail) + '</span>' + (latest ? '<span class="aw-tool-activity" data-aw-progress="' + esc(tool.id) + '">' + esc(summary) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>' + toolDetailsHTML(tool, task, state) + '</details>';
     }
 
     function agentGroupHTML(state) {
       if (!state.agents.length) return '';
       const active = state.agents.filter(agent => agent.status === 'running');
       const complete = state.agents.filter(agent => agent.status === 'succeeded');
-      const names = [...new Set(state.agents.map(agent => agent.name))];
+      const names = [...new Set(state.agents.map(agent => labels.agent(agent, state.tasks)))];
       const label = names.join(', ') + (active.length ? ' working' : state.run.status === 'paused' ? ' paused' : state.run.status === 'failed' ? ' need attention' : state.run.status === 'cancelled' ? ' stopped' : complete.length === state.agents.length ? ' complete' : ' waiting');
-      return '<div class="aw-agent-presence"><span class="aw-agent-symbols">' + state.agents.map(agent => '<button type="button" class="aw-agent-symbol cursor-interaction" data-aw-agent-reveal="' + esc(agent.id) + '" aria-label="View ' + esc(agent.name) + ' activity: ' + esc(state.tasks.find(task => task.id === agent.taskId)?.title || agent.role) + '">' + window.AthenaAvatars.html({ agentId: agent.id, role: agent.role, status: agent.status, size: 20 }) + '</button>').join('') + '</span><span>' + esc(label) + '</span></div>';
+      return '<div class="aw-agent-presence"><span class="aw-agent-symbols">' + state.agents.map(agent => '<button type="button" class="aw-agent-symbol cursor-interaction" data-aw-agent-reveal="' + esc(agent.id) + '" aria-label="View ' + esc(labels.agent(agent, state.tasks)) + ' activity: ' + esc(labels.task(agent.taskId, state.tasks, 'Background task')) + '">' + window.AthenaAvatars.html({ agentId: agent.id, role: agent.role, status: agent.status, size: 20 }) + '</button>').join('') + '</span><span>' + esc(label) + '</span></div>';
+    }
+
+    function taskRecoveryHTML(task, state) {
+      const retry = state.retryOperations?.[task.id];
+      const attempt = (state.attempts || []).find(item => item.id === (retry?.expectedAttemptId || task.attemptId));
+      const fallback = task.status === 'paused' ? 'This task was interrupted before it finished.' : task.status === 'cancelled' ? 'This task was cancelled before it finished.' : 'The agent could not complete this task.';
+      const canRetry = state.capabilities?.retryTask && (task.retryable === true || retry?.pending || retry?.accepted);
+      const button = canRetry ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(task.id) + '"' + (retry?.pending || retry?.accepted ? ' disabled aria-busy="' + Boolean(retry.pending) + '"' : '') + '>' + icon('rotate-ccw') + (retry?.pending ? 'Retrying…' : retry?.accepted ? 'Retry queued' : 'Retry task') + '</button>' : '';
+      return '<section class="aw-approval-inline" data-aw-task-recovery="' + esc(task.id) + '"><span>' + icon('rotate-ccw') + '</span><div><strong>' + esc(labels.task(task, state.tasks)) + '</strong><p>' + esc(displayText(attempt?.error, fallback, state)) + '</p>'
+        + (retry?.error ? '<p role="alert" data-aw-retry-error>Retry was not confirmed. ' + esc(displayText(retry.error, 'Check the connection and try again.', state)) + '</p>' : '')
+        + (retry?.accepted ? '<p role="status">Retry accepted. Waiting for the task update.</p>' : '')
+        + (!canRetry && task.retryUnavailableReason ? '<p>' + esc(displayText(task.retryUnavailableReason, 'This task cannot be retried yet.', state)) + '</p>' : '')
+        + '<div class="aw-agent-links">' + button + '<button type="button" class="aw-text-button cursor-interaction" data-aw-task-details="' + esc(task.id) + '">Task details' + icon('arrow-up-right') + '</button></div>'
+        + labels.diagnostics([['Attempt ID', attempt?.id], ['Attempt error', attempt?.error], ['Retry request ID', retry?.requestId], ['Retry error', retry?.error]], 'recovery:' + task.id) + '</div></section>';
     }
 
     function revealTool(selection = {}) {
@@ -139,7 +181,7 @@
       const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
       if (process) {
         expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
-        const row = [...host.querySelectorAll('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
+        const row = [...all('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
         if (!row) return false;
         row.open = true;
         row.querySelector('summary').focus({ preventScroll: true });
@@ -153,7 +195,7 @@
       const agent = snapshot.agents.find(item => item.taskId === tool.taskId);
       if (agent) expanded.add(agent.id);
       renderSignature = ''; render(snapshot);
-      const row = Array.from(host.querySelectorAll('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
+      const row = Array.from(all('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
       const summary = row?.querySelector('summary');
       if (focusable(summary)) { summary.focus({ preventScroll: true }); summary.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); }
       return true;
@@ -167,7 +209,7 @@
       } catch (_) {
         if (destroyed) return;
         copyFallbacks.set(tool.id, text); revealTool({ toolId: tool.id });
-        const field = Array.from(host.querySelectorAll('[data-aw-copy-fallback]')).find(item => item.dataset.awCopyFallback === tool.id);
+        const field = Array.from(all('[data-aw-copy-fallback]')).find(item => item.dataset.awCopyFallback === tool.id);
         if (focusable(field)) { field.focus({ preventScroll: true }); field.select?.(); }
         options.toast?.('Select and copy the text in the conversation.');
       }
@@ -183,42 +225,109 @@
 
     function resultFilesHTML(results) {
       return results.map(item => {
-        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item);
-        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(item.file?.name || item.name || item.filename || item.title || item.id) + '</a>' : '';
+        const process = snapshot.processes?.find(process => process.id === item.processId);
+        const href = window.AthenaResultFiles?.href(snapshot.sessionId, item, process);
+        return href ? '<a class="aw-text-button cursor-interaction" href="' + esc(href) + '" download>' + icon('download') + esc(displayText(item.file?.name || item.name || item.filename || item.title, 'Result file')) + '</a>' : '';
       }).join('');
     }
 
     function processHTML(process) {
       const job = process.job || process;
-      const status = LABELS[process.status] || String(process.status || '').replaceAll('_', ' ');
+      const registered = window.AthenaResultFiles?.mcp(job.mcp);
+      const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
+      const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
+      const cancellation = window.AthenaResultFiles?.mcpCancellation(process);
+      const status = LABELS[process.status] || displayText(String(process.status || '').replaceAll('_', ' '), 'Working');
       const field = (name, value) => value == null ? '' : '<div><dt>' + name + '</dt><dd>' + esc(typeof value === 'object' ? JSON.stringify(value) : value) + '</dd></div>';
-      const recorded = field('Process', process.processId) + field('Tool', process.toolId) + field('Working directory', job.cwd)
+      const recorded = field('Working directory', job.cwd)
         + field('Exit code', job.exitCode) + field('Signal', job.signal) + field('Cancellation', job.cancellation)
         + field('Limits', job.limits) + field('Policy', job.policy);
       // Argument boundaries matter: a joined shell string would misrepresent empty and spaced arguments.
       const command = job.program ? esc(job.program) + (Array.isArray(job.args) ? '\nArguments: ' + esc(JSON.stringify(job.args)) : '') : '';
       const files = snapshot.artifacts.filter(item => process.processId && item.processId === process.processId || !item.processId && (item.id === job.artifact?.id || job.artifacts?.some(file => file.id === item.id)));
       const output = (name, value) => typeof value === 'string' && value ? '<p class="aw-tool-task">' + name + '</p><pre class="aw-tool-log" aria-label="' + name + '">' + esc(value) + '</pre>' : '';
-      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(job.program || 'Process') + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span></span>' + icon('chevron-down') + '</summary>'
-        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(snapshot.tasks.find(task => task.id === process.taskId)?.title || process.taskId) + (process.attemptId ? ' · ' + esc(process.attemptId) : '') + '</p><dl class="aw-tool-context">' + recorded + '</dl>'
+      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
+        ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase],
+        ['Plugin ID', job.externalMcp?.pluginId], ['Plugin revision', job.externalMcp?.pluginRevision], ['Verified schema digest', job.externalMcp?.verificationDigest], ['Endpoint', job.externalMcp?.url]], 'process:' + process.id);
+      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p>' + (cancellation ? '<p class="aw-tool-task">' + esc(cancellation) + '</p>' : '') + '<dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
+    }
+
+    function renderAttempts(state, availableTools) {
+      const placedTools = new Set(), placedProcesses = new Set(), placedTasks = new Set(), kept = new Set();
+      if (!options.placeActivity) return { placedTools, placedProcesses, placedTasks };
+      const attempts = (state.attempts || []).filter(attempt => state.tasks.some(task => task.id === attempt.taskId && task.parentTaskId));
+      for (const attempt of attempts) {
+        const task = state.tasks.find(item => item.id === attempt.taskId);
+        const tools = availableTools.filter(item => item.attemptId === attempt.id);
+        const processes = (state.processes || []).filter(item => item.attemptId === attempt.id);
+        const results = state.artifacts.filter(item => item.attemptId === attempt.id);
+        const agent = state.agents.find(item => item.taskId === task.id);
+        let node = attemptSections.get(attempt.id);
+        if (!node) { node = document.createElement('section'); node.className = 'aw-attempt'; node.dataset.awAttempt = attempt.id; attemptSections.set(attempt.id, node); }
+        kept.add(attempt.id);
+        const ownStatus = LABELS[attempt.status] || displayText(attempt.status, 'Waiting', state);
+        const attemptLabel = labels.attempt(attempt.id, { ...task, attempts: attempts.filter(item => item.taskId === task.id) });
+        const current = task.attemptId === attempt.id;
+        const recovery = current && (['failed','paused','cancelled'].includes(attempt.status) || state.retryOperations?.[task.id]?.pending || state.retryOperations?.[task.id]?.accepted) ? taskRecoveryHTML({ ...task, status: attempt.status }, state) : '';
+        const observed = [...tools.map((tool, index) => ({ at: state.events.find(event => event.toolId === tool.id)?.at ?? tool.logs?.[0]?.at ?? Infinity, index, html: toolEventHTML(tool, state, agent) })), ...processes.map((process, index) => ({ at: process.job?.startedAt ?? state.events.find(event => event.processId === process.id)?.at ?? Infinity, index: tools.length + index, html: processHTML(process) }))].sort((a, b) => a.at - b.at || a.index - b.index);
+        const summary = attempt.result ? displayText(attempt.result, '', state) : '';
+        const resultButtons = results.map(item => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(item.id) + '" data-aw-artifact-version="' + esc(item.version || '') + '">' + icon('file-check') + esc(displayText(item.title || item.file?.name, 'View result', state)) + '</button>').join('');
+        node.innerHTML = '<header class="aw-attempt-heading"><strong>' + esc(labels.task(task, state.tasks)) + '</strong><span class="aw-status" data-status="' + esc(attempt.status) + '">' + esc(ownStatus) + '</span></header>'
+          + '<p class="aw-attempt-meta">' + esc([agent ? labels.agent(agent, state.tasks) : 'Subagent', attemptLabel].join(' · ')) + '</p>'
+          + '<div class="aw-agent-events">' + observed.map(item => item.html).join('') + '</div>'
+          + (summary && summary.length <= 300 ? '<p class="aw-attempt-result">' + esc(summary) + '</p>' : '')
+          + (!current && attempt.error ? '<p class="aw-tool-task">' + esc(displayText(attempt.error, 'This attempt did not finish.', state)) + '</p>' : '')
+          + recovery + '<div class="aw-agent-links aw-attempt-results">' + resultButtons + resultFilesHTML(results) + '</div>'
+          + labels.diagnostics([['Run ID', attempt.runId || task.runId], ['Task ID', task.id], ['Attempt ID', attempt.id], ['Agent session ID', attempt.agentSessionId]], 'attempt:' + attempt.id);
+        // The timeline owns placement only; all existing controls and artifact
+        // downloads are still handled here against the host snapshot.
+        if (!options.placeActivity(node, { runId: attempt.runId || task.runId, taskId: task.id, attemptId: attempt.id, at: attempt.acceptedAt ?? attempt.startedAt })) host.appendChild(node);
+        for (const tool of tools) placedTools.add(tool.id);
+        for (const process of processes) placedProcesses.add(process.id);
+        placedTasks.add(task.id);
+      }
+      for (const [id, node] of attemptSections) if (!kept.has(id)) { options.removeActivity?.(id); node.remove(); attemptSections.delete(id); }
+      return { placedTools, placedProcesses, placedTasks };
     }
 
     function render(state) {
       if (destroyed) return;
+      // Existing attempt sections may already live inside the conversation.
+      // Begin before replacing their innerHTML, not only before placement.
+      options.onBeforeLayout?.();
+      try { return renderContents(state); } finally { options.onAfterLayout?.(); }
+    }
+
+    function renderContents(state) {
       snapshot = state;
-      if (currentRunId && currentRunId !== state.run.id) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
-      currentRunId = state.run.id;
+      const runKey = JSON.stringify([state.mode, state.sessionId]);
+      if (currentRunKey && currentRunKey !== runKey) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); expandedDiagnostics.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
+      else rememberDiagnostics();
+      currentRunKey = runKey;
+      if (state.mode !== 'runtime') { for (const [id, node] of attemptSections) { options.removeActivity?.(id); node.remove(); } attemptSections.clear(); }
       if(state.mode==='runtime'){
-        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.agents,state.tools,state.processes,state.artifacts,state.approvals,[...requestedTools],[...expandedTools]]);
+        const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.tasks,state.agents,state.attempts,state.tools,state.processes,state.artifacts,state.approvals,state.retryOperations,[...requestedTools],[...expandedTools]]);
         if(signature!==renderSignature){
           renderSignature=signature;
-          const previous=host.contains(document.activeElement)?captureKey(document.activeElement):null;
-          const tools=state.tools.filter(tool=>tool.source!=='pi'||requestedTools.has(tool.id));
+          const previous=contains(document.activeElement)?captureKey(document.activeElement):null;
+          const tools=state.tools.filter(tool=>(tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id));
           const pending=state.approvals.filter(request=>request.status==='pending');
-          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(state.sessionId||'Waiting for a session identifier')+(state.run.id?' · '+esc(state.run.id):'')+'</p>'+agentGroupHTML(state)+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+'</div></details>');
+          const recovery=state.tasks.filter(task=>task.parentTaskId&&(['failed','paused','cancelled'].includes(task.status)||state.retryOperations?.[task.id]?.pending||state.retryOperations?.[task.id]?.accepted));
+          const runContext = (LABELS[state.run.status] || displayText(state.run.status, 'Ready', state)) + ' · ' + state.tasks.length + (state.tasks.length === 1 ? ' task' : ' tasks');
+          const diagnostics = labels.diagnostics([['Session ID', state.sessionId], ['Run ID', state.run.id]], 'run');
+          host.replaceChildren();
+          const placed=renderAttempts(state,tools);
+          const remainingTools=tools.filter(item=>!placed.placedTools.has(item.id)), remainingProcesses=(state.processes || []).filter(item=>!placed.placedProcesses.has(item.id)), remainingRecovery=recovery.filter(item=>!placed.placedTasks.has(item.id));
+          const fallback=document.createElement('div');
+          const empty=!remainingTools.length&&!pending.length&&!remainingRecovery.length&&!remainingProcesses.length&&(!state.agents.length||placed.placedTasks.size);
+          fallback.innerHTML=empty?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+(placed.placedTasks.size?'':agentGroupHTML(state))+remainingRecovery.map(task=>taskRecoveryHTML(task,state)).join('')+'<div class="aw-agent-events">'+remainingTools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+remainingProcesses.map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>';
+          host.append(...fallback.childNodes);
           for(const line of host.querySelectorAll('.aw-tool-task'))line.textContent=line.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*demo steps/,'');
           if(!state.capabilities?.retryTask)host.querySelectorAll('[data-aw-retry]').forEach(button=>button.disabled=true);
+          restoreDiagnostics();
           refreshIcons();if(previous&&!openedApproval)resolveKey(previous)?.focus({preventScroll:true});
         }
         if(openedApproval&&!state.approvals.some(item=>item.id===openedApproval&&item.status==='pending'))closeApproval();
@@ -227,7 +336,7 @@
       const signature = JSON.stringify([state.run.id, state.run.status, state.run.scenario, state.tasks.map(task => [task.id, task.status, task.progress]), state.approvals.map(item => [item.id, item.status]), state.events.length, state.artifacts.length, state.agents.length]);
       if (signature !== renderSignature) {
         renderSignature = signature;
-        const previous = host.contains(document.activeElement) ? captureKey(document.activeElement) : null;
+        const previous = contains(document.activeElement) ? captureKey(document.activeElement) : null;
         const isLocalDemo = state.run.status === 'ready';
         const completed = state.tasks.filter(task => task.status === 'succeeded').length;
         const pending = state.approvals.find(item => item.status === 'pending');
@@ -243,6 +352,7 @@
           + (pending ? '<div class="aw-approval-inline"><span>' + icon('shield-check') + '</span><div><strong>Permission needed for Python analysis</strong><p>Review the command and output location before this demo step continues.</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="' + esc(pending.id) + '">Review request' + icon('arrow-right') + '</button></div></div>' : rejected && state.run.status === 'blocked' ? '<div class="aw-approval-inline"><span>' + icon('shield-x') + '</span><div><strong>Request declined</strong><p>The analysis did not start. You can request approval again when you are ready.</p><button type="button" class="aw-text-button cursor-interaction" data-aw-retry="' + esc(rejected.taskId) + '">Request again' + icon('arrow-right') + '</button></div></div>' : '')
           + (state.run.status === 'succeeded' ? '<div class="aw-run-complete">' + icon('check-check') + '<span>The demo is complete. Review the evidence and final research note.</span><button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="research-note">Open report' + icon('arrow-up-right') + '</button></div>' : '')
           + '<details class="aw-demo-options"' + (demoOptionsOpen ? ' open' : '') + '><summary class="cursor-interaction">Demo options</summary>' + controlsHTML(state) + '<label for="aw-demo-scenario">Scenario</label><select id="aw-demo-scenario"' + (active ? ' disabled' : '') + '><option value="success"' + (state.run.scenario === 'success' ? ' selected' : '') + '>Successful research run</option><option value="analysis-error"' + (state.run.scenario === 'analysis-error' ? ' selected' : '') + '>Analysis error and recovery</option></select><p>Simulated tool events only. Uploaded files and model settings are not sent to a runtime.</p></details></div></details><span class="ac-sr-only" data-aw-live role="status" aria-live="polite"></span>';
+        restoreDiagnostics();
         refreshIcons();
         if (previous && !openedApproval) resolveKey(previous)?.focus({ preventScroll: true });
         if (lastRunStatus !== state.run.status) {
@@ -253,7 +363,13 @@
       if (openedApproval && !state.approvals.some(item => item.id === openedApproval && item.status === 'pending')) closeApproval();
     }
 
-    listen(host, 'toggle', event => {
+    listen(root, 'toggle', event => {
+      if (!contains(event.target)) return;
+      if (event.target.matches?.('[data-aw-diagnostics]')) {
+        if (event.target.open) expandedDiagnostics.add(event.target.dataset.awDiagnostics);
+        else expandedDiagnostics.delete(event.target.dataset.awDiagnostics);
+        return;
+      }
       if (event.target.matches?.('.aw-demo-options')) { demoOptionsOpen = event.target.open; return; }
       if (event.target.matches?.('[data-aw-thinking]')) { thinkingOpen = event.target.open; return; }
       if (event.target.matches?.('[data-aw-process]')) {
@@ -266,16 +382,17 @@
       if (event.target.open) { if (id) expanded.add(id); expandedTools.add(toolId); }
       else { if (id) expanded.delete(id); expandedTools.delete(toolId); }
     }, { capture: true });
-    listen(host, 'change', event => {
+    listen(root, 'change', event => {
+      if (!contains(event.target)) return;
       if (event.target.id === 'aw-demo-scenario') {
         const scenario = event.target.value;
         if (!['ready', 'running', 'blocked', 'paused'].includes(snapshot.run.status)) { expanded.clear(); store.reset(); }
         store.setScenario(scenario);
       }
     });
-    listen(host, 'click', event => {
+    listen(root, 'click', event => {
       const button = event.target.closest('button');
-      if (!button || button.disabled || !host.contains(button)) return;
+      if (!button || button.disabled || !contains(button)) return;
       if (button.dataset.awApprovalOpen) { openApproval(button.dataset.awApprovalOpen); return; }
       if (button.dataset.awAgentReveal) {
         const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal);
@@ -297,6 +414,7 @@
       if (button.dataset.awArtifact) { options.onNavigate?.('artifacts', { artifactId: button.dataset.awArtifact, ...(button.dataset.awArtifactVersion ? {version:button.dataset.awArtifactVersion} : {}) }); return; }
       if (button.dataset.awTimeline) { options.onNavigate?.('timeline', { taskId: button.dataset.awTimeline }); return; }
       if (button.dataset.awRetry) { store.retryTask(button.dataset.awRetry); return; }
+      if (button.dataset.awTaskDetails) { options.onNavigate?.('workflow', { taskId: button.dataset.awTaskDetails }); return; }
       const action = button.dataset.awAction;
       if (action === 'workflow') options.onNavigate?.('workflow');
       if (action === 'preview-reply') options.onPreviewReply?.();
@@ -335,7 +453,7 @@
     });
     const unsubscribe = store.subscribe(render);
     return {
-      openApproval, closeApproval, revealTool, isApprovalOpen: () => Boolean(openedApproval),
+      openApproval, closeApproval, revealTool, refresh() { renderSignature = ''; render(snapshot); }, isApprovalOpen: () => Boolean(openedApproval),
       getState: () => ({ approvalId: openedApproval, expanded: [...expanded], expandedTools: [...expandedTools], thinkingOpen }),
       destroy() {
         if (destroyed) return;
@@ -343,7 +461,7 @@
         destroyed = true;
         for (const [timer, url] of downloadTimers) { clearTimeout(timer); URL.revokeObjectURL(url); }
         downloadTimers.clear();
-        unsubscribe(); controller.abort(); backdrop.remove(); host.replaceChildren();
+        unsubscribe(); controller.abort(); backdrop.remove(); host.replaceChildren(); for (const node of attemptSections.values()) node.remove(); attemptSections.clear();
       }
     };
   }

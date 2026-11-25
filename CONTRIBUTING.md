@@ -8,4 +8,4 @@ Only contribute material you have the right to share. The owner selected [Apache
 
 Create a work branch and open a pull request. Target `main` for independent changes. For a stacked pull request, target its parent branch, identify the parent PR, and describe only the changes added by that layer. Preserve the stack's ancestry when merging its layers.
 
-Before merging into `main`, update the branch to include the latest `main`, resolve review conversations, and pass the required `history-secrets` and `apple-silicon` checks. Describe the verification actually performed and any remaining limitations in the pull request. Passing CI does not establish real-model acceptance or public-release readiness.
+Before merging into `main`, update the branch to include the latest `main`, resolve review conversations, and pass all five required checks: `history-secrets`, `apple-silicon`, `desktop-windows-x64`, `desktop-mac-intel`, and `browser-chat`. Describe the verification actually performed and any remaining limitations in the pull request. Passing CI does not establish real-model acceptance or public-release readiness.

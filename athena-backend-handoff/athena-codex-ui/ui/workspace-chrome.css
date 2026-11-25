@@ -111,3 +111,13 @@
 #athena-codex .aw-baseline > summary small {margin-left:auto;color:#a1a391;font-size:11px;}
 #athena-codex .aw-baseline[open] > summary svg:last-child {transform:rotate(180deg);}
 #athena-codex .aw-baseline-body {padding-top:13px;}
+
+#athena-codex .aw-diagnostics {min-width:0;margin:10px 0 0;color:#858976;font-size:11px;line-height:1.7;}
+#athena-codex .aw-diagnostics > summary {width:fit-content;padding:6px 0;cursor:pointer;}
+#athena-codex .aw-diagnostics > summary:focus-visible {outline:2px solid #9ca888;outline-offset:3px;border-radius:3px;}
+#athena-codex .aw-diagnostics > dl {display:grid;gap:8px;margin:6px 0 0;padding:10px 12px;border:1px solid #e0e3d8;border-radius:6px;background:#f7f8f1;}
+#athena-codex .aw-diagnostics > dl > div {display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px;}
+#athena-codex .aw-diagnostics dt {margin:0;color:#858976;font-weight:400;}
+#athena-codex .aw-diagnostics dd {min-width:0;margin:0;color:#626b56;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;}
+@media(max-width:420px) {#athena-codex .aw-diagnostics > dl > div {grid-template-columns:1fr;gap:1px;}}
+@media(pointer:coarse) {#athena-codex .aw-diagnostics > summary {min-height:44px;box-sizing:border-box;}}

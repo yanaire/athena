@@ -17,6 +17,9 @@
   </p>
 </div>
 
+> **Estado (2026-11-25):** El candidato de integración revisado incluye el código fuente de MCP, las extensiones de investigación, el DAG de flujos de trabajo, Windows y Mac con Intel.
+> La descripción del estado base y los registros de validación que siguen conservan el historial de una versión anterior; la aceptación final en un Mac real con una cuenta real sigue pendiente, y el alcance actual de la integración se detalla en el [README en inglés](README.md) y en el [informe de revisión de la integración](docs/validation/2026-11-25-open-pr-integration-review.md).
+
 > [!IMPORTANT]
 > **Vista previa del código fuente, no una versión pública oficial.** El código propio de Athena adopta Apache-2.0, pero los avisos de terceros, los derechos de la interfaz y los recursos, y la autorización del historial Git siguen en revisión. La visibilidad pública del repositorio no resuelve estas obligaciones. No redistribuyas el código candidato ni la aplicación hasta resolverlas. Consulta el [estado de publicación](docs/oss-preview-status.md), los [avisos de terceros](THIRD_PARTY_NOTICES.md) y las [limitaciones conocidas](docs/known-limitations.md). No hay instalador oficial firmado y notarizado ni DMG público.
 

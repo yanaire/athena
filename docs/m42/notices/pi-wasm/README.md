@@ -1,4 +1,16 @@
-# WASM shipped by Pi 1.5.2
+# WASM shipped by Pi
+
+## Integration verification, 2026-11-25
+
+The combined Pi 1.6.0 and TypeBox 1.4.7 lockfile was installed with `npm ci
+--ignore-scripts`. Its QuickJS WASM, five WASM extensions, and Photon WASM are
+byte-for-byte identical to the Pi 1.5.2 installation and all seven SHA-256 values
+in the historical inventory below. The QuickJS and Photon package license files
+are also unchanged. The upstream DOOM demo remains excluded by host staging and
+checked by bundle verification.
+
+These comparisons preserve the existing binary and notice evidence; they do not
+resolve the historical Photon build-graph or distribution limitations below.
 
 ## Integration verification, 2026-11-22
 

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Artifact, Task, Status, ModelReference } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
-import type { CsvArtifact, CsvAttempt } from './jobs.ts';
+import type { McpArtifact, JobAttempt } from './jobs.ts';
 import type { AnalysisArtifact } from './analysis-files.ts';
 
 export class ManagerError extends Error {
@@ -30,15 +30,16 @@ export type Context = { readonly projectId: string; readonly sessionId: string; 
 export type Attempt = Context & { readonly id: string; readonly requestId: string; readonly status: Status;
   readonly prompt: string; readonly acceptedAt: number; readonly startedAt: number | null; readonly endedAt: number | null;
   readonly result?: string; readonly error?: string; readonly fileIds: readonly string[];
-  readonly artifactGrants?: readonly string[]; readonly model?: ModelReference };
+  readonly artifactGrants?: readonly string[]; readonly model?: ModelReference;
+  readonly kind?: 'reconciliation'; readonly retryOfAttemptId?: string };
 export type TaskRow = Task & Context & { readonly result?: string; readonly error?: string };
 export type AgentSession = { readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly sessionDir: string; readonly sessionFile: string; readonly role: 'parent' | 'child'; readonly model?: ModelReference | null };
 export type Evidence = {readonly id:string; readonly version:string};
 export type ProcessRow = Context & { readonly id: string; readonly processId: string; readonly toolId: string;
-  readonly status: CsvAttempt['status']; readonly job: CsvAttempt; readonly evidence?: readonly Evidence[] };
-export type ArtifactRow = Artifact & Context & { readonly file: CsvArtifact | AnalysisArtifact; readonly toolId: string; readonly processId: string };
-export function artifactRef(file: CsvArtifact | AnalysisArtifact) {
+  readonly status: JobAttempt['status']; readonly job: JobAttempt; readonly evidence?: readonly Evidence[] };
+export type ArtifactRow = Artifact & Context & { readonly file: McpArtifact | AnalysisArtifact; readonly toolId: string; readonly processId: string };
+export function artifactRef(file: McpArtifact | AnalysisArtifact) {
   const versionId='versionId' in file?file.versionId:file.sha256;
   return { id: file.id, title: file.name, name: file.name, version: versionId, versionId, sha256: file.sha256,
     bytes: file.bytes, mimeType: file.mimeType,

@@ -13,6 +13,7 @@ import { OpenAIRequestUnavailable } from './openai-authorization.ts';
 import { chatGPTFailureReason } from './chatgpt-errors.ts';
 import { chatGPTResponsesApi } from './chatgpt-responses.ts';
 import { ChatGPTRegistrationError, ChatGPTRegistrations } from './chatgpt-registrations.ts';
+import { CredentialBindings } from './credential-binding.ts';
 
 export type CompatibleProvider = { readonly id: string; readonly name: string; readonly endpoint: string; readonly modelIds: readonly string[] };
 
@@ -35,6 +36,9 @@ function describe(model: Model<Api>): CatalogModel {
     cost: [input, output, cacheRead, cacheWrite].every(Number.isFinite) ? { input, output, cacheRead, cacheWrite } : null };
 }
 
+const orderedEntries = (value: Readonly<Record<string, unknown>> | undefined) =>
+  Object.entries(value ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+
 export class ProviderManager {
   readonly #runtime: ModelRuntime;
   readonly #credentials: CredentialStore;
@@ -43,6 +47,7 @@ export class ProviderManager {
   readonly #directory: string | undefined;
   readonly #nativeBrowser: boolean;
   readonly #registrations?: ChatGPTRegistrations;
+  readonly #bindings: CredentialBindings;
   readonly #compatible = new Map<string, CompatibleProvider>();
   readonly oauth: ProviderOAuthController | undefined;
 
@@ -53,6 +58,7 @@ export class ProviderManager {
     this.#directory = directory;
     this.#nativeBrowser = nativeBrowser;
     this.#registrations = registrations;
+    this.#bindings = new CredentialBindings(credentials, directory);
     this.#chatGPTEnabled = registrations !== undefined;
     this.#enabledOAuth = new Set([...(this.#chatGPTEnabled ? ['openai'] : []), ...(directory && openRouterEnabled ? ['openrouter'] : [])]);
     this.oauth = directory && this.#enabledOAuth.size ? new ProviderOAuthController({ runtime, credentials, deviceIdDirectory: directory,
@@ -268,7 +274,22 @@ export class ProviderManager {
     if (credential?.type === 'oauth') { remember(credential.access); remember(credential.refresh); }
     for (const value of Object.values(auth.auth.headers ?? {})) if (typeof value === 'string') remember(value);
     if (!compatible && credential?.type !== 'oauth' && auth.auth.apiKey) await runtime.setRuntimeApiKey(id, auth.auth.apiKey, { signal });
-    const authRef = ref ?? `${id}:${credential?.type ?? (compatible ? 'keyless' : 'host')}`;
+    // ChatGPT binds its registration, so access/refresh token rotations retain
+    // identity. API-key routes bind the exact captured credential, including env
+    // credentials. OpenRouter's OAuth route also returns a persistent API key.
+    const keyless = !credential && compatible;
+    const resolvedKey = Boolean(auth.auth.apiKey) || Object.values(auth.auth.headers ?? {}).some(value => typeof value === 'string' && value.length > 0);
+    const authRef = ref ?? (keyless ? `${id}:keyless` : resolvedKey ? await this.#bindings.bind(id, {
+      type: credential?.type ?? 'host',
+      ...(credential?.type === 'api_key' ? { key: credential.key ?? null, env: orderedEntries(credential.env) } : {}),
+      resolved: { apiKey: auth.auth.apiKey ?? null, headers: orderedEntries(auth.auth.headers), env: orderedEntries(auth.env) },
+    }) : `${id}:host`);
+    // Older provider/type references cannot prove which credential was used and
+    // must not silently adopt the currently configured key on manual recovery.
+    if (reference.authRef && !ref &&
+        (reference.authRef !== authRef || authRef === `${id}:host`)) {
+      throw new ProviderError('MODEL_UNAVAILABLE', 'The original credential binding is unavailable or has changed. Start a new request with the current profile.');
+    }
     return { modelRuntime: runtime, model: structuredClone(catalogModel), thinkingLevel,
       endpoint: auth.auth.baseUrl ?? catalogModel.baseUrl, authRef, ...streamRedactor(secrets) };
   }
@@ -280,7 +301,11 @@ export class ProviderManager {
     let status: number | undefined;
     const signal = AbortSignal.timeout(25_000);
     try {
-      const { modelRuntime, model, thinkingLevel } = await this.pin(reference);
+      // Verification of an editable API profile checks its current configuration.
+      // Unlike saved run bindings, its authRef is only the bare provider ID.
+      const current = reference.authMode !== 'chatgpt' && reference.authRef === reference.provider
+        ? { ...reference, authRef: undefined } : reference;
+      const { modelRuntime, model, thinkingLevel } = await this.pin(current);
       const options = { signal, maxRetries: 0, maxTokens: Math.min(256, model.maxTokens),
         ...(thinkingLevel !== 'off' ? { reasoning: thinkingLevel } : {}),
         onResponse: (response: { status: number }) => { status = response.status; } };

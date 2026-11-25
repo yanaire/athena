@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { chmod, link, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -9,6 +9,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
 import type { WorkspaceSnapshot } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
+import { makePublicPermissions } from './platform-test-helpers.ts';
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,12 +20,14 @@ async function fixture(t: TestContext) {
   const requests: unknown[] = [];
   let mode: 'answer' | 'read' | 'read_attachment' | 'fail' | 'hold' = 'answer';
   let notifyRequest: (() => void) | undefined;
+  let pauseResponse: Promise<void> | undefined;
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     requests.push(body);
     notifyRequest?.();
+    await pauseResponse;
     if (mode === 'fail') {
       response.writeHead(401, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: { message: 'Deliberate endpoint rejection', type: 'authentication_error' } }));
@@ -84,6 +87,11 @@ async function fixture(t: TestContext) {
   }
   return { directory, requests, manager,
     mode(value: typeof mode) { mode = value; },
+    pauseResponses() {
+      const gate = Promise.withResolvers<void>();
+      pauseResponse = gate.promise;
+      return () => { pauseResponse = undefined; gate.resolve(); };
+    },
     nextRequest() { return new Promise<void>(resolve => { notifyRequest = resolve; }); },
   };
 }
@@ -189,6 +197,153 @@ test('session switches isolate snapshots, reject stale RPC and preserve staged U
   assert.throws(() => manager.stageFiles(second.sessionId, [{ name: 'binary.pdf', mimeType: 'application/pdf', data: 'JVBERg==' }]), { code: 'UNSUPPORTED_FILE' });
 });
 
+test('attachment transport stays in the Pi dispatch while live and restored user messages retain exact input', { timeout: 20000 }, async t => {
+  const wire = await fixture(t);
+  const secret = 'attachment-redaction-fixture-79163';
+  process.env.ATHENA_API_KEY = secret;
+  let manager = await wire.manager();
+  const {sessionId} = await session(manager);
+  const {fileReferences} = await manager.stageFiles(sessionId, ['scores.csv', `units-${secret}.txt`].map(name => ({
+    name, mimeType: 'text/plain', data: Buffer.from('score\n32\n').toString('base64'),
+  })));
+  const attachment = (file: typeof fileReferences[number]) => `\n\nInput attachment (never a result): ${JSON.stringify({fileId:file.id,name:file.name})}. ` +
+    'Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ' +
+    `Call read with these exact arguments: ${JSON.stringify({path:`uploads/${file.id}.txt`})}`;
+  const message = '  사용자 입력 😀\n' + attachment(fileReferences[0]!) + '\n  ';
+  const wireMessage = message + fileReferences.map(attachment).join('');
+  const publicWireMessage = wireMessage.replaceAll(secret, '[redacted]');
+  const bodyText = (value: unknown) => {
+    assert.ok(object(value) && value.role === 'user');
+    if (typeof value.content === 'string') return value.content;
+    assert.ok(Array.isArray(value.content) && object(value.content[0]));
+    return value.content[0].text;
+  };
+  const users = (messages: readonly unknown[]) => messages.filter(object).filter(item => item.role === 'user').map(bodyText);
+  const ownerFields = ['projectId', 'sessionId', 'runId', 'taskId', 'parentTaskId', 'agentSessionId', 'attemptId'];
+  const owners = (messages: readonly unknown[]) => messages.filter(object).filter(item => ['user', 'assistant', 'toolResult'].includes(String(item.role))).map(item => item.athena);
+  const forwarded: Record<string, unknown>[] = [];
+  manager.subscribePi(sessionId, event => forwarded.push(event));
+  const command = {type:'prompt',id:'with-files',message,fileReferences};
+  const displayAttachments = fileReferences.map(file => ({name: file.name.replaceAll(secret, '[redacted]'), mimeType: file.mimeType, size: file.size}));
+  const send = async (input: typeof command | {type: string; id: string; message: string}, whileStreaming?: () => Promise<void>) => {
+    const done = Promise.withResolvers<void>();
+    const detach = manager.subscribePi(sessionId, event => { if (event.type === 'agent_settled') done.resolve(); });
+    try {
+      const accepted = await manager.pi(sessionId, input);
+      if (whileStreaming) {
+        assert.deepEqual(await manager.pi(sessionId, input), accepted);
+        await whileStreaming();
+      }
+      await done.promise;
+      return accepted;
+    } finally { detach(); }
+  };
+
+  wire.mode('read_attachment');
+  const resume = wire.pauseResponses();
+  const dispatched = wire.nextRequest();
+  const receipt = await send(command, async () => {
+    try {
+      await dispatched;
+      assert.deepEqual(forwarded.filter(event => event.type === 'message_start' && object(event.message) && event.message.role === 'user')
+        .map(event => bodyText(event.message)), [message]);
+      assert.deepEqual(forwarded.filter(event => event.type === 'message_start' && object(event.message) && event.message.role === 'user')
+        .map(event => object(event.message) ? event.message.attachments : undefined), [displayAttachments]);
+      const response = await manager.pi(sessionId, {type:'get_messages'});
+      assert.ok(object(response) && object(response.data) && Array.isArray(response.data.messages));
+      assert.deepEqual(users(response.data.messages), [message]);
+    } finally { resume(); }
+  });
+  assert.ok(object(wire.requests[0]) && Array.isArray(wire.requests[0].messages));
+  assert.deepEqual(users(wire.requests[0].messages), [wireMessage]);
+  assert.equal(wire.requests.length, 2);
+  assert.ok(manager.getSnapshot().tools.some(tool => tool.status === 'succeeded' && tool.name === 'read' &&
+    tool.logs.some(log => log.text.includes('32'))));
+  assert.deepEqual(forwarded.filter(event => event.type === 'message_end' && object(event.message) && event.message.role === 'user')
+    .map(event => bodyText(event.message)), [message]);
+  assert.deepEqual(forwarded.filter(event => event.type === 'agent_end')
+    .flatMap(event => Array.isArray(event.messages) ? users(event.messages) : []), [message]);
+
+  wire.mode('answer');
+  // An independently submitted copy of the full former wire message is ordinary input.
+  await send({type:'prompt',id:'literal-user-copy',message:wireMessage});
+  const liveOwners = forwarded.filter(event => event.type === 'message_end' && object(event.message) &&
+    ['user', 'assistant', 'toolResult'].includes(String(event.message.role))).map(event => Object.fromEntries(ownerFields.map(key => [key, event[key]])));
+  for (const event of forwarded.filter(event => event.type === 'agent_end')) {
+    assert.ok(Array.isArray(event.messages));
+    assert.deepEqual(owners(event.messages), owners(event.messages).map(() => Object.fromEntries(ownerFields.map(key => [key, event[key]]))));
+  }
+  const checkHistory = async () => {
+    const response = await manager.pi(sessionId, {type:'get_messages'});
+    assert.ok(object(response) && object(response.data) && Array.isArray(response.data.messages));
+    assert.deepEqual(users(response.data.messages), [message, publicWireMessage]);
+    assert.deepEqual(response.data.messages.filter(object).filter(item => item.role === 'user').map(item => item.attachments), [displayAttachments, undefined]);
+    assert.deepEqual(owners(response.data.messages), liveOwners);
+    assert.deepEqual(users((await manager.getAgentHistory(sessionId, sessionId)).messages), [message, publicWireMessage]);
+    const entries = await manager.pi(sessionId, {type:'get_entries'});
+    assert.ok(object(entries) && object(entries.data) && Array.isArray(entries.data.entries));
+    assert.deepEqual(users(entries.data.entries.filter(object).map(entry => entry.message)), [message, publicWireMessage]);
+    assert.deepEqual(owners(entries.data.entries.filter(object).map(entry => entry.message)), liveOwners);
+    const first = entries.data.entries.find(entry => object(entry) && object(entry.message) && entry.message.role === 'user');
+    assert.ok(object(first) && typeof first.id === 'string');
+    const subsequent = await manager.pi(sessionId, {type:'get_entries', since:first.id});
+    assert.ok(object(subsequent) && object(subsequent.data) && Array.isArray(subsequent.data.entries));
+    assert.deepEqual(users(subsequent.data.entries.filter(object).map(entry => entry.message)), [publicWireMessage]);
+    assert.deepEqual(owners(subsequent.data.entries.filter(object).map(entry => entry.message)), liveOwners.slice(1));
+    const missing = await manager.pi(sessionId, {type:'get_entries', since:'unknown-entry'});
+    assert.ok(object(missing));
+    assert.equal(missing.success, false);
+    assert.equal(missing.error, 'Entry not found: unknown-entry');
+    assert.equal(missing.data, undefined);
+  };
+  await checkHistory();
+  // Persisted Pi entries have exactly the same raw format as earlier builds.
+  // Opening the conversation projects existing entries without a migration.
+  const current = await manager.pi(sessionId, {type:'get_state'});
+  assert.ok(object(current) && object(current.data) && typeof current.data.sessionFile === 'string');
+  const path = current.data.sessionFile;
+  const persisted = await readFile(path, 'utf8');
+  const savedMessages = persisted.trimEnd().split('\n').map(line => JSON.parse(line).message);
+  assert.deepEqual(users(savedMessages), [wireMessage, wireMessage]);
+  assert.ok(savedMessages.filter(object).every(message => !Object.hasOwn(message, 'athena')));
+  assert.ok(wire.requests.filter(object).flatMap(request => Array.isArray(request.messages) ? request.messages.filter(object) : [])
+    .every(message => !Object.hasOwn(message, 'athena')));
+  await manager.close();
+  manager = await wire.manager();
+  await checkHistory();
+  assert.equal(await readFile(path, 'utf8'), persisted);
+  assert.deepEqual(await manager.pi(sessionId, command), receipt);
+  assert.equal(wire.requests.length, 3);
+});
+
+test('attachment-only chat preserves an empty user message and verified labels after restart without relaxing file scope', {timeout: 20000}, async t => {
+  const wire = await fixture(t);
+  let manager = await wire.manager();
+  const {sessionId} = await session(manager);
+  const {fileReferences} = await manager.stageFiles(sessionId, [{name: 'only.csv', mimeType: 'text/csv', data: Buffer.from('voltage\n7\n').toString('base64')}]);
+  await assert.rejects(manager.pi(sessionId, {type: 'prompt', id: 'empty', message: '', fileReferences: []}), {code: 'INVALID_INPUT'});
+  const pending = Promise.withResolvers<void>();
+  const off = manager.subscribePi(sessionId, event => { if (event.type === 'agent_settled') pending.resolve(); });
+  const accepted = await manager.pi(sessionId, {type: 'prompt', id: 'file-only', message: '', fileReferences});
+  await pending.promise; off();
+  assert.ok(object(accepted));
+  const verify = async () => {
+    const messages = (await manager.getAgentHistory(sessionId, sessionId)).messages.filter(object);
+    const user = messages.find(message => message.role === 'user');
+    assert.ok(user);
+    const content = typeof user.content === 'string' ? user.content : Array.isArray(user.content) ? user.content.filter(object).map(part => part.text).join('') : undefined;
+    assert.equal(content, '');
+    assert.deepEqual(user.attachments, [{name: 'only.csv', mimeType: 'text/csv', size: 10}]);
+  };
+  await verify();
+  await manager.close(); manager = await wire.manager();
+  await verify();
+  const foreign = await session(manager, 'Other scope');
+  const before = wire.requests.length;
+  await assert.rejects(manager.pi(foreign.sessionId, {type: 'prompt', id: 'foreign-only', message: '', fileReferences}), {code: 'FILE_SCOPE_MISMATCH'});
+  assert.equal(wire.requests.length, before);
+});
+
 test('attachment grants reject replacement files, links and excess permissions before invocation', { timeout: 20000 }, async t => {
   const wire = await fixture(t);
   const manager = await wire.manager();
@@ -204,7 +359,7 @@ test('attachment grants reject replacement files, links and excess permissions b
   const cases: readonly [string, () => Promise<unknown>][] = [
     ['symbolic', () => symlink(other, path)],
     ['hard', () => link(other, path)],
-    ['public', async () => { await writeFile(path, data); await chmod(path, 0o644); }],
+    ['public', async () => { await writeFile(path, data); await makePublicPermissions(path); }],
     ['changed', () => writeFile(path, 'B' + data.slice(1), { mode: 0o600 })],
     ['oversized', () => writeFile(path, Buffer.alloc(256 * 1024 + 1), { mode: 0o600 })],
   ];

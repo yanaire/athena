@@ -1,21 +1,28 @@
+import { builtins, bindCall } from './mcp-registry.ts';
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { Storage } from './storage.ts';
+import { createPrivateDirectory, hasPrivatePermissions } from './private-storage.ts';
 import type { StoredSession } from './storage.ts';
 import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
 import type { PiOrchestration } from './agent-tools.ts';
 import type { PiModelSelection, PiSessionOptions } from './pi.ts';
-import { CsvJobRunner, ANALYSIS_LIMITS, CSV_LIMITS } from './jobs.ts';
+import { JobRunner, ANALYSIS_LIMITS, MCP_LIMITS } from './jobs.ts';
 import { AnalysisFiles, ANALYSIS_FILE_LIMITS, validateAnalysisName, validateOutputNames } from './analysis-files.ts';
 import type { AnalysisSnapshot } from './analysis-files.ts';
-import type { CsvJobEvent } from './jobs.ts';
+import type { JobEvent } from './jobs.ts';
 import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef, executionProjects } from './orchestration.ts';
 import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
-import { projectHistory } from './history.ts';
-import type { HistoryEvent } from './history.ts';
+import { projectHistory, withoutAttachmentContext, withMessageOwner } from './history.ts';
+import { ToolFailureBudget } from './tool-failure-budget.ts';
+import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensions.ts';
+import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
+import { ResearchLedger, type ResearchTarget } from './research.ts';
+import type { CredentialStore } from '@earendil-works/pi-ai';
+import type { AttachmentMessage, HistoryEvent } from './history.ts';
 export { ManagerError } from './orchestration.ts';
 export type PiCommand = Readonly<Record<string, unknown>> & { readonly type: string; readonly id?: string };
 export type StagedFileInput = { readonly name: string; readonly mimeType: string; readonly data: string };
@@ -28,7 +35,8 @@ export interface ManagedPiSession {
   close(): void;
   getState(): unknown;
   getMessages(): unknown;
-  prompt(message: string): Promise<void>;
+  publicText?(text: string): string;
+  prompt(message: string, options?: { readonly kind?: 'reconciliation' }): Promise<void>;
 }
 export type PiSessionFactory = (options: PiSessionOptions) => Promise<ManagedPiSession>;
 type ModelResolver = {
@@ -36,13 +44,16 @@ type ModelResolver = {
   pin(model: ModelReference): Promise<PiModelSelection>;
   requireProfile(id: string): void;
 };
-export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver };
+export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver;
+  readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
 export type Run = {
   readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly requestId: string; readonly taskId: string; readonly title: string;
   readonly status: Status; readonly startedAt: number | null; readonly endedAt: number | null;
   readonly model: ModelReference | null; readonly error?: string;
+  readonly extensions?: ExtensionPin;
   readonly cancellationRequested?: boolean;
+  readonly recovery?: { readonly requestId: string; readonly reconciliationAttemptId: string };
 };
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
@@ -62,7 +73,7 @@ function canonical(value: unknown): string {
 function reply(command: PiCommand, data: unknown): Response {
   return { type: 'response', command: command.type, ...(command.id ? { id: command.id } : {}), success: true, data };
 }
-const READ_COMMANDS = ['get_state', 'get_messages', 'get_available_models', 'get_entries', 'get_tools', 'get_session_stats', 'get_available_thinking_levels'] as const;
+const READ_COMMANDS = ['get_state', 'get_messages', 'get_available_models', 'get_entries', 'get_tools', 'get_resources', 'get_session_stats', 'get_available_thinking_levels'] as const;
 const SNAPSHOT_EVENTS = new Set([
   'agent_start', 'agent_end', 'agent_settled', 'message_end', 'auto_retry_start', 'auto_retry_end',
   'tool_execution_start', 'tool_execution_end', 'compaction_start', 'compaction_end',
@@ -70,10 +81,15 @@ const SNAPSHOT_EVENTS = new Set([
 
 type Accepted = { readonly taskId: string; readonly parentTaskId: string | null; readonly agentSessionId: string; readonly attemptId: string; readonly status: Status };
 type Dispatch = { readonly id: string; readonly projectId: string; readonly sessionId: string; readonly runId: string; readonly taskId: string; readonly fingerprint: string; readonly response?: Accepted };
+export type RetryTaskOptions = { readonly requestId: string; readonly expectedAttemptId: string };
+export type RetryTaskResult = Omit<Accepted, 'status' | 'parentTaskId'> & { readonly parentTaskId: string; readonly runId: string; readonly status: 'queued'; readonly reconciliationAttemptId: string };
+type RetryReceipt = { readonly id: string; readonly projectId: string; readonly sessionId: string; readonly runId: string;
+  readonly taskId: string; readonly requestId: string; readonly expectedAttemptId: string; readonly fingerprint: string;
+  readonly response: RetryTaskResult };
 type Live = { runtime: ManagedPiSession; controller: AbortController; attempt: Attempt; finished: Promise<void> };
 
 export class TaskManager implements AthenaTaskManager {
-  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'get_agent_history'];
+  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'retry_task', 'get_agent_history', 'extensions', 'research_workflow'];
   readonly inputContract = {
     maxMessageCharacters: 262144, lengthUnit: 'utf16-code-units',
     supportsFileReferences: true, canStageFiles: true,
@@ -87,15 +103,21 @@ export class TaskManager implements AthenaTaskManager {
   readonly #listeners = new Set<(snapshot: WorkspaceSnapshot) => void>();
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
   readonly #journal: Journal;
-  readonly #jobs: CsvJobRunner;
+  readonly #jobs: JobRunner;
   readonly #files: AnalysisFiles;
+  readonly #extensions: ExtensionStore;
+  readonly #research: ResearchLedger;
+  readonly #externalCredentials: TaskManagerOptions['externalCredentials'];
+  readonly #runtimeExtensions = new WeakMap<ManagedPiSession, ExtensionPin>();
   readonly #enabledProjects = executionProjects();
   readonly #runtimeExecution = new WeakMap<ManagedPiSession, boolean>();
   readonly #concurrency = limit('ATHENA_PROCESS_CONCURRENCY', 1, 1, 4);
-  #access: Awaited<ReturnType<CsvJobRunner['analysisAccess']>> = {available:false,reason:'Analysis runtime has not been checked.'};
+  #access: Awaited<ReturnType<JobRunner['analysisAccess']>> = {available:false,reason:'Analysis runtime has not been checked.'};
   readonly #timeoutMs = 5000;
   readonly #registry = new Map<string, ManagedPiSession>();
   readonly #loading = new Map<string, Promise<ManagedPiSession>>();
+  readonly #retrying = new Map<string, { fingerprint: string; promise: Promise<RetryTaskResult> }>();
+  readonly #retryTasks = new Set<string>();
   readonly #turns = new Map<string, Live>();
   readonly #executing = new Map<string, Attempt>();
   readonly #waiters = new Set<() => void>();
@@ -112,9 +134,12 @@ export class TaskManager implements AthenaTaskManager {
     this.#directory = options.dataDir;
     this.#models = options.models;
     this.#storage = new Storage(options.dataDir);
+    this.#extensions = new ExtensionStore(this.#storage);
+    this.#research = new ResearchLedger(this.#storage);
+    this.#externalCredentials = options.externalCredentials;
     this.#journal = new Journal(this.#storage);
     this.#files = new AnalysisFiles(options.dataDir);
-    this.#jobs = new CsvJobRunner({dataDir: options.dataDir, concurrency: this.#concurrency, timeoutMs:this.#timeoutMs,
+    this.#jobs = new JobRunner({dataDir: options.dataDir, concurrency: this.#concurrency, timeoutMs:this.#timeoutMs,
       recoveredAttempts: this.#storage.sessions().flatMap(s => this.#storage.records<ProcessRow>('process', s.id).map(p => p.job)),
       onEvent: event => this.#processEvent(event) });
     this.#factory = options.createPiSession ?? (async options => {
@@ -170,9 +195,10 @@ export class TaskManager implements AthenaTaskManager {
   #uploadDirectory(projectId: string): string {
     const root = realpathSync(this.#directory);
     const directory = join(root, 'projects', projectId, 'uploads');
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    try { createPrivateDirectory(directory); }
+    catch { throw new ManagerError('FILE_SCOPE_MISMATCH', 'Upload storage is not a private project directory.'); }
     const status = lstatSync(directory);
-    if (!status.isDirectory() || status.uid !== process.getuid?.() || (status.mode & 0o077) || realpathSync(directory) !== directory) {
+    if (!status.isDirectory() || realpathSync(directory) !== directory) {
       throw new ManagerError('FILE_SCOPE_MISMATCH', 'Upload storage is not a private project directory.');
     }
     return directory;
@@ -189,7 +215,7 @@ export class TaskManager implements AthenaTaskManager {
       const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const actual = fstatSync(fd);
-        if (!actual.isFile() || actual.nlink !== 1 || actual.uid !== process.getuid?.() || (actual.mode & 0o077) ||
+        if (!actual.isFile() || actual.nlink !== 1 || !before.isFile() || !hasPrivatePermissions(path, actual) ||
           actual.dev !== before.dev || actual.ino !== before.ino || actual.size !== file.size || realpathSync(path) !== path) {
           throw new ManagerError('FILE_CHANGED', 'The staged upload is no longer the granted file.');
         }
@@ -213,14 +239,14 @@ export class TaskManager implements AthenaTaskManager {
   #executionEnabled(projectId: string): boolean {
     return this.#access.available && (this.#storage.project(projectId)?.offlineAnalysis ?? this.#enabledProjects.has(projectId));
   }
-  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection) {
+  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId)) {
     let runtime: ManagedPiSession;
     // Pi may execute tools from a single model response concurrently. Bind each call at entry,
     // and serialize its manager effects (including spawn then join) in SDK call order.
     let chain = Promise.resolve();
     const executionEnabled = this.#executionEnabled(projectId);
     runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,
-      executionEnabled,
+      executionEnabled, extensions,
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
         if (!a) throw new ManagerError('ATTEMPT_INACTIVE','No dispatched attempt owns this tool.');
@@ -231,23 +257,96 @@ export class TaskManager implements AthenaTaskManager {
       runtime.close(); throw new ManagerError('SESSION_UNAVAILABLE','Manager closed or duplicate Pi identity.');
     }
     this.#runtimeExecution.set(runtime, executionEnabled);
+    this.#runtimeExtensions.set(runtime, structuredClone(extensions));
+    if (selection) this.#runtimeModels.set(runtime, { provider: selection.model.provider, modelId: selection.model.id,
+      thinkingLevel: selection.thinkingLevel, ...(selection.endpoint ? { endpoint: selection.endpoint } : {}),
+      ...(selection.authRef ? { authRef: selection.authRef } : {}) });
     this.#registry.set(runtime.sessionId,runtime); return runtime;
   }
-  #load(s: AgentSession): Promise<ManagedPiSession> {
+  #load(s: AgentSession, selection?: PiModelSelection, extensions?: ExtensionPin): Promise<ManagedPiSession> {
     const runtime = this.#registry.get(s.id); if (runtime) return Promise.resolve(runtime);
     const loading = this.#loading.get(s.id); if (loading) return loading;
-    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile).then(value => {
+    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions).then(value => {
       if (value.sessionId !== s.id) { this.#registry.delete(value.sessionId); value.close(); throw new ManagerError('SESSION_ID_MISMATCH','Unexpected Pi identity.'); }
       return value;
     }).finally(()=>this.#loading.delete(s.id));
     this.#loading.set(s.id,promise); return promise;
   }
-  #openRoot(s: StoredSession) { return this.#load({...s,sessionId:s.id,role:'parent'}); }
+  #openRoot(s: StoredSession, extensions?: ExtensionPin) { return this.#load({...s,sessionId:s.id,role:'parent'}, undefined, extensions); }
   hasPendingRuns(): boolean {
     return this.#busy || this.#storage.sessions().some(s => this.#runs(s.id).some(r => pending(r.status)));
   }
   profileInUse(id: string): boolean {
     return this.#storage.projects().some(p => p.defaultProfileId === id) || this.#storage.sessions().some(s => s.profileId === id);
+  }
+  #extensionProject(projectId: string) {
+    this.#assertReady();
+    if (!this.#storage.project(projectId)) throw new ManagerError('PROJECT_NOT_FOUND','Project does not exist.');
+  }
+  getExtensions(projectId: string) { this.#extensionProject(projectId); return this.#extensions.snapshot(projectId); }
+  installPlugin(projectId: string, manifest: unknown, expectedRevision?: number) {
+    this.#extensionProject(projectId);
+    this.#commit(()=>{this.#extensions.install(projectId,manifest,expectedRevision);});
+    return this.getExtensions(projectId);
+  }
+  setPluginEnabled(projectId: string, id: string, enabled: boolean, expectedRevision?: number) {
+    this.#extensionProject(projectId);
+    this.#commit(()=>{this.#extensions.setEnabled(projectId,id,enabled,expectedRevision);});
+    return this.getExtensions(projectId);
+  }
+  removePlugin(projectId: string, id: string, expectedRevision?: number) {
+    this.#extensionProject(projectId);
+    this.#commit(()=>{this.#extensions.remove(projectId,id,expectedRevision);});
+    return this.getExtensions(projectId);
+  }
+  setSkillEnabled(projectId: string, id: string, enabled: boolean, expectedRevision?: number) {
+    this.#extensionProject(projectId);
+    this.#commit(()=>{this.#extensions.setSkillEnabled(projectId,id,enabled,expectedRevision);});
+    return this.getExtensions(projectId);
+  }
+  async checkMcpServer(projectId:string,pluginId:string,serverId:string,expectedRevision?:number,options:{token?:string}={}) {
+    this.#extensionProject(projectId);
+    if (!object(options) || Object.keys(options).some(key=>key!=='token') || options.token !== undefined && (typeof options.token!=='string' || !options.token.trim() || options.token.length>8192 || /[\r\n\0]/.test(options.token))) throw new ManagerError('INVALID_INPUT','Supply only an optional external MCP bearer credential.');
+    const configured=this.#extensions.getConfiguredServer(projectId,pluginId,serverId);
+    if (expectedRevision !== undefined && expectedRevision !== configured.configurationRevision) throw new ManagerError('STALE_EXTENSION_REVISION','The extension settings changed. Refresh before checking this connection.');
+    const revision=expectedRevision ?? configured.configurationRevision;
+    let newReference:string|undefined;
+    try {
+      if (options.token !== undefined && !this.#externalCredentials) throw new ManagerError('MCP_CREDENTIAL_UNAVAILABLE','External MCP credential storage is unavailable.');
+      const reference=configured.server.auth==='bearer' ? configured.verification?.credentialRef : undefined;
+      const token=options.token ?? await this.#externalToken(reference);
+      const verification=await discoverExternalMcp(configured.server,{token});
+      this.#extensionProject(projectId);
+      if (this.#extensions.snapshot(projectId).revision!==revision) throw new ManagerError('STALE_EXTENSION_REVISION','The extension settings changed during verification. Check the selected configuration again.');
+      let credentialRef=reference;
+      if (options.token !== undefined) {
+        newReference='athena.external-mcp/'+randomUUID();
+        await this.#externalCredentials!.modify(newReference,async()=>({type:'api_key',key:options.token!}));
+        credentialRef=newReference;
+      }
+      this.#extensionProject(projectId);
+      this.#commit(()=>{this.#extensions.recordVerification(projectId,pluginId,serverId,verification,configured.pluginRevision,credentialRef,revision);});
+      newReference=undefined; // The immutable verification now owns this reference.
+      return this.getExtensions(projectId);
+    } catch(error) {
+      if (newReference) await this.#externalCredentials?.delete(newReference);
+      const message=error instanceof Error ? error.message : 'External MCP connection check failed.';
+      const safe=options.token ? message.replaceAll(options.token,'[redacted]') : message;
+      // Do not overwrite a newer user edit with a late probe failure.
+      if (!this.#closed && this.#extensions.snapshot(projectId).revision===revision) {
+        this.#commit(()=>{this.#extensions.recordVerificationFailure(projectId,pluginId,serverId,safe,configured.pluginRevision,revision);});
+      }
+      throw new ManagerError('MCP_CONNECTION_FAILED',safe);
+    }
+  }
+  getResearch(projectId:string,sessionId?:string) {
+    this.#extensionProject(projectId);
+    return this.#research.snapshot({projectId,sessionId});
+  }
+  decideKnowledge(projectId:string,id:string,decision:Readonly<Record<string,unknown>>) {
+    this.#extensionProject(projectId);
+    this.#commit(()=>{this.#research.decideKnowledge(projectId,id,decision);});
+    return this.#research.snapshot({projectId});
   }
 
   setProjectProfile(projectId: string, id: string | null) {
@@ -288,12 +387,17 @@ export class TaskManager implements AthenaTaskManager {
       revision: this.#storage.revision(), projectId, sessionId: session?.id ?? null,
       execution: {projectId, enabled:projectId!==null && this.#executionEnabled(projectId), backend:'wasi' as const,
         shell:false as const, network:false as const, runtime:this.#access,
-        limits:{...ANALYSIS_FILE_LIMITS,...ANALYSIS_LIMITS,queue:CSV_LIMITS.queue,timeoutMs:this.#timeoutMs,concurrency:this.#concurrency,modelConcurrency:this.#modelConcurrency,maxDepth:this.#depth,maxChildren:this.#maxChildren}},
+        limits:{...ANALYSIS_FILE_LIMITS,...ANALYSIS_LIMITS,queue:MCP_LIMITS.queue,timeoutMs:this.#timeoutMs,concurrency:this.#concurrency,modelConcurrency:this.#modelConcurrency,maxDepth:this.#depth,maxChildren:this.#maxChildren}},
       projects: this.#storage.projects(),
       sessions: this.#storage.sessions().map(({ sessionFile: _file, sessionDir: _dir, ...metadata }) => metadata),
       run: { id: run?.id ?? null, status: run?.status ?? 'ready', startedAt: run?.startedAt ?? null,
         elapsedMs: run?.startedAt ? (run.endedAt ?? Date.now()) - run.startedAt : 0, model: run?.model ?? session?.model ?? null },
-      tasks: session ? this.#storage.records<TaskRow>('task', session.id) : [],
+      tasks: session ? this.#storage.records<TaskRow>('task', session.id).map(task => {
+        let retryUnavailableReason: string | undefined;
+        try { this.#retryTarget(task.id); if (this.#busy) retryUnavailableReason = 'Another session operation is being prepared.'; }
+        catch (error) { retryUnavailableReason = error instanceof Error ? error.message : 'This task cannot be retried.'; }
+        return { ...task, retryable: retryUnavailableReason === undefined, ...(retryUnavailableReason ? { retryUnavailableReason } : {}) };
+      }) : [],
       attempts: session ? this.#storage.records<Attempt>('attempt', session.id) : [],
       processes: session ? this.#storage.records<ProcessRow>('process', session.id) : [],
       agents: session ? this.#storage.records<Agent>('agent', session.id) : [], tools: session ? this.#storage.records<Tool>('tool', session.id) : [],
@@ -328,7 +432,7 @@ export class TaskManager implements AthenaTaskManager {
   async createProject(input: { name: string; defaultModel?: ModelReference | null }) {
     this.#assertIdle();
     const project: Project = { id: randomUUID(), name: text(input.name, 'Project name'), defaultModel: input.defaultModel ?? null };
-    mkdirSync(this.#projectDir(project.id), { recursive: true, mode: 0o700 });
+    createPrivateDirectory(this.#projectDir(project.id));
     this.#active = null;
     this.#commit(() => {
       this.#storage.putProject(project);
@@ -390,7 +494,9 @@ export class TaskManager implements AthenaTaskManager {
     if (!object(state) || !object(state.model)) return null;
     const provider = state.model.provider;
     const id = state.model.id ?? state.model.modelId;
-    return typeof provider === 'string' && typeof id === 'string' ? { provider, modelId: id } : null;
+    return typeof provider === 'string' && typeof id === 'string' ? { provider, modelId: id,
+      ...(typeof state.model.baseUrl === 'string' ? { endpoint: state.model.baseUrl } : {}),
+      ...(typeof state.thinkingLevel === 'string' ? { thinkingLevel: state.thinkingLevel } : {}) } : null;
   }
   #validateModel(runtime: ManagedPiSession, requested: ModelReference | null): void {
     const actual = this.#model(runtime);
@@ -451,7 +557,7 @@ export class TaskManager implements AthenaTaskManager {
   }
 
   #message(command: PiCommand, session: StoredSession): string {
-    if (typeof command.message !== 'string' || !command.message.trim()) throw new ManagerError('INVALID_INPUT', 'Message is required.');
+    if (typeof command.message !== 'string' || (!command.message.trim() && !(Array.isArray(command.fileReferences) && command.fileReferences.length))) throw new ManagerError('INVALID_INPUT', 'Enter a message or attach a file.');
     if (command.images !== undefined) throw new ManagerError('UNSUPPORTED_INPUT', 'This host accepts text messages and staged text files.');
     let message = command.message;
     if (command.fileReferences !== undefined) {
@@ -465,13 +571,36 @@ export class TaskManager implements AthenaTaskManager {
           throw new ManagerError('FILE_SCOPE_MISMATCH', 'The staged file does not belong to this session or version.');
         }
         this.#readUpload(stored);
-        message += `\n\nInput attachment (never a result): ${JSON.stringify({fileId:stored.id,name:stored.name})}. ` +
-          `Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ` +
-          `Call read with these exact arguments: ${JSON.stringify({ path: relative(this.#projectDir(session.projectId), stored.path) })}`;
+        message += this.#attachmentInstruction(stored);
       }
     }
     if (message.length > this.inputContract.maxMessageCharacters) throw new ManagerError('INPUT_TOO_LARGE', 'The complete message exceeds 262144 UTF-16 code units.');
     return message;
+  }
+
+  #attachmentInstruction(file: StoredFile): string {
+    return `\n\nInput attachment (never a result): ${JSON.stringify({fileId:file.id,name:file.name})}. ` +
+      `Children receive this input by fileId. Only report output locations returned in verified artifact references.\nFor direct input inspection only: ` +
+      `Call read with these exact arguments: ${JSON.stringify({ path: relative(this.#projectDir(file.projectId), file.path) })}`;
+  }
+
+  #attachmentMessage(attempt: Attempt, runtime: ManagedPiSession): AttachmentMessage | undefined {
+    if (attempt.parentTaskId !== null || attempt.kind === 'reconciliation' || !attempt.fileIds.length) return;
+    let suffix = '';
+    const attachments = [];
+    for (const fileId of attempt.fileIds) {
+      const file = this.#storage.record<StoredFile>('file', fileId);
+      if (!file || file.sessionId !== attempt.sessionId || file.projectId !== attempt.projectId) return;
+      suffix += this.#attachmentInstruction(file);
+      // Display metadata comes from the owning attempt's persisted inputs,
+      // never from model text. Do not expose transport IDs or filesystem paths.
+      attachments.push({name: runtime.publicText?.(file.name) ?? file.name, mimeType: runtime.publicText?.(file.mimeType) ?? file.mimeType, size: file.size});
+    }
+    // Older attempts stored the full dispatch and file IDs. The immutable upload
+    // metadata identifies their exact appended suffix without scanning user text.
+    if (!attempt.prompt.endsWith(suffix)) return;
+    const user = attempt.prompt.slice(0, -suffix.length);
+    return {dispatch: runtime.publicText?.(attempt.prompt) ?? attempt.prompt, user: runtime.publicText?.(user) ?? user, attachments};
   }
 
   async pi(sessionId: string, command: PiCommand): Promise<unknown> {
@@ -484,6 +613,25 @@ export class TaskManager implements AthenaTaskManager {
         return reply(command, { ...(object(state) ? state : {}), inputContract: this.inputContract });
       }
       case 'get_messages': return reply(command, { messages: this.#history(session, runtime) });
+      case 'get_resources': {
+        const pin=this.#runtimeExtensions.get(runtime) ?? emptyExtensionPin(session.projectId);
+        return reply(command,{skills:pin.skills.map(skill=>({name:skill.id,displayName:skill.name,description:skill.description,
+          version:skill.version,sha256:skill.sha256,requiredCapabilities:skill.requiredCapabilities,source:'athena-host',loadTool:'load_skill'})),
+          prompts:[],extensions:pin.plugins.map(plugin=>({name:plugin.id,revision:plugin.revision,kind:'athena-declarative-plugin'})),themes:[],contextFiles:[],diagnostics:[]});
+      }
+      case 'get_entries': {
+        const since = typeof command.since === 'string' && command.since.trim() ? command.since : undefined;
+        // Project the whole transcript before slicing so a repeated message can be
+        // matched to its original occurrence even when the requested page omits it.
+        const response = await runtime.command(since === undefined ? command : {...command,since:undefined});
+        if (!object(response) || !object(response.data) || !Array.isArray(response.data.entries)) return response;
+        const entries = response.data.entries;
+        const messages = this.#history(session, runtime, entries.map(entry => object(entry) ? entry.message : undefined), false);
+        const index = since === undefined ? -1 : entries.findIndex(entry => object(entry) && entry.id === since);
+        if (since !== undefined && index === -1) return runtime.command(command);
+        return { ...response, data: { ...response.data, entries: entries.map((entry, index) =>
+          object(entry) && entry.type === 'message' ? { ...entry, message: messages[index] } : entry).slice(index + 1) } };
+      }
       case 'abort': {
         const run = this.#currentRun(sessionId);
         if (run && pending(run.status)) { await this.cancelRun(run.id); return reply(command,{runId:run.id}); }
@@ -511,6 +659,7 @@ export class TaskManager implements AthenaTaskManager {
     }
     if (this.#runs(session.id).some(run => pending(run.status))) throw new ManagerError('RUN_BUSY', 'The current run has not settled.');
     const message = this.#message(command, session);
+    const extensions = this.#extensions.pin(session.projectId);
     let selection = this.#models?.resolve(session.profileId, this.#storage.project(session.projectId)?.defaultProfileId) ?? null;
     let pin: PiModelSelection | undefined;
     if (selection && this.#models) {
@@ -524,7 +673,7 @@ export class TaskManager implements AthenaTaskManager {
           runtime.close();
           this.#registry.delete(runtime.sessionId);
           try {
-            runtime = await this.#make(session.projectId, session.sessionDir, 'parent', session.sessionFile, pin);
+            runtime = await this.#make(session.projectId, session.sessionDir, 'parent', session.sessionFile, pin, extensions);
             if (runtime.sessionId !== session.id) {
               this.#registry.delete(runtime.sessionId);
               runtime.close();
@@ -538,16 +687,17 @@ export class TaskManager implements AthenaTaskManager {
         }
         this.#validateModel(runtime, selection);
       } finally { this.#busy = false; }
-    } else if (this.#runtimeModels.has(runtime) || this.#runtimeExecution.get(runtime) !== this.#executionEnabled(session.projectId)) {
+    } else if (this.#runtimeModels.has(runtime) || this.#runtimeExecution.get(runtime) !== this.#executionEnabled(session.projectId)
+      || this.#runtimeExtensions.get(runtime)?.revision !== extensions.revision) {
       this.#busy = true;
       try {
         runtime.close(); this.#registry.delete(runtime.sessionId);
-        runtime = await this.#openRoot(session);
+        runtime = await this.#openRoot(session, extensions);
       } finally { this.#busy = false; }
     } else this.#validateModel(runtime, session.model ?? null);
     const run: Run = { id: randomUUID(), projectId: session.projectId, sessionId: session.id, requestId,
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
-      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime) };
+      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions };
     const fileIds=Array.isArray(command.fileReferences)?command.fileReferences.filter(object).map(ref=>text(ref.id,'File ID')):[];
     const a=this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
       parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds,selection ?? undefined);
@@ -566,28 +716,77 @@ export class TaskManager implements AthenaTaskManager {
     return {...owner,id,attemptId:id,requestId,prompt,fileIds,status:'queued',acceptedAt:Date.now(),startedAt:null,endedAt:null,...(model?{model}:{})};
   }
   #schedule(a:Attempt,runtime:ManagedPiSession) {
+    if (this.#closed) return;
+    if (!pending(this.#storage.record<Attempt>('attempt', a.id)?.status ?? 'ready')) {
+      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      return;
+    }
+    // Snapshot listeners can request cancellation synchronously during acceptance.
+    // Honor that newer decision before starting either of the durable retry turns.
+    if (this.#storage.record<Run>('run', a.runId)?.cancellationRequested) {
+      this.#commit(() => this.#journal.transition(a, 'cancelled', 'Run cancelled before this queued attempt started.'));
+      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      return;
+    }
     const controller=new AbortController();
     const finished=this.#execute(a,runtime,controller.signal);
     this.#turns.set(a.id,{controller,runtime,attempt:a,finished});
   }
   async #execute(a:Attempt,runtime:ManagedPiSession,signal:AbortSignal) {
     let unsubscribe:(()=>void)|undefined;
+    const failureBudget = new ToolFailureBudget();
     try {
       await this.#scheduler.acquire(a,signal);
       signal.throwIfAborted();
+      let prompt = a.prompt;
+      if (a.kind === 'reconciliation') {
+        // Waiting releases only the model slot. The root session lease prevents an
+        // earlier coordinator turn and this continuation from entering Pi together.
+        let joined: unknown;
+        let recoveryRequest: string | undefined;
+        do {
+          recoveryRequest = this.#storage.record<Run>('run', a.runId)?.recovery?.requestId;
+          joined = await this.#wait(a, undefined, signal);
+        } while (this.#children(a).some(child => pending(child.status)) ||
+          recoveryRequest !== this.#storage.record<Run>('run', a.runId)?.recovery?.requestId);
+        signal.throwIfAborted();
+        prompt = 'A user-requested retry has settled. Update the final answer to the original request using the current child results below. '
+          + 'Reuse completed sibling results and preserve their provenance. Report remaining failures honestly. '
+          + 'This is a read-only reconciliation: do not spawn, send work to, or cancel agents. Read relevant result artifacts before answering.\n'
+          + 'Current verified child results: ' + JSON.stringify(joined);
+        this.#commit(() => {
+          const current = this.#storage.record<Attempt>('attempt', a.id);
+          if (current && pending(current.status)) this.#storage.putRecord('attempt', { ...current, prompt });
+        });
+      }
       this.#executing.set(a.agentSessionId,a);
+      const attachment = this.#attachmentMessage(a, runtime);
+      const publicMessage = (message: unknown) => withMessageOwner(withoutAttachmentContext(message, attachment), a);
       unsubscribe=runtime.subscribe(event=>{
         if(this.#closed || this.#executing.get(a.agentSessionId)!==a)return;
         const semantic=SNAPSHOT_EVENTS.has(event.type);
+        const failure = failureBudget.observe(event);
         this.#storage.transaction(()=>{
           this.#journal.receive(a,event,signal.aborted);
+          if (failure) {
+            this.#journal.transition(a, 'failed', failure.message);
+            this.#journal.event(a, 'tool_failure_limit', failure.message,
+              typeof event.toolCallId === 'string' ? {toolId:toolId(a,event.toolCallId)} : {});
+          }
           if(semantic){this.#journal.event(a,event.type,event.type,typeof event.toolCallId==='string'?{toolId:toolId(a,event.toolCallId)}:{});this.#storage.advanceRevision();}
         });
-        const normalized=normalizeEvent(a,event);
+        if (failure && this.#executing.get(a.agentSessionId) === a) {
+          this.#turns.get(a.id)?.controller.abort(new ManagerError(failure.code, failure.message));
+          void runtime.command({type:'abort',id:randomUUID()}).catch(() => {});
+        }
+        const normalized=normalizeEvent(a,{...event,
+          ...('message' in event ? {message:publicMessage(event.message)} : {}),
+          ...(Array.isArray(event.messages) ? {messages:event.messages.map(publicMessage)} : {}),
+        });
         for(const listener of this.#piListeners)listener(a.agentSessionId,structuredClone(normalized));
         if(semantic)this.#publish();
       });
-      await runtime.prompt(a.prompt);
+      await runtime.prompt(prompt, a.kind === 'reconciliation' ? {kind:'reconciliation'} : undefined);
       if(!this.#closed && pending(this.#storage.record<Attempt>('attempt',a.id)?.status??'ready'))
         this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'paused','Pi returned without settling the attempt.'));
     }catch(error){
@@ -618,12 +817,108 @@ export class TaskManager implements AthenaTaskManager {
     return {taskId:t.id,parentTaskId:t.parentTaskId,agentSessionId:t.agentSessionId,attemptId:t.attemptId,
       title:t.title,status:t.status,result:t.result??null,error:t.error,artifactIds:t.artifactIds,artifacts};
   }
+  #runExtensions(a: Context): ExtensionPin {
+    const run = this.#storage.record<Run>('run', a.runId);
+    if (!run || run.projectId !== a.projectId || run.sessionId !== a.sessionId) throw new ManagerError('RUN_SCOPE_MISMATCH', 'Research resources belong to another run.');
+    const selected=run.extensions ?? emptyExtensionPin(a.projectId);
+    this.#extensions.assertPinAvailable(selected);
+    return structuredClone(selected);
+  }
+  async #externalToken(reference?: string): Promise<string | undefined> {
+    if (reference === undefined) return;
+    if (!/^athena\.external-mcp\/[a-f0-9-]{36}$/.test(reference) || !this.#externalCredentials) {
+      throw new ManagerError('MCP_CREDENTIAL_UNAVAILABLE', 'The original external MCP credential is unavailable. Reconnect for a new run.');
+    }
+    const credential = await this.#externalCredentials.read(reference);
+    if (credential?.type !== 'api_key' || typeof credential.key !== 'string' || !credential.key) {
+      throw new ManagerError('MCP_CREDENTIAL_UNAVAILABLE', 'The original external MCP credential is unavailable. Reconnect for a new run.');
+    }
+    return credential.key;
+  }
+  #effectiveCapabilities(a: Context): string[] {
+    const result = ['read','list_skills','load_skill','get_research_board','add_research_evidence','remember_research'];
+    if (this.#executionEnabled(a.projectId)) result.push('read_file','artifact.read','artifact.transfer');
+    if (a.parentTaskId === null) result.push('spawn_agent','send_to_agent','wait_for_agents','get_task','list_tasks','cancel_task','plan_research','propose_knowledge');
+    else {
+      result.push(...builtins.keys(),'submit_review');
+      if (this.#executionEnabled(a.projectId)) result.push('write_file','run_command');
+      if (this.#runExtensions(a).servers.length) result.push('call_external_mcp');
+    }
+    if (a.parentTaskId===null && this.#executionEnabled(a.projectId)) result.push('request_review');
+    return result;
+  }
+  async #researchTarget(ctx: Context, requested: {kind:'file'|'artifact';id:string}): Promise<ResearchTarget> {
+    const a = this.#storage.record<Attempt>('attempt', ctx.attemptId);
+    if (!a || Object.entries(context(a)).some(([key,value]) => value !== ctx[key as keyof Context])) throw new ManagerError('EVIDENCE_DENIED', 'Evidence belongs to another attempt.');
+    if (requested.kind === 'file') {
+      const {f,bytes} = this.#upload(a, requested.id);
+      return {kind:'file',id:f.id,projectId:a.projectId,sessionId:a.sessionId,version:text(f.versionId,'Version'),sha256:hash(bytes),bytes:bytes.length};
+    }
+    const row = this.#artifact(a, requested.id);
+    const bytes = await this.#readArtifact(row);
+    const process = this.#storage.record<ProcessRow>('process', row.processId);
+    if (!process || process.status !== 'succeeded' || process.taskId !== row.taskId || process.attemptId !== row.attemptId) throw new ManagerError('EVIDENCE_DENIED', 'Evidence does not have a successfully published process.');
+    return {kind:'artifact',id:row.id,projectId:row.projectId,sessionId:row.sessionId,version:text(row.version,'Artifact version'),sha256:hash(bytes),bytes:bytes.length,
+      taskId:row.taskId,attemptId:row.attemptId,agentSessionId:row.agentSessionId,processId:row.processId,
+      inputVersions: (row.evidence ?? process.evidence ?? []).map(input => ({id:input.id,version:input.version}))};
+  }
+  async #researchOperation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<unknown> {
+    const resources = this.#runExtensions(a);
+    if (name === 'list_skills') return {skills:resources.skills.filter(skill => skill.roles.includes(a.parentTaskId ? 'child' : 'parent'))};
+    if (name === 'get_research_board') return this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId,agentSessionId:a.agentSessionId});
+    if (name === 'load_skill') {
+      if (Object.keys(args).some(key => !['id','reason','mode'].includes(key)) || args.mode !== undefined && args.mode !== 'automatic' && args.mode !== 'explicit') throw new ManagerError('INVALID_INPUT', 'Invalid skill selection.');
+      const loaded = this.#extensions.loadSkill(resources,a,text(args.id,'Skill ID'),text(args.reason,'Selection reason'),this.#effectiveCapabilities(a),args.mode ?? 'explicit');
+      this.#commit(() => this.#journal.event(a,'skill_loaded','Loaded research skill: ' + loaded.metadata.name));
+      return loaded;
+    }
+    if (a.kind === 'reconciliation') throw new ManagerError('RECOVERY_READ_ONLY','Recovery may inspect research records but cannot create new research work.');
+    const resolver = (ctx:Context,target:{kind:'file'|'artifact';id:string}) => {signal.throwIfAborted(); return this.#researchTarget(ctx,target);};
+    let result: unknown;
+    switch (name) {
+      case 'plan_research': this.#requireCoordinatorWrites(a); result=this.#research.plan(a,{...args,requestId:args.requestId ?? raw}); break;
+      case 'add_research_evidence': result=await this.#research.addEvidence(a,{...args,requestId:args.requestId ?? raw},resolver); break;
+      case 'submit_review': result=await this.#research.submitReview(a,args,resolver); break;
+      case 'remember_research': result=this.#research.remember(a,{...args,requestId:args.requestId ?? raw}); break;
+      case 'propose_knowledge': {
+        this.#requireCoordinatorWrites(a);
+        // Include both original and independently reproduced bytes. The
+        // earlier review alone cannot bless a later corrupted artifact.
+        await this.#research.verifyKnowledgeEvidence(a,args,resolver);
+        result=this.#research.proposeKnowledge(a,{...args,requestId:args.requestId ?? raw}); break;
+      }
+      case 'request_review': {
+        this.#requireCoordinatorWrites(a); this.#requireEnabled(a);
+        const review=await this.#research.prepareReview(a,{...args,requestId:args.requestId ?? raw},resolver);
+        if (review.reviewer) return {review,task:await this.#summary(this.#child(a,review.reviewer.taskId))};
+        const task=await this.#dispatch(a,'spawn_agent','research-review:'+review.id,{
+          title:'Independent evidence review',requestId:'research-review:'+review.id,
+          prompt: this.#reviewPrompt(review),
+          fileIds:[...new Set(review.targets.filter(target=>target.kind==='file').map(target=>target.id))],
+          artifactIds:[...new Set(review.targets.filter(target=>target.kind==='artifact').map(target=>target.id))],
+        },signal,next=>this.#research.registerReviewer(a,review.id,next));
+        result={review:this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId}).reviews.find(item=>item.id===review.id),task}; break;
+      }
+      default: throw new ManagerError('TOOL_DENIED','This research operation is unavailable.');
+    }
+    this.#commit(()=>this.#journal.event(a,'research_updated','Research record saved.'));
+    return result;
+  }
+  #reviewPrompt(review: {id:string;missionId:string;question:string;targets:readonly ResearchTarget[]}) {
+    return 'You are a fresh independent evidence reviewer. Begin with the original question and the exact evidence below. The author conversation and conclusions are not provided. '
+      + 'Inspect actual files, test the stated criteria, record failures and missing evidence. A separate session can still share model biases. '
+      + 'When possible, independently reproduce the calculation using the granted original input and publish your own result. Use add_research_evidence with both the original fileIds and your own artifactIds; include its evidence ID in submit_review.reproductionEvidenceIds. '
+      + 'Do not call a re-read of the author result a reproduction. Submit your supported, changes_required or insufficient_evidence verdict with submit_review; checks must describe work actually performed. '
+      + '\nReview assignment: ' + JSON.stringify({reviewId:review.id,missionId:review.missionId,question:review.question,targets:review.targets});
+  }
   async #operation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,sdkSignal?:AbortSignal):Promise<unknown> {
     const turn=this.#turns.get(a.id);
     if(!turn || this.#executing.get(a.agentSessionId)!==a || this.#closed)throw new ManagerError('ATTEMPT_INACTIVE','This attempt is no longer active.');
     const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
     signal.throwIfAborted();
+    if (['list_skills','load_skill','get_research_board','plan_research','add_research_evidence','request_review','submit_review','remember_research','propose_knowledge'].includes(name)) return this.#researchOperation(a,name,raw,args,signal);
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
+    if (['spawn_agent', 'send_to_agent', 'cancel_task'].includes(name)) this.#requireCoordinatorWrites(a);
     switch(name){
       case 'read':{
         this.#requireEnabled(a);
@@ -650,7 +945,12 @@ export class TaskManager implements AthenaTaskManager {
       default:throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
     }
   }
-  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<Accepted>{
+  #requireCoordinatorWrites(a: Attempt) {
+    if (a.kind === 'reconciliation' || this.#storage.record<Run>('run', a.runId)?.recovery) {
+      throw new ManagerError('RECOVERY_READ_ONLY', 'Manual recovery preserves completed work. The coordinator may only inspect child results and produce the final answer.');
+    }
+  }
+  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal,onAccepted?:(attempt:Attempt)=>void):Promise<Accepted>{
     const requestId=text(args.requestId??raw,'Request ID');
     const id=hash(canonical([a.sessionId,a.runId,a.taskId,name,requestId]));
     const kind=name==='spawn_agent'?'spawn':'send';
@@ -662,6 +962,7 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('DISPATCH_INTERRUPTED','This reservation will not be dispatched again.');
     }
     const child=kind==='send'?this.#child(a,args.taskId):undefined;
+    if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
     const previous=child?this.#storage.records<Attempt>('attempt',a.sessionId).filter(t=>t.taskId===child.id).at(-1):undefined;
     const select=(arg:unknown,fallback:readonly string[])=>{
       if(arg===undefined)return fallback;
@@ -684,10 +985,12 @@ export class TaskManager implements AthenaTaskManager {
     const reservation:Dispatch={...context(a),id,taskId,fingerprint};
     this.#commit(()=>this.#storage.putRecord(kind,reservation));
     const sessionDir=join(this.#directory,'agents',randomUUID());
-    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId));
+    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId),this.#runExtensions(a));
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
     if(a.model)this.#validateModel(runtime,a.model);
     signal.throwIfAborted();
+    this.#requireCoordinatorWrites(a);
+    if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
     const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
     const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
     const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds,a.model),artifactGrants};
@@ -696,6 +999,9 @@ export class TaskManager implements AthenaTaskManager {
       if(!child)this.#storage.putRecord('agent_session',{projectId:a.projectId,sessionId:a.sessionId,id:runtime.sessionId,
         role:'child',sessionDir,sessionFile:runtime.sessionFile,...(a.model?{model:a.model}:{})} satisfies AgentSession);
       this.#journal.accept(next,title);
+      // A reviewer must be bound to its durable identity before the scheduler
+      // can run its first tool. The binding shares the acceptance transaction.
+      onAccepted?.(next);
       this.#storage.putRecord(kind,{...reservation,response});
       this.#journal.event(next,child?'send_queued':'child_spawned',title);
     });
@@ -811,6 +1117,29 @@ export class TaskManager implements AthenaTaskManager {
     }finally{signal.removeEventListener('abort',cancel);}
   }
   async #childTool(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    if (name==='call_external_mcp') {
+      if (Object.keys(args).some(key=>!['serverId','tool','arguments'].includes(key)) || !object(args.arguments)) throw new ManagerError('INVALID_INPUT','Choose an approved server, tool and JSON arguments.');
+      const server=this.#extensions.getServer(this.#runExtensions(a),text(args.serverId,'Server ID'));
+      const tool=text(args.tool,'Tool name');
+      const processId=hash(canonical(['external-mcp',context(a),raw]));
+      const prior=this.#storage.record<ProcessRow>('process',processId);
+      const resultOf=async(result:ProcessRow['job'])=>{
+        if (result.status!=='succeeded' || !result.artifact) throw new ManagerError('EXTERNAL_MCP_FAILED',result.error??('External MCP call '+result.status));
+        const output:unknown=JSON.parse((await this.#jobs.download(result.artifact)).toString('utf8'));
+        return {result:output,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
+      };
+      if (prior) {
+        if (prior.job.externalMcp?.serverId!==server.id || prior.job.externalMcp.tool!==tool || prior.job.externalMcp.argumentDigest!==extensionDigest(args.arguments)) throw new ManagerError('REQUEST_ID_CONFLICT','This external tool call ID was already used with other arguments.');
+        // Never replay an unknown, failed or interrupted external side effect.
+        return resultOf(prior.job);
+      }
+      const token=await this.#externalToken(server.verification.credentialRef);
+      signal.throwIfAborted();
+      const job=this.#jobs.startExternal({projectId:a.projectId,sessionId:a.sessionId,taskId:a.taskId,attemptId:processId,toolId:toolId(a,raw),requestId:raw,server,tool,arguments:args.arguments,token});
+      const cancel=()=>job.cancel(); signal.addEventListener('abort',cancel,{once:true});
+      try { return await resultOf(await job.result); }
+      finally { signal.removeEventListener('abort',cancel); }
+    }
     if(['read_file','write_file','run_command'].includes(name)) {
       this.#requireEnabled(a);
       if(name==='run_command')return this.#analysis(a,raw,args,signal);
@@ -825,34 +1154,52 @@ export class TaskManager implements AthenaTaskManager {
       if(typeof args.artifactId==='string')return (await this.#readArtifact(this.#artifact(a,args.artifactId))).toString('utf8');
       return Buffer.from((await this.#analysisInput(a,text(args.name,'Name'))).bytes).toString('utf8');
     }
-    if(name!=='read' && name!=='calculate_csv')throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
-    const keys=name==='read'?['fileId']:['fileId','column'];
-    if(Object.keys(args).some(k=>!keys.includes(k)))throw new ManagerError('INVALID_INPUT','Unexpected child tool arguments.');
-    const {f,bytes}=this.#upload(a,args.fileId);
-    if(name==='read')return bytes.toString('utf8');
-    const grant=await this.#jobs.grant({projectId:a.projectId,sessionId:a.sessionId,fileId:f.id,versionId:text(f.versionId,'Version'),name:f.name,bytes});
+    if (name === 'read') {
+      if (Object.keys(args).some(key => key !== 'fileId')) throw new ManagerError('INVALID_INPUT','Unexpected read argument.');
+      return this.#upload(a,args.fileId).bytes.toString('utf8');
+    }
+    const entry = builtins.get(name);
+    if (!entry || entry.role !== 'child') throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
+    const {fileId, wire} = bindCall(entry,args);
+    const {f,bytes} = this.#upload(a,fileId);
+    const grant = await this.#jobs.grant({projectId:a.projectId,sessionId:a.sessionId,fileId:f.id,versionId:text(f.versionId,'Version'),name:f.name,bytes},name);
     signal.throwIfAborted();
     const tid=toolId(a,raw);
     // A process owns its own attempt key: multiple jobs within one Pi turn remain distinct.
     const processId=randomUUID();
     const request={projectId:a.projectId,sessionId:a.sessionId,taskId:a.taskId,attemptId:processId,
-      toolId:tid,grantId:grant.id,requestId:raw,...(args.column!==undefined?{column:text(args.column,'Column')}:{})};
-    const job=this.#jobs.start(request);
+      toolId:tid,grantId:grant.id,requestId:raw};
+    const job=this.#jobs.startMcp(name,request,wire);
     const cancel=()=>job.cancel();signal.addEventListener('abort',cancel,{once:true});
     try{
       const result=await job.result;
-      if(result.status!=='succeeded' || !result.artifact)throw new ManagerError('CSV_FAILED',result.error??('CSV process '+result.status));
-      const statistics:unknown=JSON.parse((await this.#jobs.download(result.artifact)).toString('utf8'));
-      return {statistics,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
+      if(result.status!=='succeeded' || !result.artifact)throw new ManagerError(entry.errorCode,result.error??('MCP process '+result.status));
+      const output:unknown=JSON.parse((await this.#jobs.download(result.artifact)).toString('utf8'));
+      return {[entry.resultField]:output,artifact:artifactRef(result.artifact),artifactId:result.artifact.id,processId,sha256:result.artifact.sha256};
     }finally{signal.removeEventListener('abort',cancel);}
   }
-  #processEvent(event:CsvJobEvent){this.#commit(()=>this.#journal.process(event));}
-  #history(conversation:StoredSession,runtime:ManagedPiSession) {
-    const messages=runtime.getMessages();
+  #processEvent(event:JobEvent){
+    this.#storage.transaction(()=>{this.#journal.process(event);this.#storage.advanceRevision();});
+    // The runner treats a thrown completion callback as an uncommitted result.
+    // A listener failure after commit must not revoke an already published artifact.
+    try{this.#publish();}
+    catch(error){process.emitWarning('The committed process update could not notify every listener.',{
+      code:'PROCESS_NOTIFICATION_FAILED',detail:error instanceof Error?error.message:String(error),
+    });}
+  }
+  #history(conversation:StoredSession,runtime:ManagedPiSession,messages=runtime.getMessages(),linkTools=true) {
     if(!Array.isArray(messages))throw new ManagerError('INVALID_HISTORY','Invalid Pi history.');
+    const attempts=new Map(this.#storage.records<Attempt>('attempt',conversation.id).map(attempt=>[attempt.id,attempt]));
     const journal=this.#storage.records<HistoryEvent>('pi_event',conversation.id)
-      .filter(row=>row.projectId===conversation.projectId && row.agentSessionId===runtime.sessionId);
-    return projectHistory(messages,journal);
+      .filter(row=>{
+        const attempt=attempts.get(row.attemptId);
+        return row.projectId===conversation.projectId && row.sessionId===conversation.id && row.agentSessionId===runtime.sessionId &&
+          attempt && Object.entries(context(attempt)).every(([key,value])=>row[key as keyof Context]===value);
+      });
+    return projectHistory(messages,journal,(message, owner)=>{
+      const attempt=attempts.get(owner.attemptId);
+      return attempt ? withoutAttachmentContext(message,this.#attachmentMessage(attempt,runtime)) : message;
+    },linkTools);
   }
   async getAgentHistory(conversationId:string,agentSessionId:string) {
     this.#assertReady();
@@ -869,8 +1216,147 @@ export class TaskManager implements AthenaTaskManager {
     if(!file || file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
     return {bytes:await this.#readArtifact(file),name:file.file.name,mimeType:file.file.mimeType};
   }
+  #retryTarget(taskId: string, expectedAttemptId?: string) {
+    const task = this.#storage.record<TaskRow>('task', taskId);
+    if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
+    const runs = this.#runs(task.sessionId);
+    if (runs.some(run => run.id !== task.runId && pending(run.status))) throw new ManagerError('RUN_BUSY', 'Another run is still active in this conversation.');
+    const run = runs.at(-1);
+    if (!run || run.id !== task.runId) throw new ManagerError('STALE_RUN', 'Only a task from the latest run can be retried.');
+    if (pending(run.status) && run.cancellationRequested) throw new ManagerError('RUN_CANCELLED', 'Wait for the current cancellation to settle before retrying.');
+    if (expectedAttemptId !== undefined && expectedAttemptId !== task.attemptId) throw new ManagerError('STALE_ATTEMPT', 'This task has a newer attempt. Refresh before retrying.');
+    if (!task.parentTaskId || !['failed', 'paused', 'cancelled'].includes(task.status)) throw new ManagerError('TASK_NOT_RETRYABLE', 'Only failed, interrupted, or cancelled child tasks can be retried.');
+    const previous = this.#storage.record<Attempt>('attempt', task.attemptId);
+    const root = this.#storage.record<TaskRow>('task', run.taskId);
+    const rootAttempt = root && this.#storage.record<Attempt>('attempt', root.attemptId);
+    const agent = this.#storage.record<AgentSession>('agent_session', task.agentSessionId);
+    if (!previous || previous.taskId !== task.id || previous.runId !== run.id || previous.sessionId !== task.sessionId ||
+        previous.projectId !== task.projectId || previous.agentSessionId !== task.agentSessionId || pending(previous.status) ||
+        !root || root.id !== task.parentTaskId || root.parentTaskId !== null || root.agentSessionId !== task.sessionId ||
+        !rootAttempt || rootAttempt.runId !== run.id || !agent || agent.sessionId !== task.sessionId || agent.projectId !== task.projectId ||
+        this.#storage.records<Attempt>('attempt', task.sessionId).some(a => a.taskId === task.id && pending(a.status))) {
+      throw new ManagerError('TASK_NOT_RETRYABLE', 'The saved task does not have a complete, settled retry context.');
+    }
+    return { task, run, previous, root, rootAttempt, agent, session: this.#session(task.sessionId) };
+  }
+  async #retryRuntime(agent: AgentSession, model: ModelReference | null, pin: PiModelSelection | undefined, refresh: boolean, extensions: ExtensionPin) {
+    await this.#loading.get(agent.id);
+    let runtime = this.#registry.get(agent.id);
+    const live = [...this.#turns.values()].filter(turn => turn.attempt.agentSessionId === agent.id);
+    if (live.length && agent.role === 'child') await Promise.all(live.map(turn => turn.finished));
+    // The active coordinator keeps its existing lease and runtime. Its read-only
+    // reconciliation is queued on that same lease, never a parallel Pi conversation.
+    if (runtime && (refresh || this.#runtimeExtensions.get(runtime)?.revision !== extensions.revision) && !(agent.role === 'parent' && live.length)) {
+      runtime.close(); this.#registry.delete(agent.id); runtime = undefined;
+    }
+    runtime ??= await this.#load(agent, pin, extensions);
+    if (this.#runtimeExtensions.get(runtime)?.revision !== extensions.revision) throw new ManagerError('EXTENSION_UNAVAILABLE', 'The original research resources are not mounted in this agent.');
+    this.#validateModel(runtime, model);
+    const actual = this.#runtimeModels.get(runtime) ?? this.#model(runtime);
+    if (model?.endpoint && model.endpoint !== actual?.endpoint) throw new ManagerError('MODEL_UNAVAILABLE', 'The original model endpoint is no longer selected.');
+    if (model?.authRef && model.authRef !== actual?.authRef) throw new ManagerError('MODEL_UNAVAILABLE', 'The original model account is no longer selected.');
+    if (model) this.#runtimeModels.set(runtime, model);
+    return runtime;
+  }
+  async retryTask(taskId: string, options: RetryTaskOptions): Promise<RetryTaskResult> {
+    this.#assertReady();
+    text(taskId, 'Task ID');
+    if (!object(options) || Object.keys(options).some(key => key !== 'requestId' && key !== 'expectedAttemptId')) throw new ManagerError('INVALID_INPUT', 'Supply a request ID and the displayed attempt ID.');
+    const requestId = text(options.requestId, 'Request ID');
+    const expectedAttemptId = text(options.expectedAttemptId, 'Expected attempt ID');
+    const task = this.#storage.record<TaskRow>('task', taskId);
+    if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
+    const id = hash(canonical([task.sessionId, 'retry', requestId]));
+    const fingerprint = hash(canonical({ taskId, expectedAttemptId }));
+    const previous = this.#storage.record<RetryReceipt>('retry', id);
+    if (previous) {
+      if (previous.fingerprint !== fingerprint) throw new ManagerError('REQUEST_ID_CONFLICT', 'Retry request ID was already used for different input.');
+      return structuredClone(previous.response);
+    }
+    const inFlight = this.#retrying.get(id);
+    if (inFlight) {
+      if (inFlight.fingerprint !== fingerprint) throw new ManagerError('REQUEST_ID_CONFLICT', 'Retry request ID was already used for different input.');
+      return inFlight.promise;
+    }
+    this.#retryTarget(taskId, expectedAttemptId);
+    if (this.#busy || this.#retryTasks.has(taskId)) throw new ManagerError('RUN_BUSY', 'Another session operation is being prepared.');
+    const promise = this.#prepareRetry(taskId, { requestId, expectedAttemptId }, id, fingerprint);
+    this.#retrying.set(id, { fingerprint, promise });
+    try { return await promise; } finally { this.#retrying.delete(id); }
+  }
+  async #prepareRetry(taskId: string, options: RetryTaskOptions, id: string, fingerprint: string): Promise<RetryTaskResult> {
+    this.#busy = true; this.#retryTasks.add(taskId);
+    try {
+      const source = this.#retryTarget(taskId, options.expectedAttemptId);
+      const currentSource = () => {
+        this.#assertReady();
+        const current = this.#retryTarget(taskId, options.expectedAttemptId);
+        if (!source.run.cancellationRequested && current.run.cancellationRequested) throw new ManagerError('RUN_CANCELLED', 'The run was cancelled while this retry was being prepared.');
+        return current;
+      };
+      const model = source.previous.model ?? source.run.model;
+      // Revalidate immutable grants before accepting a new execution. No current
+      // project default, new upload, or additional sibling artifact is inherited.
+      for (const fileId of source.previous.fileIds) this.#upload(source.previous, fileId);
+      for (const artifactId of source.previous.artifactGrants ?? []) await this.#readArtifact(this.#artifact(source.previous, artifactId));
+      const extensions = this.#runExtensions(source.previous);
+      // Old run definitions and credential references must be available before
+      // admitting a retry; live project settings cannot replace them.
+      for (const server of extensions.servers) await this.#externalToken(server.verification.credentialRef);
+      let pin = this.#pins.get(source.run.id);
+      const managedModel = Boolean(model?.profileId);
+      const refresh = !pending(source.run.status) || (!pin && Boolean(this.#models && managedModel));
+      if (!pin && this.#models && model && managedModel) {
+        pin = await this.#models.pin(model);
+        if ((model.endpoint && pin.endpoint !== model.endpoint) || (model.authRef && pin.authRef !== model.authRef)) throw new ManagerError('MODEL_UNAVAILABLE', 'The original model endpoint or account is no longer available.');
+      }
+      currentSource();
+      const childRuntime = await this.#retryRuntime(source.agent, model, pin, refresh, extensions);
+      currentSource();
+      const rootRuntime = await this.#retryRuntime({ ...source.session, sessionId: source.session.id, role: 'parent' }, model, pin, refresh, extensions);
+      const current = currentSource();
+      for (const fileId of current.previous.fileIds) this.#upload(current.previous, fileId);
+      let next: Attempt = { ...this.#attempt({ ...context(current.previous) }, options.requestId, current.previous.prompt, current.previous.fileIds, model ?? undefined),
+        artifactGrants: current.previous.artifactGrants, retryOfAttemptId: current.previous.id };
+      const pendingReconciliation = this.#storage.records<Attempt>('attempt', current.session.id).find(a => a.runId === current.run.id && a.taskId === current.root.id && a.kind === 'reconciliation' && pending(a.status) && this.#executing.get(a.agentSessionId)?.id !== a.id);
+      const reconciliation: Attempt = pendingReconciliation ?? { ...this.#attempt({ ...context(current.rootAttempt) }, 'reconcile:' + options.requestId,
+        'Reconcile the manually retried child with the preserved results of this request.', current.rootAttempt.fileIds, model ?? undefined), kind: 'reconciliation' };
+      const response: RetryTaskResult = { taskId, parentTaskId: current.root.id, agentSessionId: childRuntime.sessionId, attemptId: next.id,
+        runId: current.run.id, status: 'queued', reconciliationAttemptId: reconciliation.id };
+      this.#commit(() => {
+        this.#storage.putRecord('run', { ...current.run, status: 'queued', endedAt: null, error: undefined, cancellationRequested: false,
+          recovery: { requestId: options.requestId, reconciliationAttemptId: reconciliation.id } });
+        this.#journal.accept(next, current.task.title);
+        const retriedReview=this.#research.retryReviewer(current.previous,next);
+        if (retriedReview) {
+          const grantInfo=next.fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
+          const transfers=(next.artifactGrants??[]).map(id=>artifactRef(this.#artifact(next,id).file));
+          next={...next,prompt:this.#reviewPrompt(retriedReview)+'\nGranted input files: '+JSON.stringify(grantInfo)+'\nGranted result artifacts: '+JSON.stringify(transfers)};
+          this.#storage.putRecord('attempt',next);
+        }
+        if (!pendingReconciliation) this.#journal.accept(reconciliation, current.root.title);
+        this.#storage.putRecord('retry', { id, projectId: current.task.projectId, sessionId: current.task.sessionId, runId: current.run.id,
+          taskId, requestId: options.requestId, expectedAttemptId: options.expectedAttemptId, fingerprint, response } satisfies RetryReceipt);
+        this.#journal.event(next, 'task_retry_accepted', 'Manual retry accepted; previous attempts and successful sibling results are preserved.');
+        this.#journal.event(reconciliation, 'run_reopened', 'Manual recovery queued a read-only coordinator reconciliation.');
+      });
+      if (pin) this.#pins.set(current.run.id, pin);
+      this.#schedule(next, childRuntime);
+      if (!pendingReconciliation) this.#schedule(reconciliation, rootRuntime);
+      return response;
+    } finally {
+      this.#retryTasks.delete(taskId); this.#busy = false; this.#publish();
+    }
+  }
   async #cancel(task:TaskRow){
     const turns=[...this.#turns.values()].filter(t=>t.attempt.taskId===task.id || (!task.parentTaskId && t.attempt.runId===task.runId));
+    // Acceptance is durable before its snapshot is published. A listener can cancel
+    // a queued attempt before #schedule registers its live controller.
+    const queued=this.#storage.records<Attempt>('attempt',task.sessionId).filter(a=>a.status==='queued' && !this.#turns.has(a.id) &&
+      (a.taskId===task.id || (!task.parentTaskId && a.runId===task.runId)));
+    if(queued.length)this.#commit(()=>{
+      for(const a of queued)this.#journal.transition(a,'cancelled','Task cancelled before this queued attempt started.');
+    });
     for(const t of turns)t.controller.abort(new ManagerError('CANCELLED','Task cancellation requested.'));
     await Promise.all(turns.filter(t=>this.#executing.get(t.attempt.agentSessionId)===t.attempt).map(t=>t.runtime.command({type:'abort',id:randomUUID()})));
     await Promise.all(turns.map(t=>t.finished));

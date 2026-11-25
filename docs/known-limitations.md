@@ -1,6 +1,6 @@
 # Known limitations
 
-- The source candidate remains private until the UI and asset rights, third-party notices, Git history and release scope have been cleared. Selecting Apache-2.0 for Athena-owned code does not clear those materials.
+- The public repository is a source preview. UI/asset rights, third-party notices, Git history and release scope still require their recorded review; repository visibility and the Apache-2.0 license for Athena-owned code do not clear those materials.
 - No Developer ID signed or notarized app, public DMG, or Gatekeeper installation guarantee is provided by this source preview. Those checks belong to a later desktop release.
 - A clean checkout on the development Mac is not a clean operating-system installation or a separate-user acceptance test.
 - ChatGPT sign-in is disabled in the standard desktop build and browser host. The personal local desktop build enables the official route, subject to the selected account and workspace. Controlled OAuth and provider fixtures do not establish real account access, model availability, or approval for a deployment.

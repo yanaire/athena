@@ -17,6 +17,9 @@
   </p>
 </div>
 
+> **目前狀態（2026-11-25）：** 已審查的整合候選版本包含 MCP、研究擴充功能、Workflow DAG，以及 Windows 和 Intel Mac 平台的原始碼。
+> 下方的基準說明與驗證紀錄保留了舊版本的歷史資訊，真實 Mac 與真實帳號上的最終驗收尚未完成，目前的整合範圍請參閱[英文 README](README.md) 與[整合審查紀錄](docs/validation/2026-11-25-open-pr-integration-review.md)。
+
 > [!IMPORTANT]
 > **原始碼預覽版，並非正式公開發行版。** Athena 自有程式碼選用 Apache-2.0，但第三方授權聲明、UI 與素材權利，以及 Git 歷史公開資格仍在審查中。儲存庫的公開狀態並不代表上述義務已履行。在尚未解決的發行條件獲得滿足前，請勿重新散布候選原始碼或應用程式。請參閱[發行狀態](docs/oss-preview-status.md)、[第三方聲明](THIRD_PARTY_NOTICES.md)與[已知限制](docs/known-limitations.md)。目前沒有正式簽署與公證的安裝程式或公開 DMG。
 

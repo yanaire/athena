@@ -1,0 +1,39 @@
+/* Extension and research records use Athena's existing warm, compact palette. */
+#athena-codex .aex-host { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
+#athena-codex .aex-heading, #athena-codex .aex-card-heading, #athena-codex .aex-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+#athena-codex .aex-heading h3, #athena-codex .aex-section-heading h3 { margin: 0; font-size: 14px; font-weight: 550; }
+#athena-codex .aex-heading p { margin: 3px 0 0; color: #6b7064; }
+#athena-codex .aex-section-heading { margin: 24px 0 8px; align-items: baseline; }
+#athena-codex .aex-section-heading > span { font-size: 11px; color: #6b7064; }
+#athena-codex .aex-card, #athena-codex .aex-use { min-width: 0; border: 1px solid #e2e1d7; border-radius: 10px; padding: 14px; margin-top: 10px; background: #fcfcf7; }
+#athena-codex .aex-card h4 { margin: 0; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+#athena-codex .aex-card p, #athena-codex .aex-use p { margin: 7px 0; overflow-wrap: anywhere; }
+#athena-codex .aex-card-heading > div { min-width: 0; }
+#athena-codex .aex-badge { flex: none; display: inline-block; padding: 2px 7px; border: 1px solid #dfded3; border-radius: 6px; font-size: 10px; color: #6b7064; background: #f4f3ec; }
+#athena-codex .aex-badge[data-state="enabled"], #athena-codex .aex-badge[data-state="checked"] { border-color: #cdd7c4; background: #eff3e9; color: #506143; }
+#athena-codex .aex-note, #athena-codex .aex-empty { color: #6b7064; font-size: 11px; line-height: 1.6; }
+#athena-codex .aex-empty { padding: 14px 0; }
+#athena-codex .aex-error { color: #9a483b; background: #fff2ec; border: 1px solid #ead1c9; border-radius: 8px; padding: 9px 11px; overflow-wrap: anywhere; }
+#athena-codex .aex-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin: 11px 0 0; }
+#athena-codex .aex-text-button { border: 0; background: transparent; color: #5b684d; padding: 4px 0; font: inherit; text-align: left; }
+#athena-codex .aex-text-button:hover { text-decoration: underline; }
+#athena-codex .aex-host button:disabled, #athena-codex .aex-host input:disabled { cursor: default; opacity: .5; }
+#athena-codex .aex-host .ast-button { min-height: 32px; white-space: normal; }
+#athena-codex .aex-host svg { height: 14px; width: 14px; flex: none; }
+#athena-codex .aex-server { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e6e5dc; }
+#athena-codex .aex-server > .aex-card-heading > strong { font-size: 12px; }
+#athena-codex .aex-endpoint { font-size: 11px; color: #6b7064; overflow-wrap: anywhere; }
+#athena-codex .aex-toggle { display: flex; align-items: center; gap: 5px; flex: none; font-size: 11px; }
+#athena-codex .aex-toggle input { accent-color: #6f7d5b; }
+#athena-codex .aex-details { margin-top: 9px; color: #6b7064; font-size: 11px; }
+#athena-codex .aex-details > summary, #athena-codex .aex-import > summary { cursor: pointer; }
+#athena-codex .aex-details dl { margin: 8px 0 0; border-left: 2px solid #deded3; padding-left: 9px; }
+#athena-codex .aex-details dl > div { margin: 7px 0; }
+#athena-codex .aex-details dt { font-weight: 550; }
+#athena-codex .aex-details dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+#athena-codex .aex-import { margin: 16px 0; border: 1px dashed #cdcec1; border-radius: 9px; padding: 12px; }
+#athena-codex .aex-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; margin: 11px 0; }
+#athena-codex .aex-field input:not([type="file"]), #athena-codex .aex-field textarea { width: 100%; min-width: 0; border: 1px solid #dcdacf; border-radius: 7px; background: #fffefa; color: #35372f; padding: 8px 9px; font: inherit; box-sizing: border-box; }
+#athena-codex .aex-field textarea { resize: vertical; min-height: 100px; font-family: ui-monospace, SFMono-Regular, monospace; }
+#athena-codex .aex-host :is(button,input,textarea,summary):focus-visible { outline: 2px solid #808977; outline-offset: 3px; }
+@media (max-width: 600px) { #athena-codex .aex-card-heading { flex-wrap: wrap; } #athena-codex .aex-heading { align-items: center; } }

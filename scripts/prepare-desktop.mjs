@@ -5,18 +5,17 @@ import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareAnalysis } from './prepare-analysis.mjs';
+import { buildEnvironment, isolatedRuntimeEnvironment, resolveDesktopPlatform, runNpm } from './desktop-platform.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const generated = join(root, 'src-tauri', 'desktop-generated');
-const version = '24.22.3';
-const target = 'aarch64-apple-darwin';
-const release = `node-v${version}-darwin-arm64`;
-const url = `https://nodejs.org/dist/v${version}/${release}.tar.gz`;
-const archiveSha256 = 'ff6e17d4874b76d272212b908cc020d6e815fba5a6c7eaaa06add725840307fd';
+const platform = resolveDesktopPlatform();
+const { version, target, release, url, archiveSha256, exe } = platform;
 const ui = 'athena-backend-handoff/athena-codex-ui';
 
 function run(command, args, cwd = root) {
-  execFileSync(command, args, { cwd, stdio: 'inherit' });
+  if (command === 'npm') runNpm(args, { cwd, stdio: 'inherit' });
+  else execFileSync(command, args, { cwd, env: buildEnvironment(), stdio: 'inherit' });
 }
 
 async function sha256(path) {
@@ -26,27 +25,32 @@ async function sha256(path) {
 }
 
 async function stageNode(work, host) {
-  const archive = join(generated, `${release}.tar.gz`);
+  const archive = join(generated, platform.archive);
   const digest = await sha256(archive).catch((error) => {
     if (error.code === 'ENOENT') return null;
     throw error;
   });
   if (digest !== archiveSha256) {
-    const download = join(work, 'node.tar.gz');
+    const download = join(work, platform.archive);
     run('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https',
       '--retry', '2', '--connect-timeout', '15', '--max-time', '300', '--output', download, url]);
     const received = await sha256(download);
     if (received !== archiveSha256) {
       throw new Error(`Node archive SHA-256 mismatch: expected ${archiveSha256}, got ${received}.`);
     }
+    await rm(archive, { force: true });
     await rename(download, archive);
   }
 
-  run('tar', ['-xzf', archive, '-C', work, `${release}/bin/node`, `${release}/LICENSE`]);
-  const binary = join(work, release, 'bin', 'node');
+  const runtimeEnvironment = isolatedRuntimeEnvironment(work);
+  // Git Bash can put GNU tar (without ZIP support) ahead of Windows bsdtar.
+  const tar = platform.platform === 'win32'
+    ? join(runtimeEnvironment.SystemRoot ?? runtimeEnvironment.WINDIR, 'System32', 'tar.exe') : 'tar';
+  run(tar, [platform.platform === 'win32' ? '-xf' : '-xzf', archive, '-C', work, platform.nodeInArchive, `${release}/LICENSE`]);
+  const binary = join(work, platform.nodeInArchive);
   const nodeIdentity = execFileSync(binary, ['-p', '[process.version, process.platform, process.arch].join(" ")'],
-    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } }).trim();
-  if (nodeIdentity !== `v${version} darwin arm64`) throw new Error(`Unexpected Node binary: ${nodeIdentity}.`);
+    { encoding: 'utf8', env: runtimeEnvironment }).trim();
+  if (nodeIdentity !== `v${version} ${platform.platform} ${platform.arch}`) throw new Error(`Unexpected Node binary: ${nodeIdentity}.`);
 
   const licenses = join(host, 'licenses');
   await mkdir(licenses);
@@ -81,6 +85,19 @@ async function stageHost(host) {
       await copyFile(join(root, 'runtime', entry.name), join(host, 'runtime', entry.name));
     }
   }
+  // Host-owned procedure catalog; no project/user discovery, symlinks, scripts
+  // or package hooks are copied into the application.
+  const skillRoot=join(root,'skills');
+  const catalog=JSON.parse(await readFile(join(skillRoot,'catalog.json'),'utf8'));
+  await mkdir(join(host,'skills'));
+  await copyFile(join(skillRoot,'catalog.json'),join(host,'skills','catalog.json'));
+  for (const skill of catalog.skills) {
+    if (!/^[a-z][a-z0-9-]*$/.test(skill.id) || skill.path!==skill.id+'/SKILL.md') throw new Error('Invalid bundled skill path.');
+    const path=join(skillRoot,skill.path), info=await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || await sha256(path)!==skill.sha256) throw new Error('Bundled skill failed integrity validation.');
+    await mkdir(join(host,'skills',skill.id));
+    await copyFile(path,join(host,'skills',skill.path));
+  }
   if (process.env.ATHENA_BUILD_CHATGPT_LOCAL === '1') {
     await writeFile(join(host, 'runtime', 'desktop-distribution.ts'), 'export const localChatGPTPlanUsage: boolean = true;\n');
   }
@@ -100,10 +117,6 @@ async function assertRegularResources(directory) {
   }
 }
 
-if (process.platform !== 'darwin' || process.arch !== 'arm64') {
-  throw new Error('Athena desktop packaging requires a native arm64 Node.js on Apple Silicon macOS.');
-}
-
 await mkdir(generated, { recursive: true });
 const work = await mkdtemp(join(generated, 'prepare-'));
 try {
@@ -111,10 +124,10 @@ try {
   await mkdir(host);
   const binary = await stageNode(work, host);
   const packageLockSha256 = await stageHost(host);
-  const sandbox = join(work, `athena-sandbox-${target}`);
+  const sandbox = join(work, `athena-sandbox-${target}${exe}`);
   await prepareAnalysis(join(host, 'analysis-runtime'), sandbox);
   const provenance = {
-    node: { version, target, url, archiveSha256, executableSha256: await sha256(binary) },
+    node: { version, target, platform: platform.platform, arch: platform.arch, url, archiveSha256, executableSha256: await sha256(binary) },
     npm: { packageLockSha256, omit: ['dev'], ignoreScripts: true },
   };
   await writeFile(join(host, 'provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`);
@@ -130,8 +143,11 @@ try {
   if (existingHost && !existingHost.isDirectory()) throw new Error(`Expected a staging directory at ${hostOutput}.`);
   await rm(hostOutput, { recursive: true, force: true });
   await rename(host, hostOutput);
-  await rename(binary, join(bin, `athena-node-${target}`));
-  await rename(sandbox, join(bin, `athena-sandbox-${target}`));
+  for (const [source, name] of [[binary, 'athena-node'], [sandbox, 'athena-sandbox']]) {
+    const output = join(bin, `${name}-${target}${exe}`);
+    await rm(output, { force: true });
+    await rename(source, output);
+  }
   console.log(`Prepared Athena desktop host and verified Node v${version} (${target}).`);
 } finally {
   await rm(work, { recursive: true, force: true });

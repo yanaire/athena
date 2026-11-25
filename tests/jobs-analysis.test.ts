@@ -8,6 +8,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test, {type TestContext} from 'node:test';
 import {AnalysisFiles} from '../runtime/analysis-files.ts';
 import {CsvJobRunner, type CsvJobRunnerOptions, type CsvAttempt} from '../runtime/jobs.ts';
+import {assertKilled, windows} from './platform-test-helpers.ts';
 
 const scope={projectId:'project',sessionId:'session',taskId:'task'};
 const identity={...scope,attemptId:'one',requestId:'req',toolId:'tool'};
@@ -87,6 +88,32 @@ test('a successful interpreter without its declared file fails without publishin
   assert.equal(result.artifacts,undefined); assert.equal(await files.has(scope,'present.txt'),false);
 });
 
+test('analysis completion persistence failure withholds every artifact after a successful WASI execution', live, async t => {
+  const saved: CsvAttempt[] = [];
+  let failed = false;
+  const { runner } = await fixture(t, { onEvent(event) {
+    if (event.type !== 'process_finished') return;
+    if (!failed) {
+      assert.equal(event.attempt.status, 'succeeded');
+      assert.equal(event.attempt.artifacts?.length, 2);
+      failed = true;
+      throw new Error('Synthetic analysis completion persistence failure');
+    }
+    saved.push(event.attempt);
+  } });
+  const access = await runner.analysisAccess();
+  assert.ok(access.available, JSON.stringify(access));
+  const result = await runner.startAnalysis({ ...job("open('/outputs/answer.txt','w').write('computed')"), outputs: ['answer.txt'] }).result;
+  assert.equal(failed, true);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.analysis?.backend, 'wasi');
+  assert.match(result.error ?? '', /persist.*completion/i);
+  assert.equal(result.artifact, undefined);
+  assert.equal(result.artifacts, undefined);
+  assert.deepEqual(saved, [result]);
+});
+
 test('an invalid declared JSON result fails the publication of the source and every output',live,async t=>{
   const {runner,files}=await fixture(t);
   const result=await runner.startAnalysis({...job("open('/outputs/summary.txt','w').write('complete')\nopen('/outputs/result.json','w').write(str({'n': 3}))"),
@@ -157,9 +184,8 @@ test('a signalled interpreter records the signal and execution phase', live, asy
   const result = await runner.startAnalysis({ ...identity, language: 'node',
     script: { name: 'wait.mjs', bytes: Buffer.from('while (true) {}') }, inputs: [], outputs: [] }).result;
   assert.equal(result.status, 'failed');
-  assert.equal(result.exitCode, null);
-  assert.equal(result.signal, 'SIGTERM');
-  assert.match(result.error ?? '', /SIGTERM during analysis/);
+  assertKilled(result.exitCode, result.signal, 'SIGTERM');
+  assert.match(result.error ?? '', windows ? /SIGTERM during analysis|returned 1|exited with code 1/ : /SIGTERM during analysis/);
   assert.equal(result.artifacts, undefined);
 });
 

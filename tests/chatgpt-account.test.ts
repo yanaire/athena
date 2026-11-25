@@ -195,9 +195,25 @@ function sse(model: string, output: { readonly text: string } | { readonly funct
     { headers: { 'content-type': 'text/event-stream' } });
 }
 
-test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen', { timeout: 15_000 }, async t => {
+// This fixture performs real Windows ACL checks across credential writes and reopen.
+test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen',
+  { timeout: process.platform === 'win32' ? 180_000 : 15_000 }, async t => {
   const directory = await mkdtemp(join(await realpath(tmpdir()), 'athena-chatgpt-run-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  const proceed = Promise.withResolvers<void>();
+  const cleanup: Array<() => void | Promise<void>> = [() => rm(directory, { recursive: true, force: true })];
+  t.after(async () => {
+    // Release the paused transport before abort waits; close databases before
+    // removing their files on Windows, even if an earlier cleanup fails.
+    proceed.resolve();
+    async function closeNext(): Promise<void> {
+      const close = cleanup.pop();
+      if (close) {
+        try { await close(); }
+        finally { await closeNext(); }
+      }
+    }
+    await closeNext();
+  });
   const credentialDirectory = join(directory, 'auth');
   let store = await openLocalCredentials(credentialDirectory);
   await store.modify('openai', async () => registration);
@@ -207,19 +223,19 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
   assert.ok(otherRef);
   await store.modify(otherRef, async () => other);
   let providers = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
+  cleanup.push(() => providers.close());
   const makeProfiles = () => new ModelProfiles(directory, (p, id) => providers.model(p, id));
   let profiles = makeProfiles();
+  cleanup.push(() => profiles.close());
   const makeManager = () => new TaskManager({ dataDir: directory, models: {
     resolve: (c, p) => profiles.resolve(c, p), pin: ref => providers.pin(ref), requireProfile: id => { profiles.get(id); },
   } });
   let manager = makeManager();
-  t.after(async () => { await manager.close(); profiles.close(); await providers.close(); });
+  cleanup.push(() => manager.close());
   const calls: Array<{ readonly parent: boolean; readonly outputs: readonly string[] }> = [];
   const events: unknown[] = [];
   const outboundErrors: unknown[] = [];
   const entered = Promise.withResolvers<void>();
-  const proceed = Promise.withResolvers<void>();
-  t.after(() => proceed.resolve());
   const otherSlug = 'fixture-other-model';
   let terminal: 'completed' | 'incomplete' | 'forbidden' | 'limited' | 'network' = 'completed';
   t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -282,8 +298,10 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
     }
   });
   await manager.initialize();
-  const { accountRef } = await providers.catalog('openai');
-  assert.ok(accountRef);
+  const catalog = await providers.catalog('openai');
+  const { accountRef } = catalog;
+  assert.ok(accountRef, JSON.stringify({ source: catalog.source, auth: catalog.provider.auth,
+    error: catalog.error, errorReason: catalog.errorReason }));
   const profile = profiles.save({ name: 'Fixture', provider: 'openai', modelId: slug, authMode: 'chatgpt', accountRef },
     await providers.authorChatGPTProfile(slug, accountRef));
   const otherProfile = profiles.save({ name: 'Other', provider: 'openai', modelId: otherSlug, authMode: 'chatgpt', accountRef: otherRef },
@@ -292,12 +310,13 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
   const conversation = await manager.createSession({ projectId: project.id, title: 'Pinned Codex' });
   manager.setConversationProfile(conversation.sessionId, profile.id);
   const unsubscribePi = manager.subscribeAllPi((_id, event) => events.push(event));
-  t.after(unsubscribePi);
+  cleanup.push(unsubscribePi);
   const settled = Promise.withResolvers<void>();
   const unsubscribe = manager.subscribe(snapshot => {
     if (snapshot.run.status === 'succeeded') settled.resolve();
     if (snapshot.run.status === 'failed') settled.reject(new Error(JSON.stringify({ attempts: snapshot.attempts, outboundErrors })));
   });
+  cleanup.push(unsubscribe);
   const started = manager.pi(conversation.sessionId, { type: 'prompt', id: 'account-codex-run', message: 'Have a worker report.' });
   try {
     await Promise.race([entered.promise, settled.promise.then(() => assert.fail('Run settled before the parent began streaming'))]);

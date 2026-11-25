@@ -17,6 +17,15 @@
     { id: 'research', label: 'Research panel', icon: 'flask-conical', key: 'R' }
   ];
 
+  // These views do not advertise a host capability. Keep their scope visible
+  // before the user opens them; a working conversation is not a device bridge.
+  const LIMITED_SURFACES = {
+    browser: 'Web links only',
+    files: 'Workspace browsing unavailable',
+    diff: 'Repository diff unavailable',
+    device: 'Device connection unavailable'
+  };
+
 
   const esc = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
@@ -45,11 +54,11 @@
 
     function header(id) {
       const item = SURFACES.find(entry => entry.id === id);
-      return '<div class="acs-toolbar"><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="home" aria-label="Back to surface list" title="Surface list">' + icon('arrow-left') + '</button><span class="acs-toolbar-title">' + icon(item.icon) + '<strong>' + item.label + '</strong></span><span class="acs-view-caption">' + (id === 'files' ? 'Project files' : 'Preview') + '</span></div>';
+      return '<div class="acs-toolbar"><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="home" aria-label="Back to surface list" title="Surface list">' + icon('arrow-left') + '</button><span class="acs-toolbar-title">' + icon(item.icon) + '<strong>' + item.label + '</strong></span><span class="acs-view-caption">' + (runtimeMode ? (id === 'browser' ? 'Web links only' : 'Unavailable') : id === 'files' ? 'Project files' : 'Preview') + '</span></div>';
     }
 
     function homeHTML() {
-      return '<div class="acs-home acs-scroll"><div class="acs-chooser" tabindex="-1" aria-label="Choose a surface"><h2>Open a surface</h2><p class="acs-home-description">Keep your tools beside the conversation.</p><div class="acs-surface-list">' + SURFACES.map(item => '<button type="button" class="acs-surface-option cursor-interaction' + (item.id === 'research' ? ' acs-research-option' : '') + '" data-acs-surface="' + item.id + '"' + (item.disabled ? ' disabled aria-label="' + item.label + ' · Repository connection required" title="Repository connection required"' : '') + '>' + icon(item.icon) + '<span>' + item.label + '</span><kbd>' + item.key + '</kbd></button>').join('') + '</div><p class="acs-shortcut-note">Use the shown keys while focused on this list.</p></div>' + (filenames.length ? '<section class="acs-recent"><div class="acs-section-label"><h3>Files in this conversation</h3><span>' + filenames.length + '</span></div>' + filenames.slice(0, 3).map(name => '<button class="acs-recent-file cursor-interaction" type="button" data-acs-file="' + esc(name) + '">' + icon(fileIcon(name)) + '<span>' + esc(name) + '</span>' + icon('arrow-up-right') + '</button>').join('') + '</section>' : '') + '</div>';
+      return '<div class="acs-home acs-scroll"><div class="acs-chooser" tabindex="-1" aria-label="Choose a surface"><h2>Open a surface</h2><p class="acs-home-description">Keep your tools beside the conversation.</p><div class="acs-surface-list">' + SURFACES.map(item => '<button type="button" class="acs-surface-option cursor-interaction' + (item.id === 'research' ? ' acs-research-option' : '') + '" data-acs-surface="' + item.id + '"' + (item.disabled ? ' disabled aria-label="' + item.label + ' · Repository connection required" title="Repository connection required"' : '') + '>' + icon(item.icon) + '<span class="acs-surface-copy">' + item.label + (runtimeMode && LIMITED_SURFACES[item.id] ? '<small data-acs-capability="' + item.id + '">' + LIMITED_SURFACES[item.id] + '</small>' : '') + '</span><kbd>' + item.key + '</kbd></button>').join('') + '</div><p class="acs-shortcut-note">Use the shown keys while focused on this list.</p></div>' + (!runtimeMode && filenames.length ? '<section class="acs-recent"><div class="acs-section-label"><h3>Files in this conversation</h3><span>' + filenames.length + '</span></div>' + filenames.slice(0, 3).map(name => '<button class="acs-recent-file cursor-interaction" type="button" data-acs-file="' + esc(name) + '">' + icon(fileIcon(name)) + '<span>' + esc(name) + '</span>' + icon('arrow-up-right') + '</button>').join('') + '</section>' : '') + '</div>';
     }
 
     function fileListHTML() {
@@ -59,18 +68,21 @@
     }
 
     function filesHTML() {
-      if (runtimeMode) return header('files') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('files') + '<h3>File browser not connected</h3><p>Use Knowledge for imported project sources and Artifacts for host-reported output files. A workspace file-list service is required here.</p></div></div>';
+      if (runtimeMode) return header('files') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('files') + '<h3>File browser not connected</h3><p>Workspace folders cannot be browsed here yet. Knowledge holds imported sources; Artifacts shows output files saved by the host.</p><div class="acs-empty-actions"><button type="button" class="acs-text-button" data-acs-workspace="knowledge">Open Knowledge' + icon('arrow-up-right') + '</button><button type="button" class="acs-text-button" data-acs-workspace="artifacts">Open Artifacts' + icon('arrow-up-right') + '</button></div></div></div>';
       const name = state.selectedFile;
       const lineCount = name ? contentOf(name).split('\n').length : 0;
       return header('files') + '<div class="acs-scroll acs-files-pane"><label class="acs-search">' + icon('search') + '<input type="search" data-acs-search placeholder="Search filenames" aria-label="Search filenames" autocomplete="off" value="' + esc(state.fileQuery) + '"></label><div class="acs-file-group-label">' + icon('folder-open') + '<span>Biosignal circuits</span></div><div class="acs-file-list">' + fileListHTML() + '</div>' + (name ? '<section class="acs-file-preview" aria-label="Selected file"><div class="acs-preview-heading"><div><h3 tabindex="-1" data-acs-file-heading>' + esc(name) + '</h3><span>Read only · ' + lineCount + (lineCount === 1 ? ' line' : ' lines') + '</span></div><div class="acs-preview-actions"><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="copy-file" aria-label="Copy file contents" title="Copy contents">' + icon('copy') + '</button><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="download-file" aria-label="Download file" title="Download file">' + icon('download') + '</button></div></div><pre class="acs-code" tabindex="0" aria-label="' + esc(name) + ' contents">' + esc(contentOf(name)) + '</pre></section>' : '<div class="acs-empty-state">' + icon('files') + '<h3>No files yet</h3><p>Project files added to this conversation will appear here.</p></div>') + '</div>';
     }
 
     function browserHTML() {
-      return header('browser') + '<div class="acs-scroll"><form class="acs-address-bar" data-acs-address-form><label class="acs-address-label">' + icon('globe') + '<input type="text" inputmode="url" autocomplete="url" data-acs-address aria-label="Web address to open in a new tab" placeholder="Enter a web address" value="' + esc(state.address) + '"></label><button type="submit" class="acs-icon-button cursor-interaction" aria-label="Open this address in a new tab" title="Open in a new tab">' + icon('arrow-up-right') + '</button></form><p class="acs-browser-note">Links open in a new tab. The embedded browser is not connected yet.</p><div class="acs-document-preview"><div class="acs-document-kicker">Project document · sample</div><h2>RC low-pass filter</h2><p>Review the circuit conditions and notes beside your conversation.</p><div class="acs-formula">f<sub>c</sub> = 1 / (2πRC)</div><dl class="acs-properties"><div><dt>Resistance R</dt><dd>1 kΩ</dd></div><div><dt>Capacitance C</dt><dd>100 nF</dd></div><div><dt>Theoretical cutoff</dt><dd>Approx. 1.5915 kHz</dd></div></dl><h3>What to check</h3><ul><li>Error between theory and calculated results</li><li>Response changes within component tolerances</li><li>Additional conditions for physical measurements</li></ul><button type="button" class="acs-text-button cursor-interaction" data-acs-research="results">View linked research results' + icon('arrow-up-right') + '</button></div></div>';
+      const preview = runtimeMode
+        ? '<div class="acs-empty-state">' + icon('globe') + '<h3>Browser automation is not connected</h3><p>Athena cannot read pages, control tabs, or perform browser actions from this panel. Opening a link does not give it to an agent.</p></div>'
+        : '<div class="acs-document-preview"><div class="acs-document-kicker">Project document · sample</div><h2>RC low-pass filter</h2><p>Review the circuit conditions and notes beside your conversation.</p><div class="acs-formula">f<sub>c</sub> = 1 / (2πRC)</div><dl class="acs-properties"><div><dt>Resistance R</dt><dd>1 kΩ</dd></div><div><dt>Capacitance C</dt><dd>100 nF</dd></div><div><dt>Theoretical cutoff</dt><dd>Approx. 1.5915 kHz</dd></div></dl><h3>What to check</h3><ul><li>Error between theory and calculated results</li><li>Response changes within component tolerances</li><li>Additional conditions for physical measurements</li></ul><button type="button" class="acs-text-button cursor-interaction" data-acs-research="results">View linked research results' + icon('arrow-up-right') + '</button></div>';
+      return header('browser') + '<div class="acs-scroll"><form class="acs-address-bar" data-acs-address-form><label class="acs-address-label">' + icon('globe') + '<input type="text" inputmode="url" autocomplete="url" data-acs-address aria-label="Web address to open or copy" aria-describedby="acs-browser-scope" placeholder="Enter a web address" value="' + esc(state.address) + '"></label><button type="submit" class="acs-icon-button cursor-interaction" aria-label="Open this address in a new tab in web mode" title="Open in a new tab in web mode">' + icon('arrow-up-right') + '</button><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="copy-address" aria-label="Copy web address" title="Copy web address"' + (!state.address.trim() ? ' disabled' : '') + '>' + icon('copy') + '</button></form><p class="acs-browser-note" id="acs-browser-scope">Web mode can open links in a new tab. Athena desktop does not support opening links from this panel yet; copy the address into your browser. An embedded browser is not connected.</p>' + preview + '</div>';
     }
 
     function diffHTML() {
-      if (runtimeMode) return header('diff') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('file-diff') + '<h3>No workspace diff service</h3><p>Open a versioned diff from Artifacts when the connected host provides one.</p></div></div>';
+      if (runtimeMode) return header('diff') + '<div class="acs-scroll"><div class="acs-empty-state">' + icon('file-diff') + '<h3>No workspace diff service</h3><p>Repository comparisons and file edits are not connected. Output files saved by the host are available in Artifacts.</p><button type="button" class="acs-text-button" data-acs-workspace="artifacts">Open Artifacts' + icon('arrow-up-right') + '</button></div></div>';
       const rows = [
         ['1', '1', 'context', '* RC low-pass · example'],
         ['2', '2', 'context', 'V1 in 0 AC 1'],
@@ -85,7 +97,7 @@
     }
 
     function deviceHTML() {
-      return header('device') + '<div class="acs-scroll acs-device-pane"><div class="acs-empty-state acs-device-empty"><span class="acs-device-icon">' + icon('monitor') + '</span><h2>No devices connected</h2><p>Connect your computer or lab server<br>to see where tasks run and their status.</p><span class="acs-status-label"><span class="acs-neutral-dot"></span>No active connection</span></div><div class="acs-device-details"><h3>Once connected</h3><div>' + icon('cpu') + '<span>Programs and runtime environment</span></div><div>' + icon('activity') + '<span>Active tasks and connection status</span></div><div>' + icon('folder-open') + '<span>Working folder and output files</span></div></div></div>';
+      return header('device') + '<div class="acs-scroll acs-device-pane"><div class="acs-empty-state acs-device-empty"><span class="acs-device-icon">' + icon('monitor') + '</span><h2>No devices connected</h2><p>Device connection is not implemented. Athena cannot pair a computer or lab server, control its desktop, or access its folders from this panel.</p><span class="acs-status-label"><span class="acs-neutral-dot"></span>Connection unavailable</span></div><div class="acs-device-details"><h3>Available in this workspace</h3><p>The connected Athena host reports its research tasks and saved results in Workflow.</p><button type="button" class="acs-text-button" data-acs-workspace="workflow">Open Workflow' + icon('arrow-up-right') + '</button></div></div>';
     }
 
     function render(moveFocus = false) {
@@ -93,7 +105,6 @@
       host.dataset.surface = state.surface;
       const views = { home: homeHTML, files: filesHTML, browser: browserHTML, diff: diffHTML, device: deviceHTML };
       host.innerHTML = (views[state.surface] || homeHTML)();
-      if (runtimeMode) { q('.acs-recent')?.remove(); q('.acs-document-preview')?.remove(); }
       refreshIcons();
       if (moveFocus) {
         const target = state.surface === 'home' ? q('[data-acs-surface]:not([disabled])') : q('[data-acs-action="home"]');
@@ -123,11 +134,11 @@
       return true;
     }
 
-    async function copy(text) {
+    async function copy(text, message = 'Contents copied.') {
       try {
         if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
         await navigator.clipboard.writeText(text);
-        if (!destroyed) notify('Contents copied.');
+        if (!destroyed) notify(message);
       } catch (_) {
         if (!destroyed) notify('Clipboard unavailable. Select the text and copy it manually.');
       }
@@ -151,6 +162,7 @@
       if (!button || !host.contains(button) || button.disabled) return;
       if (button.dataset.acsSurface) { open(button.dataset.acsSurface); return; }
       if (button.dataset.acsResearch) { options.onResearch?.(button.dataset.acsResearch); return; }
+      if (button.dataset.acsWorkspace) { options.onWorkspace?.(button.dataset.acsWorkspace); return; }
       if (button.dataset.acsFile) {
         if (!Object.prototype.hasOwnProperty.call(files, button.dataset.acsFile)) return;
         if (state.surface !== 'files') state.fileQuery = '';
@@ -164,6 +176,10 @@
       if (action === 'home') open('home');
       if (action === 'copy-file' && state.selectedFile) copy(contentOf(state.selectedFile));
       if (action === 'download-file') downloadSelectedFile();
+      if (action === 'copy-address') {
+        try { copy(normalizeAddress(), 'Web address copied.'); }
+        catch (_) { notify('Enter a web address beginning with http or https.'); }
+      }
     }, { signal });
 
     host.addEventListener('input', event => {
@@ -172,8 +188,21 @@
         q('.acs-file-list').innerHTML = fileListHTML();
         refreshIcons();
       }
-      if (event.target.matches('[data-acs-address]')) state.address = event.target.value;
+      if (event.target.matches('[data-acs-address]')) {
+        state.address = event.target.value;
+        q('[data-acs-action="copy-address"]').disabled = !state.address.trim();
+      }
     }, { signal });
+
+    function normalizeAddress() {
+      const address = state.address.trim();
+      const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[^/?#\s]+:\d+(?:[/?#]|$)/.test(address);
+      const url = new URL(hasScheme ? address : 'https://' + address);
+      if (!['https:', 'http:'].includes(url.protocol) || !url.hostname) throw new Error('unsupported-address');
+      state.address = url.href;
+      q('[data-acs-address]').value = state.address;
+      return url.href;
+    }
 
     host.addEventListener('submit', event => {
       if (!event.target.matches('[data-acs-address-form]')) return;
@@ -181,12 +210,7 @@
       const address = state.address.trim();
       if (!address) { q('[data-acs-address]')?.focus(); return; }
       try {
-        const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[^/?#\s]+:\d+(?:[/?#]|$)/.test(address);
-        const url = new URL(hasScheme ? address : 'https://' + address);
-        if (!['https:', 'http:'].includes(url.protocol) || !url.hostname) throw new Error('unsupported-address');
-        state.address = url.href;
-        q('[data-acs-address]').value = state.address;
-        window.open(url.href, '_blank', 'noopener,noreferrer');
+        window.open(normalizeAddress(), '_blank', 'noopener,noreferrer');
       } catch (_) { notify('Enter a web address beginning with http or https.'); }
     }, { signal });
 
