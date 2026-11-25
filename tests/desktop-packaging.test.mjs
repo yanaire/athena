@@ -4,13 +4,14 @@ import { readFile } from 'node:fs/promises';
 import { desktopBuildPlan } from '../scripts/build-desktop.mjs';
 import { detachMacOSImage, isolatedRuntimeEnvironment, macOSEjectTarget, macOSImageAttachment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
 
-test('macOS packaging confirms detachment despite a late DiskArbitration response', () => {
+test('macOS packaging confirms detachment despite a late DiskArbitration response', async () => {
   const calls = [];
+  const probeImmediately = async () => {};
   const target = '10B24A7B-C507-413D-BB71-284231981351';
   const mounted = { state: 'mounted', target };
   const detached = { state: 'detached' };
   let attachment = mounted;
-  detachMacOSImage(() => attachment, device => {
+  await detachMacOSImage(() => attachment, device => {
     calls.push(device);
     if (calls.length === 1) throw new Error('timeout for DiskArbitration expired');
     attachment = detached;
@@ -20,7 +21,7 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
 
   attachment = mounted;
   calls.length = 0;
-  detachMacOSImage(() => attachment, device => {
+  await detachMacOSImage(() => attachment, device => {
     calls.push(device);
     attachment = detached;
     throw new Error('timeout for DiskArbitration expired');
@@ -29,30 +30,35 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
 
   attachment = mounted;
   calls.length = 0;
-  detachMacOSImage(() => attachment, uuid => {
+  await detachMacOSImage(() => attachment, uuid => {
     calls.push(uuid);
     if (calls.length < 3) throw new Error('Disk Arbitration has not finished ejecting the image');
     attachment = detached;
   });
   assert.deepEqual(calls, [target, target, target]);
 
+  calls.length = 0;
+  const transitions = [mounted, { state: 'ambiguous' }, mounted, detached];
+  await detachMacOSImage(() => transitions.shift(), uuid => calls.push(uuid), undefined, probeImmediately);
+  assert.deepEqual(calls, [target, target]);
+
   attachment = mounted;
   calls.length = 0;
-  assert.throws(() => detachMacOSImage(() => attachment, device => {
+  await assert.rejects(() => detachMacOSImage(() => attachment, device => {
     calls.push(device);
     attachment = { state: 'ambiguous' };
     throw new Error('drive not detached');
-  }), /still attached/);
+  }, undefined, probeImmediately), /still attached/);
   assert.deepEqual(calls, [target]);
 
   attachment = mounted;
   calls.length = 0;
-  assert.throws(() => detachMacOSImage(() => attachment, device => calls.push(device)), /still attached/);
+  await assert.rejects(() => detachMacOSImage(() => attachment, device => calls.push(device)), /still attached/);
   assert.deepEqual(calls, [target, target, target, target]);
-  assert.throws(() => detachMacOSImage(() => attachment, () => assert.fail('Ejection budget exhausted'), 0), /still attached/);
+  await assert.rejects(() => detachMacOSImage(() => attachment, () => assert.fail('Ejection budget exhausted'), 0), /still attached/);
 });
 
-test('macOS packaging finds the owned partition after unmount and retries with its media UUID', () => {
+test('macOS packaging finds the owned partition after unmount and retries with its media UUID', async () => {
   const path = '/private/tmp/athena/Athena.sparseimage';
   const mount = '/private/tmp/athena/mount';
   const target = '10B24A7B-C507-413D-BB71-284231981351';
@@ -79,7 +85,7 @@ test('macOS packaging finds the owned partition after unmount and retries with i
   const calls = [];
   const ownership = { device, partition, uuid: target };
   let images = mounted;
-  detachMacOSImage(() => {
+  await detachMacOSImage(() => {
     const attachment = macOSImageAttachment(images, path, mount, images === mounted);
     return macOSEjectTarget(attachment, ownership);
   }, uuid => {
