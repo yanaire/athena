@@ -14,8 +14,8 @@
     "desktop:build:local-chatgpt": "export ATHENA_BUILD_CHATGPT_LOCAL=1; PATH=\"$HOME/.cargo/bin:$PATH\" tauri build --config src-tauri/tauri.local-chatgpt.conf.json --target aarch64-apple-darwin --bundles app --no-sign -- --locked && node scripts/check-desktop-bundle.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.5.2",
-    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.6.0",
+    "@earendil-works/pi-ai": "1.6.0",
     "typebox": "1.3.27"
   },
   "devDependencies": {
