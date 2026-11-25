@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Project, Session, Scope } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 
 export type StoredSession = Session & { readonly sessionFile: string; readonly sessionDir: string };
-export type RecordKind = 'run' | 'task' | 'agent' | 'agent_session' | 'attempt' | 'spawn' | 'send' |
+export type RecordKind = 'run' | 'task' | 'agent' | 'agent_session' | 'attempt' | 'spawn' | 'send' | 'retry' |
   'process' | 'artifact' | 'tool' | 'event' | 'pi_event' | 'file';
 export type Receipt = {
   readonly sessionId: string;

@@ -2,17 +2,22 @@ name: Verify Athena
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: verify-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   history-secrets:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -40,12 +45,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Require the native Apple Silicon runner
         run: test "$(uname -s)" = Darwin && test "$(uname -m)" = arm64
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.22.3'
           cache: npm
@@ -91,3 +96,40 @@ jobs:
         run: npm run desktop:build
       - name: Test desktop startup safeguards
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
+
+  browser-chat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            athena-backend-handoff/athena-codex-ui/qa/package-lock.json
+      - name: Install locked host and browser test dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --prefix athena-backend-handoff/athena-codex-ui/qa --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium for isolated application tests
+        working-directory: athena-backend-handoff/athena-codex-ui/qa
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Assemble the UI from this source revision
+        run: python3 athena-backend-handoff/athena-codex-ui/build.py
+      - name: Exercise chat and workflow in Chromium
+        working-directory: athena-backend-handoff/athena-codex-ui
+        env:
+          ATHENA_BROWSER_EVIDENCE: ${{ github.workspace }}/athena-backend-handoff/athena-codex-ui/qa/browser-evidence
+        run: node qa/chat-browser-test.mjs
+      - name: Preserve synthetic browser verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: browser-chat-evidence
+          path: athena-backend-handoff/athena-codex-ui/qa/browser-evidence/
+          if-no-files-found: warn
+          retention-days: 14

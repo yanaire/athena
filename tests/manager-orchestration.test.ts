@@ -3,12 +3,13 @@ import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
+import { Storage } from '../runtime/storage.ts';
 
 type Message={role:string;content:unknown;tool_call_id?:string};
 type Wire={messages:Message[];tools:{function:{name:string}}[]};
@@ -249,4 +250,138 @@ test('host death after CSV admission interrupts the waiting parent, worker and q
   assert.equal(s.run.status,'paused');assert.deepEqual(s.attempts.map(a=>a.status),['paused','paused','paused']);
   const [proc]=s.processes;assert.ok(proc);assert.equal(proc.status,'interrupted');assert.equal(proc.job.cancellation,'unknown');
   assert.equal(proc.job.exitCode,null);assert.equal(s.artifacts.length,0);assert.equal(requests,before);
+});
+
+test('measurement MCP joins the child, binds its result to the input version and restores it', {timeout:30000}, async t => {
+  const launch = await setup(t, wire => {
+    const results = outputs(wire);
+    if (parent(wire)) {
+      if (!results.length) return {name:'spawn_agent', args:{title:'Voltage measurements', prompt:'Summarize measurement_mV.'}};
+      if (results.length === 1) return {name:'wait_for_agents', args:{}};
+      return JSON.parse(results[1]!).tasks[0].result;
+    }
+    if (!results.length) return {name:'calculate_csv', args:{column:'measurement_mV'}};
+    return 'Mean ' + JSON.parse(results[0]!).statistics.statistics[0].mean + ' mV';
+  });
+  let manager = await launch();
+  const {project} = await manager.createProject({name:'Measurements'});
+  const input = await readFile(new URL('../docs/measurements.csv', import.meta.url), 'utf8');
+  for (const [csv, minimum, mean] of [[input, 7, 19], [input.replace('A,7', 'A,0'), 0, 17.25]] as const) {
+    const {sessionId} = await manager.createSession({projectId:project.id, title:'Voltage'});
+    const {fileReferences} = await manager.stageFiles(sessionId, [{name:'measurements.csv', mimeType:'text/csv',data:Buffer.from(csv).toString('base64')}]);
+    const done = finished(manager);
+    await manager.pi(sessionId, {type:'prompt', id:'measure', message:'Summarize the attached voltage measurements.',fileReferences});
+    await done;
+    const snapshot = manager.getSnapshot();
+    const child = snapshot.tasks.find(task => task.parentTaskId);
+    const [proc] = snapshot.processes;
+    const [artifact] = snapshot.artifacts;
+    assert.ok(child && proc && artifact);
+    assert.equal(snapshot.run.status,'succeeded');
+    assert.equal(child.result, 'Mean ' + mean + ' mV');
+    assert.equal(proc.taskId, child.id);
+    assert.equal(proc.runId, snapshot.run.id);
+    assert.equal(proc.job.mcp?.phase, 'tools/call');
+    assert.equal(proc.job.mcp?.tool, 'calculate_csv');
+    assert.equal(proc.status, 'succeeded');
+    assert.equal(artifact.toolId, proc.toolId);
+    assert.equal(artifact.processId, proc.id);
+    assert.deepEqual(artifact.evidence, [{id:fileReferences[0]!.id,version:createHash('sha256').update(csv).digest('hex')}]);
+    await manager.close(); manager = await launch();
+    assert.deepEqual(manager.getSnapshot().processes, snapshot.processes);
+    const saved = await manager.artifactDownload(sessionId, artifact.id);
+    assert.equal(createHash('sha256').update(saved.bytes).digest('hex'), artifact.file.sha256);
+    const summary = JSON.parse(saved.bytes.toString());
+    assert.equal(summary.rowCount, 5);
+    assert.deepEqual(summary.statistics, [{column:'measurement_mV',count:4,missing:1,nonNumeric:0,min:minimum,max:35,mean}]);
+  }
+});
+
+test('an artifact transaction failure reaches Pi as a tool error without publishing a CSV result', { timeout: 30_000 }, async t => {
+  let workerResult = '';
+  let joinedArtifacts: unknown;
+  const launch = await setup(t, wire => {
+    const results = outputs(wire);
+    if (parent(wire)) {
+      if (!results.length) return { name: 'spawn_agent', args: { title: 'CSV worker', prompt: 'Calculate the assigned CSV.' } };
+      if (results.length === 1) return { name: 'wait_for_agents', args: {} };
+      joinedArtifacts = JSON.parse(results[1]!).tasks[0].artifacts;
+      return 'Reported the calculation outcome.';
+    }
+    if (!results.length) return { name: 'calculate_csv', args: {} };
+    workerResult = results[0]!;
+    return 'Reported the calculation outcome.';
+  });
+  let manager = await launch();
+  const { project } = await manager.createProject({ name: 'Publication failure' });
+  const { sessionId } = await manager.createSession({ projectId: project.id, title: 'CSV' });
+  const { fileReferences } = await manager.stageFiles(sessionId, [{ name: 'values.csv', mimeType: 'text/csv', data: Buffer.from('value\n7\n11\n').toString('base64') }]);
+  const putRecord = Storage.prototype.putRecord;
+  let injected = false;
+  t.mock.method(Storage.prototype, 'putRecord', function (this: Storage, ...args: Parameters<Storage['putRecord']>) {
+    if (args[0] === 'artifact' && !injected) {
+      injected = true;
+      throw new Error('Synthetic artifact transaction failure');
+    }
+    return putRecord.apply(this, args);
+  });
+  const done = finished(manager);
+  await manager.pi(sessionId, { type: 'prompt', id: 'publication-failure', message: 'Delegate the attached calculation.', fileReferences });
+  await done;
+  t.mock.restoreAll();
+  const snapshot = manager.getSnapshot();
+  const [process] = snapshot.processes;
+  assert.ok(process);
+  assert.equal(injected, true);
+  assert.equal(process.status, 'failed');
+  assert.equal(process.job.exitCode, 0);
+  assert.equal(process.job.artifact, undefined);
+  assert.equal(snapshot.tools.find(tool => tool.id === process.toolId)?.status, 'failed');
+  assert.match(workerResult, /persist.*completion/i);
+  assert.doesNotMatch(workerResult, /"artifact(?:Id)?"/);
+  assert.deepEqual(joinedArtifacts, []);
+  assert.deepEqual(snapshot.artifacts, []);
+  assert.deepEqual(snapshot.tasks.find(task => task.parentTaskId)?.artifactIds, []);
+  await manager.close(); manager = await launch();
+  assert.deepEqual(manager.getSnapshot().processes, snapshot.processes);
+  assert.deepEqual(manager.getSnapshot().artifacts, []);
+});
+
+test('a listener failure after a committed CSV result does not revoke its publication', { timeout: 30_000 }, async t => {
+  let workerResult = '';
+  const launch = await setup(t, wire => {
+    const results = outputs(wire);
+    if (parent(wire)) {
+      if (!results.length) return { name: 'spawn_agent', args: { title: 'CSV worker', prompt: 'Calculate the assigned CSV.' } };
+      if (results.length === 1) return { name: 'wait_for_agents', args: {} };
+      return 'Reported the result.';
+    }
+    if (!results.length) return { name: 'calculate_csv', args: {} };
+    workerResult = results[0]!;
+    return 'Reported the result.';
+  });
+  const manager = await launch();
+  const { project } = await manager.createProject({ name: 'Notification failure' });
+  const { sessionId } = await manager.createSession({ projectId: project.id, title: 'CSV' });
+  const { fileReferences } = await manager.stageFiles(sessionId, [{ name: 'values.csv', mimeType: 'text/csv', data: Buffer.from('value\n7\n11\n').toString('base64') }]);
+  let injected = false;
+  const unsubscribe = manager.subscribe(snapshot => {
+    if (!injected && snapshot.processes?.some(process => process.status === 'succeeded')) {
+      injected = true;
+      throw new Error('Synthetic post-commit listener failure');
+    }
+  });
+  t.after(unsubscribe);
+  const done = finished(manager);
+  await manager.pi(sessionId, { type: 'prompt', id: 'notification-failure', message: 'Delegate the attached calculation.', fileReferences });
+  await done;
+  const snapshot = manager.getSnapshot();
+  assert.equal(injected, true);
+  assert.equal(snapshot.processes[0]?.status, 'succeeded');
+  assert.equal(snapshot.artifacts.length, 1);
+  assert.match(workerResult, /"artifactId"/);
+  const result = JSON.parse(workerResult);
+  assert.equal(result.statistics.statistics[0].mean, 9);
+  assert.equal(snapshot.artifacts[0]?.id, result.artifactId);
+  assert.equal(JSON.parse((await manager.artifactDownload(sessionId, result.artifactId)).bytes.toString()).statistics[0].mean, 9);
 });

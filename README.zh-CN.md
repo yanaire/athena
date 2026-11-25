@@ -17,6 +17,9 @@
   </p>
 </div>
 
+> **当前状态（2026-11-25）：** 面向 Apple Silicon Mac 的已审查整合候选版本包含 MCP、研究扩展和 Workflow DAG 的源代码。
+> 下方的基线说明和验证记录保留了旧版本的历史信息，真实 Mac 和真实账号上的最终验收尚未完成，当前整合范围请参阅[英文 README](README.md) 和[整合审查记录](docs/validation/2026-11-25-open-pr-integration-review.md)。
+
 > [!IMPORTANT]
 > **源代码预览版，并非正式公开发布版。** Athena 自有代码选用 Apache-2.0，但第三方许可声明、UI 和素材权利以及 Git 历史公开资格仍在审查中。仓库公开并不代表这些义务已经履行。在未解决的发布条件得到满足之前，请勿重新分发此候选源代码或应用。参阅[发布状态](docs/oss-preview-status.md)、[第三方声明](THIRD_PARTY_NOTICES.md)和[已知限制](docs/known-limitations.md)。目前没有经过正式签名及公证的安装程序或公开 DMG。
 

@@ -119,12 +119,8 @@
               <div class="ast-section-heading"><h2>Connections</h2><p>Tools and skills available in the composer.</p></div>
               <div class="ast-connection-notice">${icon('unplug')}<p>This preview is not connected to an execution engine.</p></div>
               <button type="button" class="ast-button" data-action="pi-resources">${icon('orbit')}<span>Manage tools &amp; skills</span></button>
-              <h3 class="ast-group-title">Plugins</h3>
-              <div class="ast-connection-row"><span class="ast-connection-icon">${icon('code-2')}</span><span><strong>Python</strong><small>Data processing and charts</small></span><span class="ast-badge">Preview</span></div>
-              <div class="ast-connection-row"><span class="ast-connection-icon">${icon('cpu')}</span><span><strong>ngspice</strong><small>Circuit simulation</small></span><span class="ast-badge">Preview</span></div>
-              <h3 class="ast-group-title">Skills</h3>
-              <div class="ast-skill-list"><span>${icon('book-open')}Literature review</span><span>${icon('chart-no-axes-combined')}Data analysis</span><span>${icon('file-pen-line')}Manuscript writing</span></div>
-              <p class="ast-connection-footnote">Choosing an item adds context to your request. Model, terminal, and device connections are not configured in this interface.</p>
+              <div id="ast-extensions-slot"></div>
+              <p class="ast-connection-footnote">Installed packages, available skills and connection checks come from the connected host.</p>
             </section>
             <section class="ast-panel" tabindex="0" id="ast-panel-about" role="tabpanel" aria-labelledby="ast-tab-about" hidden>
               <div class="ast-section-heading"><h2>About</h2><p>Your research workspace.</p></div>
@@ -158,7 +154,7 @@
     categoryPanels.get('execution').innerHTML = '<div class="ast-section-heading"><h2>Agents &amp; execution</h2><p>Execution settings and controls for the current session.</p></div><div class="ast-connection-notice">' + icon('workflow') + '<p>Athena TaskManager owns scheduling. This interface subscribes to task state and sends explicit supported commands.</p></div><div id="ast-agent-model-settings-slot"></div>';
     categoryPanels.get('tools').appendChild(oldSections.get('connections'));
     oldSections.get('connections').querySelector('h2').textContent = 'Tools & plugins';
-    oldSections.get('connections').querySelector('.ast-connection-footnote').textContent = 'Preview items are examples. Installed tools and skills come from the connected host below.';
+    oldSections.get('connections').querySelector('.ast-connection-footnote').textContent = 'Installed packages, available skills and connection checks come from the connected host.';
     categoryPanels.get('files').innerHTML = '<div class="ast-section-heading"><h2>Files &amp; history</h2><p>Project sources, document versions and conversation history.</p></div><div class="ast-connection-notice">' + icon('database') + '<p>Durable file storage, extraction and version history require the project host. A PDF preview does not mean its content has been extracted or understood.</p></div><div id="ast-files-contract-slot"></div>';
     for (const id of ['general', 'appearance', 'workspace']) categoryPanels.get('appearance').appendChild(oldSections.get(id));
     oldSections.get('general').querySelector('h2').textContent = 'Conversation';
@@ -228,7 +224,7 @@
       const messages = {
         models: 'Model changes require Save settings. Connection checks are separate.',
         execution: window.AthenaHosted ? 'The host controls execution policy for this project.' : 'Role preferences require Save settings. Runtime controls apply to the current session.',
-        tools: 'Changes apply to the current runtime. Installation requires host support.',
+        tools: 'Package changes apply to new runs. Tool controls reflect the current runtime.',
         files: 'Files and history are stored only when the project host confirms the write.',
         appearance: sessionOnly ? 'UI changes apply to this session. Device storage is unavailable.' : 'UI changes save automatically on this device.',
         about: 'Connection status and diagnostics are reported by the attached host.'

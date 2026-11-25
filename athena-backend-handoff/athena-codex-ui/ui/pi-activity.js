@@ -29,6 +29,27 @@
     find: ['files', 'Finding files', 'Find files', 'Files found', 'File search failed'],
     ls: ['folder-open', 'Listing directory', 'List directory', 'Directory listed', 'Directory listing failed'],
     codemode: ['braces', 'Running code', 'Run code', 'Code finished', 'Code failed'],
+    spawn_agent: ['users-round', 'Starting agent', 'Start agent', 'Agent started', 'Agent could not start'],
+    send_to_agent: ['message-square-text', 'Sending agent instructions', 'Send agent instructions', 'Agent instructions sent', 'Agent message failed'],
+    wait_for_agents: ['hourglass', 'Waiting for agents', 'Wait for agents', 'Agent results received', 'Agent wait failed'],
+    get_task: ['clipboard-list', 'Checking agent progress', 'Check agent progress', 'Agent progress checked', 'Agent progress unavailable'],
+    list_tasks: ['list-checks', 'Checking agent tasks', 'Check agent tasks', 'Agent tasks checked', 'Agent tasks unavailable'],
+    cancel_task: ['square', 'Requesting agent stop', 'Stop agent', 'Agent stop requested', 'Agent stop failed'],
+    calculate_csv: ['chart-no-axes-combined', 'Calculating CSV statistics', 'Calculate CSV statistics', 'CSV statistics calculated', 'CSV calculation failed'],
+    calculate_rc_response: ['chart-no-axes-combined', 'Calculating RC response', 'Calculate RC response', 'RC response calculated', 'RC calculation failed'],
+    read_file: ['file-text', 'Reading result file', 'Read result file', 'Result file read', 'Result file read failed'],
+    write_file: ['file-plus-2', 'Writing analysis file', 'Write analysis file', 'Analysis file written', 'Analysis file write failed'],
+    run_command: ['square-terminal', 'Running analysis', 'Run analysis', 'Analysis finished', 'Analysis failed'],
+    list_skills: ['book-open', 'Checking available skills', 'Check available skills', 'Available skills checked', 'Skills unavailable'],
+    load_skill: ['book-open', 'Loading research procedure', 'Load research procedure', 'Research procedure loaded', 'Procedure could not load'],
+    get_research_board: ['notebook-text', 'Reading research records', 'Read research records', 'Research records read', 'Research records unavailable'],
+    plan_research: ['clipboard-list', 'Recording research plan', 'Record research plan', 'Research plan recorded', 'Research plan could not save'],
+    add_research_evidence: ['file-check-2', 'Verifying research evidence', 'Verify research evidence', 'Research evidence recorded', 'Evidence could not be recorded'],
+    request_review: ['users-round', 'Starting independent review', 'Start independent review', 'Independent review requested', 'Review could not start'],
+    submit_review: ['clipboard-check', 'Recording review findings', 'Record review findings', 'Review findings recorded', 'Review findings could not save'],
+    remember_research: ['notebook-pen', 'Saving working notes', 'Save working notes', 'Working notes saved', 'Working notes could not save'],
+    propose_knowledge: ['library', 'Recording reusable method', 'Record reusable method', 'Reusable method recorded', 'Method could not be recorded'],
+    call_external_mcp: ['plug', 'Running connected MCP tool', 'Run connected MCP tool', 'Connected tool returned a result', 'Connected tool failed'],
     custom: ['plug', 'Running tool', 'Run tool', 'Tool finished', 'Tool failed']
   });
   const ICONS = new Set([...Object.values(PHASES).map(item => item[0]), ...Object.values(TOOL_KINDS).map(item => item[0])]);
@@ -57,16 +78,39 @@
     return iconHTML(item.icon, { active: item.active, motion: item.motion, ...options });
   }
 
-  function toolPresentation(name, args = {}, status = 'running') {
+  function toolPresentation(name, args = {}, status = 'running', tasks = []) {
     const toolName = textValue(name, 100);
     const kind = Object.hasOwn(TOOL_KINDS, toolName) ? toolName : 'custom';
     const info = TOOL_KINDS[kind];
     const state = ['done', 'complete', 'completed', 'succeeded'].includes(status) ? 'succeeded' : ['error', 'failed'].includes(status) ? 'failed' : ['stopped', 'cancelled', 'aborted'].includes(status) ? 'stopped' : ['queued', 'pending', 'waiting', 'paused', 'blocked'].includes(status) ? 'queued' : 'running';
     const value = args && typeof args === 'object' ? args : {};
+    const labels = window.AthenaActivityLabels;
     const path = textValue(value.path || value.file_path || value.filePath, 500);
     let detail = ['bash', 'powershell'].includes(kind) ? textValue(value.command, 1200) : ['grep', 'find'].includes(kind) ? [textValue(value.pattern, 240), path].filter(Boolean).join(' · ') : kind === 'ls' ? path || '.' : path;
     if (kind === 'custom') detail = [toolName, detail || textValue(value.query || value.url, 240)].filter(Boolean).join(' · ');
     if (kind === 'codemode') detail = textValue(value.description || value.title, 240);
+    if (kind === 'spawn_agent') detail = textValue(value.title, 240);
+    if (['send_to_agent', 'get_task', 'cancel_task'].includes(kind)) detail = labels?.task(value.taskId, tasks, 'Assigned task') || 'Assigned task';
+    if (kind === 'wait_for_agents') {
+      const ids = Array.isArray(value.taskIds) ? value.taskIds : [];
+      detail = ids.length === 1 ? labels?.task(ids[0], tasks, 'Assigned task') || 'Assigned task' : ids.length ? 'Selected assigned tasks' : 'All assigned tasks';
+    }
+    if (kind === 'list_tasks') detail = 'Assigned tasks';
+    if (kind === 'calculate_csv') detail = textValue(value.column, 240) || 'Assigned CSV';
+    if (kind === 'calculate_rc_response') detail = 'Assigned circuit JSON';
+    if (['read_file', 'write_file'].includes(kind)) detail = textValue(value.name, 240) || 'Assigned file';
+    if (kind === 'run_command') detail = textValue(value.script, 240) || 'Assigned analysis';
+    if (kind === 'list_skills') detail = 'Available procedures';
+    if (kind === 'load_skill') detail = 'Selected procedure';
+    if (kind === 'get_research_board') detail = 'Current research records';
+    if (kind === 'plan_research') detail = textValue(value.objective, 240) || 'Study objective and acceptance criteria';
+    if (['add_research_evidence', 'propose_knowledge'].includes(kind)) detail = textValue(value.title, 240) || 'Saved research evidence';
+    if (kind === 'request_review') detail = textValue(value.question, 240) || 'Independent evidence check';
+    if (kind === 'submit_review') detail = 'Checks, findings and limitations';
+    if (kind === 'remember_research') detail = value.scope === 'project' ? 'Project working notes' : 'Agent working notes';
+    if (kind === 'call_external_mcp') detail = textValue(value.tool, 240) || textValue(value.toolName, 240) || 'Approved server tool';
+    if (labels && ['plan_research', 'add_research_evidence', 'propose_knowledge', 'request_review', 'call_external_mcp'].includes(kind)) detail = labels.text(detail, 'Research action', [value.taskId, value.missionId, value.reviewId, value.evidenceId, value.runId, value.attemptId, value.requestId]);
+    if (labels && ['spawn_agent', 'send_to_agent', 'wait_for_agents', 'get_task', 'list_tasks', 'cancel_task'].includes(kind)) detail = labels.text(detail, 'Assigned task', [value.taskId, value.agentSessionId, value.sessionId, value.runId, value.attemptId, value.requestId]);
     const label = state === 'succeeded' ? info[3] : state === 'failed' ? info[4] : state === 'queued' ? info[2] : state === 'stopped' ? info[2] + ' · stopped' : info[1];
     return Object.freeze({ kind, icon: info[0], label, detail, status: state, active: state === 'running', motion: state === 'running' ? 'pulse' : 'none' });
   }
@@ -78,6 +122,7 @@
       if (['__proto__', 'constructor', 'prototype'].includes(key)) continue;
       const item = value[key];
       if (typeof item === 'string') copy[key] = item.slice(0, 4000);
+      else if (key === 'taskIds' && Array.isArray(item) && item.every(id => typeof id === 'string')) copy[key] = item.slice(0, 100).map(id => id.slice(0, 4000));
       else if (typeof item === 'number' && Number.isFinite(item) || typeof item === 'boolean' || item === null) copy[key] = item;
     }
     return copy;
@@ -107,7 +152,7 @@
     const listeners = new Set();
     const outputModes = safeArgs(options.toolOutputModes);
     let destroyed = false, started = false, counter = 0, current = null, blocks = new Map();
-    let messageBoundary = 0, lastTerminal = null;
+    let messageBoundary = 0, lastTerminal = null, streamOrder = 0, owner = null, messageTimestamp = null;
     const completedMessages = new Map();
     const messageKey = (message, event) => message?.id ?? message?.messageId ?? event?.messageId ?? null;
     let state;
@@ -134,13 +179,17 @@
       if (current) return current;
       blocks = new Map();
       const index = state.messages.length ? state.messages[state.messages.length - 1].index + 1 : 0;
-      current = { id: 'pi-' + state.runId + '-message-' + index, index, text: '', complete: false, stopReason: null };
+      current = { id: 'pi-' + state.runId + '-message-' + index, index, order: null, parts: [], athena: owner, timestamp: messageTimestamp, text: '', complete: false, stopReason: null };
       state.messages.push(current);
       state.messageId = current.id;
       return current;
     }
     function syncText() {
-      if (current) current.text = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(entry => entry[1]).join('').slice(0, maxText);
+      if (current) {
+        current.parts = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(([index, text]) => ({ index, text, order: current.parts.find(part => part.index === index)?.order ?? (text ? ++streamOrder : null) }));
+        current.text = current.parts.map(part => part.text).join('').slice(0, maxText);
+        current.order = current.parts.find(part => part.order != null)?.order ?? null;
+      }
       const text = state.messages.map(message => message.text).filter(Boolean).join('\n\n').slice(-maxText);
       if (text !== state.text) { state.text = text; state.textRevision += 1; }
     }
@@ -154,16 +203,19 @@
       // never deduplicate by text, because separate messages can be identical.
       const companion = !current && lastTerminal && !lastTerminal.paired && lastTerminal.boundary === messageBoundary && lastTerminal.source !== source && (externalId == null || lastTerminal.externalId == null || String(externalId) === String(lastTerminal.externalId));
       const record = known || (companion ? lastTerminal.record : ensureMessage());
+      record.timestamp ??= message.timestamp ?? null;
+      record.athena ||= owner;
       if (Array.isArray(message.content)) {
         if (record === current) {
           blocks.clear();
           message.content.forEach((block, i) => { if (block?.type === 'text') blocks.set(i, textValue(block.text, maxText)); });
-        } else record.text = message.content.filter(block => block?.type === 'text').map(block => textValue(block.text, maxText)).join('');
+        } else { record.parts = message.content.flatMap((block, index) => block?.type === 'text' ? [{ index, text: textValue(block.text, maxText), order: record.parts.find(part => part.index === index)?.order ?? ++streamOrder }] : []); record.text = record.parts.map(part => part.text).join(''); }
       } else if (typeof message.content === 'string') {
         if (record === current) { blocks.clear(); blocks.set(0, message.content); }
-        else record.text = message.content;
+        else { record.text = message.content; record.parts = [{ index: 0, text: message.content, order: record.parts[0]?.order ?? ++streamOrder }]; }
       }
       syncText();
+      if (record.text && record.order == null) record.order = ++streamOrder;
       record.complete = true; record.stopReason = textValue(message.stopReason, 50) || null;
       if (externalId != null) { record.sourceMessageId = String(externalId); completedMessages.set(String(externalId), record); }
       lastTerminal = { record, source, externalId, boundary: messageBoundary, paired: Boolean(known || companion) };
@@ -178,7 +230,7 @@
       let tool = findTool(id);
       if (!tool) {
         const toolName = textValue(event.toolName, 100) || 'custom';
-        tool = { id, toolCallId: id, toolName, ...inputPreview(event.args), status, output: '', outputCharacters: 0, outputPreviewCharacters: 0, outputTruncated: false, outputRevision: 0, durationMs: null, parentToolCallId: textValue(event.parentToolCallId, 300) || null, startedAt: status === 'running' ? now() : null, endedAt: null };
+        tool = { id, toolCallId: id, toolName, ...inputPreview(event.args), order: ++streamOrder, athena: owner, status, output: '', outputCharacters: 0, outputPreviewCharacters: 0, outputTruncated: false, outputRevision: 0, durationMs: null, parentToolCallId: textValue(event.parentToolCallId, 300) || null, startedAt: status === 'running' ? now() : null, endedAt: null };
         state.tools.push(tool);
         if (state.tools.length > maxTools) { const removable = state.tools.findIndex(item => item !== tool && item.status !== 'running'); state.tools.splice(removable < 0 ? 0 : removable, 1); }
       } else {
@@ -204,6 +256,10 @@
       if (!meaningful.includes(type)) return false;
       if (state.settled && started && !['agent_start','queue_update'].includes(type)) return false;
       if (['message_start','message_update','message_end'].includes(type) && event.message?.role && event.message.role !== 'assistant') return false;
+      // Ownership is supplied by the host's normalized event, never inferred
+      // from message text. Order records receipt, including identical messages.
+      if (typeof event.runId === 'string' && typeof event.attemptId === 'string') owner = Object.fromEntries(['projectId','sessionId','runId','taskId','parentTaskId','agentSessionId','attemptId'].filter(key => typeof event[key] === 'string' || key === 'parentTaskId' && event[key] === null).map(key => [key, event[key]]));
+      messageTimestamp = event.message?.timestamp ?? event.assistantMessageEvent?.message?.timestamp ?? null;
       const previousText = state.textRevision;
       if (type === 'agent_start') {
         if (state.settled) { state = initial(state.runId + 1); current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; }
@@ -302,7 +358,7 @@
       receive,
       getState: snapshot,
       subscribe(listener) { if (destroyed || typeof listener !== 'function') return () => {}; listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
-      reset() { if (destroyed) return false; state = initial(state.runId + 1); started = false; current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; publish(); return true; },
+      reset() { if (destroyed) return false; state = initial(state.runId + 1); started = false; current = null; owner = null; messageTimestamp = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; publish(); return true; },
       destroy() { if (destroyed) return; destroyed = true; listeners.clear(); current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; }
     });
   }

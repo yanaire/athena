@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "id": "athena-research-skills",
+  "name": "Athena research skills",
+  "version": "0.1.0",
+  "description": "Twelve original Athena research procedures. Skills guide work; they never grant tools or permissions.",
+  "skills": [
+    {
+      "id": "athena-research-intake",
+      "name": "연구 요청 정리",
+      "description": "Athena에서 새 연구 질문, 분석 의뢰, 실험 자료 또는 모호한 연구 목표를 받았을 때 질문·근거·제약·완료 기준을 실행 가능한 연구 브리프로 정리한다.",
+      "version": "0.1.0",
+      "path": "athena-research-intake/SKILL.md",
+      "sha256": "8144f2863a787e35bea9c93f0ce2466b130b2fb6a02581b0109460fc8fdc0697",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [],
+      "automaticEligible": true
+    },
+    {
+      "id": "athena-plan-and-delegate",
+      "name": "계획과 위임",
+      "description": "Athena에서 연구 브리프를 작업으로 나누거나, 독립적인 분석을 서브에이전트에 위임하거나, 실행 중 작업의 추가 지시·대기·취소 계획을 세울 때 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-plan-and-delegate/SKILL.md",
+      "sha256": "bb7f3974b9bb3a23332ae4342cfe15b8069764aa4aa0e1ff8860cf21c6227703",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent"
+      ],
+      "requiredCapabilities": [
+        "spawn_agent",
+        "wait_for_agents"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-source-provenance",
+      "name": "출처와 근거 추적",
+      "description": "Athena에서 논문·PDF·문서·데이터를 들여오거나 출처 기록, 인용 근거 추적, 문서 추출 상태 확인, 상충 자료 비교를 요청할 때 사용한다. 실제 확보·추출·근거 대조의 상태를 나누어 원자료와 파생 결과를 연결한다.",
+      "version": "0.1.0",
+      "path": "athena-source-provenance/SKILL.md",
+      "sha256": "d765785e9b9026b1277c5c7c040147699e2445f788e0bd674a3cf4cb6bd2c8fb",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "read"
+      ],
+      "automaticEligible": true
+    },
+    {
+      "id": "athena-units-and-dimensions",
+      "name": "단위와 차원 검사",
+      "description": "Athena 연구 자료의 단위 변환, 식의 차원 일치, 센서 스케일과 불확도를 검토한다. µV·mV, 시간·주파수, 회로 정수 등 단위가 섞인 자료를 정규화하거나 계산 입력과 결과의 물리적 타당성을 확인할 때 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-units-and-dimensions/SKILL.md",
+      "sha256": "9ad3900619bf414b388f62a89fa1622d5a9d297a872a459f33f8a7e4ad51383d",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "read"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-data-quality",
+      "name": "데이터 품질 검사",
+      "description": "Athena의 표·시계열·실험 자료에서 스키마, 결측, 중복, 단위, 시간축과 표본 구조를 점검한다. 첨부 CSV를 분석하기 전, 여러 파일을 결합하기 전, 이상한 통계나 데이터 누수를 조사하거나 정제 계획을 만들 때 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-data-quality/SKILL.md",
+      "sha256": "acf499bc6baeba17f59c4fae64f80e9fbfc489b27103ad2b419e0c82d9c44ea2",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "read"
+      ],
+      "automaticEligible": true
+    },
+    {
+      "id": "athena-reproducible-computation",
+      "name": "재현 가능한 계산",
+      "description": "Athena 계산의 입력, 실행 환경, 매개변수, 실행 근거와 산출물을 연결해 재현 가능한 기록을 만든다. CSV 계산·시뮬레이션·분석을 실행하거나 다시 실행할 때, 결과 차이를 조사하거나 재현용 절차를 정리할 때 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-reproducible-computation/SKILL.md",
+      "sha256": "b86351d6d1fe1d8a606d2b266223bb43e1a622ae6d4cfa48e3f9bb8d2b3c3803",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "run_command",
+        "read_file"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-statistical-analysis",
+      "name": "통계 분석",
+      "description": "Athena 연구의 질문과 표본 설계에 맞춰 기술통계, 효과 추정, 불확도와 검정 계획을 정리하고 지원되는 분석을 수행한다. 실험 조건 비교, 반복 측정·시계열 해석, 신뢰구간·유의성 요청, 예측 평가 또는 CSV 통계 해석에 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-statistical-analysis/SKILL.md",
+      "sha256": "c091e8609d7dcfcfbbb1e6466301a6881f6274b2350fb428ca43bc884bca61da",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "run_command"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-scientific-figure",
+      "name": "과학 그래프",
+      "description": "Athena에서 실험·시뮬레이션·통계 데이터의 연구용 그래프, 논문 그림, 그림 캡션 작성·수정 또는 시각화 검토를 요청할 때 사용한다. 원자료·단위·불확실성과 실제 그림 산출물을 연결한다.",
+      "version": "0.1.0",
+      "path": "athena-scientific-figure/SKILL.md",
+      "sha256": "e15d1d5b95d2b861567cef7e4095f15f19c30d1a4d75518f4f291b438e77f538",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "plot.export"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-literature-search",
+      "name": "문헌 조사",
+      "description": "Athena에서 논문 찾기, 선행연구 조사, DOI·서지 확인, 검색식 작성 또는 문헌 후보 선별을 요청할 때 사용한다. 실제 검색 이력과 초록·원문 접근 범위를 구분하여 출처가 있는 문헌 목록을 만든다.",
+      "version": "0.1.0",
+      "path": "athena-literature-search/SKILL.md",
+      "sha256": "e8f1eb5efe271374e3dd27d5a0a9fb5751bd974196ef7cae779b841cb5d7b4af",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "literature.search"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-research-writing",
+      "name": "연구 보고서",
+      "description": "Athena에서 연구 보고서, 논문 초안, 실험 방법·결과·고찰, 문헌 비교 또는 근거가 필요한 연구 글의 작성·수정을 요청할 때 사용한다. 주장과 출처, 실제 분석 결과, 원고 변경 이력을 연결한다.",
+      "version": "0.1.0",
+      "path": "athena-research-writing/SKILL.md",
+      "sha256": "01901b64fd231bd785d58390e4c31aea71a5d11895287bb6cb50e7f4d8273617",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "read"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-independent-review",
+      "name": "독립 검토",
+      "description": "Athena에서 연구 결론, 계산 산출물 또는 문서 초안의 독립 검토를 요청받거나, 주장과 원시 근거의 일치·재현성·한계를 검토해야 할 때 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-independent-review/SKILL.md",
+      "sha256": "6aa89b2ecf8b61da8f24b46f5b3716a643eaf1cdc5a3ecbdd3997dc4ec4a2347",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent",
+        "child"
+      ],
+      "requiredCapabilities": [
+        "read_file"
+      ],
+      "automaticEligible": false
+    },
+    {
+      "id": "athena-knowledge-promotion",
+      "name": "검토한 지식 저장",
+      "description": "Athena에서 검토된 연구 결과를 장기 지식으로 남기거나, 재사용할 관찰·절차·주장을 Knowledge에 승격·갱신해 달라는 요청을 받았을 때 사용한다.",
+      "version": "0.1.0",
+      "path": "athena-knowledge-promotion/SKILL.md",
+      "sha256": "0eeb7512f665907e32597a2cc3ad329688456bed67d044bf98c62192439439e6",
+      "sourceCommit": "987e61d8b922c609b0fda3794a06f835c9b36530",
+      "roles": [
+        "parent"
+      ],
+      "requiredCapabilities": [
+        "knowledge.promote"
+      ],
+      "automaticEligible": false
+    }
+  ]
+}

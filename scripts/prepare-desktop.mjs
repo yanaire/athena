@@ -81,6 +81,19 @@ async function stageHost(host) {
       await copyFile(join(root, 'runtime', entry.name), join(host, 'runtime', entry.name));
     }
   }
+  // Host-owned procedure catalog; no project/user discovery, symlinks, scripts
+  // or package hooks are copied into the application.
+  const skillRoot=join(root,'skills');
+  const catalog=JSON.parse(await readFile(join(skillRoot,'catalog.json'),'utf8'));
+  await mkdir(join(host,'skills'));
+  await copyFile(join(skillRoot,'catalog.json'),join(host,'skills','catalog.json'));
+  for (const skill of catalog.skills) {
+    if (!/^[a-z][a-z0-9-]*$/.test(skill.id) || skill.path!==skill.id+'/SKILL.md') throw new Error('Invalid bundled skill path.');
+    const path=join(skillRoot,skill.path), info=await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || await sha256(path)!==skill.sha256) throw new Error('Bundled skill failed integrity validation.');
+    await mkdir(join(host,'skills',skill.id));
+    await copyFile(path,join(host,'skills',skill.path));
+  }
   if (process.env.ATHENA_BUILD_CHATGPT_LOCAL === '1') {
     await writeFile(join(host, 'runtime', 'desktop-distribution.ts'), 'export const localChatGPTPlanUsage: boolean = true;\n');
   }

@@ -17,6 +17,9 @@
   </p>
 </div>
 
+> **현재 상태(2026-11-25):** 검토한 Apple Silicon Mac용 통합 후보에는 MCP, 연구 확장 기능, Workflow DAG 소스가 포함되어 있습니다.
+> 아래의 기준선 설명과 검증 기록은 이전 버전의 이력을 보존한 것으로, 실제 Mac과 실제 계정을 사용한 최종 인수 검증은 아직 완료되지 않았으며, 현재 통합 범위는 [영문 README](README.md)와 [통합 검토 기록](docs/validation/2026-11-25-open-pr-integration-review.md)을 참고하세요.
+
 > [!IMPORTANT]
 > **소스 프리뷰이며 정식 공개 릴리스가 아닙니다.** Athena 자체 코드에 Apache-2.0을 선택했지만, 제3자 고지, UI·에셋 권리 및 Git 이력 공개 적합성 검토가 남아 있습니다. 저장소가 공개 상태라고 이 의무가 해결된 것은 아닙니다. 검토 완료 전에는 소스 후보나 앱을 재배포하지 마세요. [릴리스 상태](docs/oss-preview-status.md), [제3자 고지](THIRD_PARTY_NOTICES.md), [알려진 제한](docs/known-limitations.md)을 참조하세요. 정식 서명·공증 설치 파일이나 공개 DMG는 없습니다.
 

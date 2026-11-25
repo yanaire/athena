@@ -16,3 +16,4 @@ credentials.v2.json
 /src-tauri/target/
 /sandbox/target/
 /.analysis-runtime/
+/athena-backend-handoff/athena-codex-ui/qa/browser-evidence/

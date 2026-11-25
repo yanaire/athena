@@ -1,38 +1,9 @@
-import { constants, closeSync, fstatSync, openSync, readSync, writeFileSync } from 'node:fs';
+import { csvBinding } from './mcp-contract.mjs';
+import { McpDataError as CsvDataError, serve } from './mcp-worker.mjs';
 
-// This worker accepts data only. It never imports from a request, opens a
-// socket, starts another process, or interprets any CSV cell as code.
-const MAX_INPUT = 1024 * 1024;
-const MAX_OUTPUT = 64 * 1024;
 const MAX_ROWS = 100_000;
 const MAX_COLUMNS = 128;
 const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
-
-class CsvDataError extends Error {}
-
-function input() {
-  const fd = openSync('input.csv', constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const st = fstatSync(fd);
-    if (!st.isFile() || st.size < 1 || st.size > MAX_INPUT) throw new CsvDataError('CSV input size is invalid.');
-    const data = Buffer.allocUnsafe(MAX_INPUT + 1);
-    let size = 0;
-    while (size < data.length) {
-      const n = readSync(fd, data, size, data.length - size, size);
-      if (!n) break;
-      size += n;
-    }
-    if (size !== st.size) throw new CsvDataError('CSV input changed during reading.');
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(data.subarray(0, size));
-    } catch (error) {
-      if (!(error instanceof TypeError)) throw error;
-      throw new CsvDataError('CSV must be valid UTF-8.');
-    }
-  } finally {
-    closeSync(fd);
-  }
-}
 
 /** Yield one record at a time; retain no previously parsed rows. */
 function* records(csv) {
@@ -119,16 +90,6 @@ function summary(csv, column) {
   return { schemaVersion: 1, rowCount, columns, statistics: statistics.map(({ index: _, ...stat }) => stat) };
 }
 
-try {
-  process.umask(0o077);
-  process.stdout.write('Calculating CSV statistics.\n');
-  const result = summary(input(), process.argv[2]);
-  const json = JSON.stringify(result) + '\n';
-  if (Buffer.byteLength(json) > MAX_OUTPUT) throw new CsvDataError('CSV statistics exceed the artifact size limit.');
-  writeFileSync('statistics.json', json, { flag: 'wx', mode: 0o400 });
-  process.stdout.write(`Finished: ${result.rowCount} data records.\n`);
-} catch (error) {
-  if (!(error instanceof Error)) throw error;
-  process.stderr.write(error instanceof CsvDataError ? `${error.message}\n` : 'CSV worker could not read its input or write its artifact.\n');
-  process.exitCode = error instanceof CsvDataError ? 2 : 1;
-}
+await serve(csvBinding, 'Summarize numeric measurements in the granted CSV.',
+  (csv, args) => summary(csv, args.column),
+  result => ({rowCount: result.rowCount}));

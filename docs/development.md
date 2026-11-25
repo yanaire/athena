@@ -14,6 +14,36 @@ npm run desktop:build
 
 Regenerate with `python3 athena-backend-handoff/athena-codex-ui/build.py`. The [UI contract commands](../athena-backend-handoff/START-HERE.md#기존-ui-확인-명령) run independently of Finder and real-model testing. Desktop preparation consumes the generated HTML. Keep local workspaces, credentials, bundled apps and raw QA evidence out of Git.
 
+## Manual task recovery
+
+The host advertises `retry_task` for failed, interrupted (`paused`), or cancelled direct child tasks from the latest run in the selected conversation. The workflow detail and conversation activity show the host's eligibility and failure reason. A retry stays in the original run and task, appends an attempt, and retains prior attempts, logs, successful sibling results, and artifact versions.
+
+The RPC is `retryTask(taskId, { requestId, expectedAttemptId })`. Reuse the request ID after an uncertain response; the UI saves its request identity before sending it. The host atomically records the child attempt, a coordinator reconciliation attempt, and a durable receipt. Replaying a receipt returns that acceptance without dispatching work again. A mismatched payload, stale attempt, older run, or different selected conversation is rejected. A later cancellation during retry preparation also prevents admission. Previously settled prompt receipts retain their original outcome.
+
+Recovery rechecks the original input bytes and artifact grants. Saved model profiles retain their original model, thinking level, endpoint, and account target; changing the project default does not retarget a retry. If that context is unavailable, recovery reports an error before accepting a new attempt. Legacy endpoint configuration is checked against the original runtime model; older legacy records without an endpoint can only validate their saved provider, model, and thinking level. Restarted hosts pause unfinished work and require another explicit retry request; restoring history or replaying an accepted request never resumes execution automatically.
+
+Saved API-key profiles also bind the resolved credential to the run. A private, installation-scoped HMAC key makes this binding stable across restarts without putting the API key in model metadata. Replacing the credential prevents an old run from being retried with the replacement; a new request can use the new credential. Old API-key runs that saved only a provider-wide authentication label cannot prove which credential they used and must start a new request after restart. Losing the private binding key also requires a new request. ChatGPT continues to use its existing registration identity. In-memory providers without a storage directory only preserve the binding for the same credential-store instance. Legacy environment-only sessions using `ATHENA_ENDPOINT`/`ATHENA_API_KEY` do not pass through profile credential binding; their recovery checks remain limited to the saved model and endpoint. Use a saved model profile when recovery must retain the original credential.
+
+After the children settle, the coordinator gets a new turn to update the final answer from their current results. This context uses a persistent hidden SDK custom message, so internal task identifiers do not become a visible user message. Real user messages remain unchanged, even when their text resembles a recovery prompt. During recovery the host permits result inspection and joining, and rejects coordinator requests to spawn, send more work, or cancel children. The scheduler keeps one lease per Pi conversation so an earlier parent turn cannot overlap this continuation. Successful siblings are not reexecuted.
+
+Each attempt stops after three failures for the same tool and equivalent arguments, or eight total tool failures. A successful call clears the repeated-failure count only for its own argument signature. The total failure count remains for the attempt. The host persists a failed outcome before aborting Pi, so a later aborted event cannot replace the recorded cause. A user-approved new attempt gets a fresh budget; existing artifacts and logs remain available.
+
+Host-added attachment instructions remain in the model dispatch and saved Pi transcript. Live user messages and public history show the original user input by matching the exact owning attempt and appended attachment metadata. Text that the user independently writes, including a literal copy of those instructions, remains unchanged. This projection does not change file grants or stored transcripts.
+
+Tool activity cards show each recorded tool call's own outcome. Retrying its task does not change a previously completed tool into a running or failed tool, and the earlier logs and result links remain attached to that call. Moving between a conversation with results and an empty conversation invalidates both artifact render caches: the empty conversation cannot retain another conversation's result, and reopening the original conversation restores its table and download.
+
+Process completion and artifact publication must be stored before a successful result is returned to the model. A publication failure returns a failed result without an artifact. If even the failure cannot be recorded, the runner stops admitting work and settles queued requests instead of reporting unrecorded successes. A notification listener failing after the storage transaction commits does not undo the stored publication.
+
+Focused regression checks use real Pi sessions with a controlled loopback provider, durable SQLite state, actual CSV jobs, and forced process death:
+
+```sh
+node --test tests/manager-recovery.test.ts tests/recovery-http.test.ts tests/tool-failure-budget.test.ts
+```
+
+The complete workflow also prepares the WASI runtime, runs the existing host and UI checks, and builds the native Apple Silicon app. Controlled-provider and DOM checks do not establish real-model quality or Finder interaction.
+
+## Distribution review builds
+
 For a distribution review build, start in a clean source directory and run the desktop build with the path mappings below. Both Rust executables otherwise can contain the build account's home path in compiled source locations. Cargo passes each mapping as a single argument even if its path contains spaces. Use a clean shell for this recipe; it supplies the build's Rust flags.
 
 ```sh
