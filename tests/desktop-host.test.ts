@@ -13,6 +13,7 @@ import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
 import { artifactRef, type ArtifactRow } from '../runtime/orchestration.ts';
 import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { Storage } from '../runtime/storage.ts';
+import { assertKilled, assertPrivatePermissions, systemEnvironment, windows } from './platform-test-helpers.ts';
 
 const marker = 'ATHENA_DESKTOP_BOOTSTRAP';
 const authPath = (directory: string) => join(directory, 'auth/credentials.v2.json');
@@ -40,7 +41,7 @@ function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, 
     host.once('exit', code => process.exit(code ?? 1));`;
   const child = spawn(process.execPath, throughParent ? ['--input-type=commonjs', '-e', relay, script] : [script, '--desktop'], {
     cwd: directory, stdio: ['pipe', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH, HOME: directory, ATHENA_DATA_DIR: directory, ATHENA_PORT: 'not-a-port', NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(prohibitKeychain)}`, ...env },
+    env: { ...systemEnvironment(), HOME: directory, USERPROFILE: directory, ATHENA_DATA_DIR: directory, ATHENA_PORT: 'not-a-port', NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(prohibitKeychain)}`, ...env },
   });
   const output: string[] = [];
   const stdout = createInterface({ input: child.stdout });
@@ -112,7 +113,7 @@ test('private migration pipe accepts explicit key replies and rejects malformed 
         process.stdin.destroy();
       `;
       const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
-        env: { PATH: process.env.PATH, HOME: await workspace(t) }, stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...systemEnvironment(), HOME: await workspace(t) }, stdio: ['pipe', 'pipe', 'pipe'],
       });
       const exited = new Promise<number | null>(resolve => child.once('close', resolve));
       t.after(async () => {
@@ -267,7 +268,7 @@ test('desktop fails closed with a structured frame for invalid startup input', {
   }
 });
 
-test('desktop owns the workspace before requesting a private session token and supports SIGTERM and SIGINT', { timeout: 15_000 }, async t => {
+test('desktop owns the workspace before requesting a private session token and shuts down through its parent pipe', { timeout: 15_000 }, async t => {
   const directory = await workspace(t);
   const first = launch(t, directory);
   assert.equal((await first.lines.next()).value, marker);
@@ -281,12 +282,23 @@ test('desktop owns the workspace before requesting a private session token and s
   first.child.stdin.write(line.slice(45));
   first.child.stdin.write('\n');
   await ready(first);
-  first.child.kill('SIGTERM');
+  first.child.stdin.end();
   assert.deepEqual(await first.exited, { code: 0, signal: null });
 
   const restarted = await start(t, directory, startup);
-  restarted.child.kill('SIGINT');
+  restarted.child.stdin.end();
   assert.deepEqual(await restarted.exited, { code: 0, signal: null });
+});
+
+test('desktop also handles POSIX SIGTERM and SIGINT with a graceful exit', {
+  timeout: 15_000, skip: windows ? 'Windows process.kill is forced termination; graceful desktop shutdown is verified through its parent pipe.' : false,
+}, async t => {
+  const directory = await workspace(t);
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    const host = await start(t, directory);
+    assert.equal(host.child.kill(signal), true);
+    assert.deepEqual(await host.exited, { code: 0, signal: null });
+  }
 });
 
 test('desktop drains an active SSE connection when its parent is killed', { timeout: 15_000 }, async t => {
@@ -302,7 +314,8 @@ test('desktop drains an active SSE connection when its parent is killed', { time
   host.child.kill('SIGKILL');
   assert.equal(await drain, ': subscribed\n\n');
   // Only the relay is signalled. The inherited stdout/stderr pipes close after Node drains and exits.
-  assert.deepEqual(await host.exited, { code: null, signal: 'SIGKILL' });
+  const killed = await host.exited;
+  assertKilled(killed.code, killed.signal);
   const restarted = await start(t, directory, startup);
   restarted.child.stdin.end();
   assert.deepEqual(await restarted.exited, { code: 0, signal: null });
@@ -319,7 +332,7 @@ test('desktop persists local credentials across token-only restarts without read
   const response = await fetch(first.base + '/api/rpc', { ...rpc('saveProviderApiKey', ['openai', 'local-test-fixture']),
     headers: { 'Content-Type': 'application/json', Cookie: first.cookie }, signal: AbortSignal.timeout(3_000) });
   assert.equal(response.status, 200);
-  assert.equal((await stat(authPath(directory))).mode & 0o777, 0o600);
+  await assertPrivatePermissions(authPath(directory), 0o600);
   first.child.stdin.end();
   assert.deepEqual(await first.exited, { code: 0, signal: null });
   const local = await readFile(authPath(directory));

@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod legacy_keychain;
 mod sidecar;
 
@@ -55,7 +57,7 @@ fn show_workspace(app: &AppHandle, ready: sidecar::Ready) -> Result<()> {
         }
         ensure!(
             Instant::now() < deadline,
-            "WebKit did not accept the private session"
+            "The system webview did not accept the private session"
         );
         thread::sleep(Duration::from_millis(25));
     }
@@ -93,6 +95,24 @@ fn is_artifact(path: &str) -> bool {
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
     })
+}
+
+#[cfg(target_os = "windows")]
+fn windows_download_path(download: &Path, proposed: &Path) -> Option<std::path::PathBuf> {
+    // WebView2 does not supply WebKit's Downloads collision policy. Keep each
+    // scoped response under Downloads and choose a fresh name before accepting.
+    let name = proposed.file_name()?.to_str()?;
+    if name.is_empty() || name.contains(['/', '\\', ':', '\0']) { return None; }
+    let file = Path::new(name);
+    let stem = file.file_stem()?.to_str()?;
+    let mut random = [0_u8; 8];
+    getrandom::fill(&mut random).ok()?;
+    let suffix = hex::encode(random);
+    let candidate = match file.extension().and_then(|value| value.to_str()) {
+        Some(ext) => download.join(format!("{stem}-{suffix}.{ext}")),
+        None => download.join(format!("{stem}-{suffix}")),
+    };
+    (!candidate.exists()).then_some(candidate)
 }
 
 fn focus(app: &AppHandle) {
@@ -140,7 +160,7 @@ fn startup(app: &mut tauri::App) -> Result<()> {
     let download = app
         .path()
         .download_dir()
-        .context("macOS Downloads folder is unavailable")?;
+        .context("The Downloads folder is unavailable")?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("Athena")
         .inner_size(1340.0, 900.0)
@@ -150,19 +170,23 @@ fn startup(app: &mut tauri::App) -> Result<()> {
         .devtools(false)
         .center()
         .on_navigation(move |url| {
-            (url.scheme() == "tauri"
-                && url.host_str() == Some("localhost")
+            (((url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+                || (cfg!(target_os = "windows") && url.scheme() == "http" && url.host_str() == Some("tauri.localhost")))
+                && url.username().is_empty() && url.password().is_none() && url.port().is_none()
                 && matches!(url.path(), "/" | "/index.html"))
                 || (is_workspace(&main, url) && (url.path() == "/" || is_artifact(url.path())))
         })
         .on_new_window(|_, _| NewWindowResponse::Deny)
         .on_download(move |view, event| match event {
             DownloadEvent::Requested { url, destination } => {
-                // Only scoped result-file downloads. Wry's macOS delegate
-                // supplies a collision-free filename in the user's Downloads.
-                is_workspace(view.app_handle(), &url)
-                    && is_artifact(url.path())
-                    && destination.parent() == Some(Path::new(&download))
+                if !is_workspace(view.app_handle(), &url) || !is_artifact(url.path()) { return false; }
+                #[cfg(target_os = "windows")]
+                {
+                    let Some(path) = windows_download_path(&download, destination) else { return false; };
+                    *destination = path;
+                }
+                // Wry's macOS delegate already supplies a collision-free name.
+                destination.parent() == Some(Path::new(&download))
             }
             DownloadEvent::Finished { success, .. } => {
                 if !success {
@@ -233,6 +257,7 @@ fn main() -> Result<()> {
                 wait_for_shutdown(app, &state);
             }
         }
+        #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => focus(app),
         _ => {}
     });

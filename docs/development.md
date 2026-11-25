@@ -1,11 +1,12 @@
 # Development
 
-This document describes a local source build. Developer ID signing, notarization, and installation on another Mac are deferred desktop-release work, not requirements for the current source preview. No virtual machine is needed for this preview.
+This document describes a local source build. The cross-platform candidate supports native macOS arm64, macOS x64 and Windows x64 packaging. Developer ID signing, notarization, Windows Authenticode signing and acceptance on another user's computer remain desktop-release work. No virtual machine is required to build on the matching operating system.
 
-The Apple Silicon build uses Node 24.22.3, npm, Python 3 for UI assembly, Xcode Command Line Tools, `curl`, `tar`, `unzip`, and Rust 1.99.1 with the `aarch64-apple-darwin` target. npm and both Cargo graphs use lockfiles. Upstream Node and WASI archives are checksum pinned. The [workflow](../.github/workflows/verify.yml) runs these checks without Docker:
+Builds use Node 24.22.3, npm, Python 3 for UI assembly, and Rust 1.99.1. macOS needs Xcode Command Line Tools, `curl`, `tar` and `unzip`; Windows needs the MSVC C++ build tools/Windows SDK, WebView2, Windows PowerShell, `curl.exe` and `tar.exe`. The native targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, and `x86_64-pc-windows-msvc`. npm and both Cargo graphs use lockfiles. Upstream Node and WASI archives are checksum pinned. The [workflow](../.github/workflows/verify.yml) verifies each native platform and the Chromium UI without Docker:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
+python3 athena-backend-handoff/athena-codex-ui/build.py
 npm run check
 npm run analysis:prepare
 npm test
@@ -40,7 +41,7 @@ Focused regression checks use real Pi sessions with a controlled loopback provid
 node --test tests/manager-recovery.test.ts tests/recovery-http.test.ts tests/tool-failure-budget.test.ts
 ```
 
-The complete workflow also prepares the WASI runtime, runs the existing host and UI checks, and builds the native Apple Silicon app. Controlled-provider and DOM checks do not establish real-model quality or Finder interaction.
+The complete workflow also prepares the WASI runtime, runs the host and UI checks, and builds the native application on Apple Silicon, Intel Mac and Windows x64 runners. Windows additionally installs the generated NSIS package in a disposable CI directory and verifies its installed runtime. Controlled-provider and DOM checks do not establish real-model quality, native WebView rendering or a user's operating-system installation experience.
 
 ## Distribution review builds
 

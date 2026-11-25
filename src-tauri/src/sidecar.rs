@@ -113,16 +113,20 @@ fn random_hex() -> Result<String> {
 
 fn sidecar_path() -> Result<std::ffi::OsString> {
     let inherited = env::var_os("PATH").unwrap_or_default();
+    #[cfg(not(target_os = "windows"))]
+    let defaults = vec![
+        PathBuf::from("/usr/bin"), PathBuf::from("/bin"), PathBuf::from("/usr/sbin"),
+        PathBuf::from("/sbin"), PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin"),
+    ];
+    #[cfg(target_os = "windows")]
+    let defaults = {
+        let root = PathBuf::from(env::var_os("SystemRoot").context("Windows system directory is unavailable")?);
+        ensure!(root.is_absolute(), "Windows system directory must be absolute");
+        vec![root.join("System32"), root]
+    };
     let dirs = env::split_paths(&inherited)
         .filter(|path| path.is_absolute())
-        .chain([
-            PathBuf::from("/usr/bin"),
-            PathBuf::from("/bin"),
-            PathBuf::from("/usr/sbin"),
-            PathBuf::from("/sbin"),
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/usr/local/bin"),
-        ]);
+        .chain(defaults);
     env::join_paths(dirs).context("Could not construct the Athena backend search path")
 }
 
@@ -138,11 +142,11 @@ impl Sidecar {
             "ATHENA_DATA_DIR must be an absolute workspace path"
         );
         let host_dir = app.path().resource_dir()?.join("host");
-        let binary = env::current_exe().context("Could not locate Athena.app")?;
+        let binary = env::current_exe().context("Could not locate the Athena executable")?;
         let executable = binary
             .parent()
             .context("Athena executable has no parent")?
-            .join("athena-node");
+            .join(if cfg!(target_os = "windows") { "athena-node.exe" } else { "athena-node" });
         Ok(Self {
             host_dir,
             executable,
@@ -161,6 +165,11 @@ impl Sidecar {
             "The Athena backend is missing from this app bundle"
         );
         let mut command = Command::new(&self.executable);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW; pipes remain available.
+        }
         command
             .arg(entry)
             .arg("--desktop")
@@ -193,7 +202,7 @@ impl Sidecar {
         }
         let mut child = command
             .spawn()
-            .context("Could not launch the Node runtime inside Athena.app")?;
+            .context("Could not launch the Node runtime inside Athena")?;
         let lifetime = child.stdin.take();
         let mut process = Process { child, lifetime };
         let stdout = process

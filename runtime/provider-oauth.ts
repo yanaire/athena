@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, open, unlink, writeFile } from 'node:fs/promises';
+import { link, lstat, open, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Credential, CredentialStore } from '@earendil-works/pi-ai';
 import { CredentialSynchronizationError } from '@earendil-works/pi-coding-agent';
@@ -9,6 +9,7 @@ import { createOpenAIAuthorization, OPENAI_AUTHORIZE_URL, OpenAIRequestUnavailab
 import { chatGPTAccountRef } from './chatgpt-catalog.ts';
 import { CredentialPersistenceError, CredentialVaultError } from './provider-credentials.ts';
 import type { ProviderOAuthFlow } from '../athena-backend-handoff/athena-codex-ui/integrations/model-profiles.d.ts';
+import { hasPrivatePermissions, setWindowsPrivate } from './private-storage.ts';
 
 export interface OpenAIOAuthRegistrationOptions {
   readonly credentials: Pick<CredentialStore, 'read'>;
@@ -38,10 +39,12 @@ export class ProviderOAuthError extends Error {
 
 async function readDeviceId(path: string): Promise<string | undefined> {
   try {
+    const expected = await lstat(path);
+    if (!expected.isFile()) throw new ProviderOAuthError('DEVICE_ID', 'Invalid Athena OAuth device ID file.');
     const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = await file.stat();
-      if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.size !== 37) {
+      if (!stat.isFile() || stat.dev !== expected.dev || stat.ino !== expected.ino || !hasPrivatePermissions(path, stat) || stat.size !== 37) {
         throw new ProviderOAuthError('DEVICE_ID', 'Invalid Athena OAuth device ID file.');
       }
       return (await file.readFile('utf8')).trimEnd();
@@ -62,6 +65,7 @@ export async function loadDeviceId(directory: string): Promise<string> {
   const temporary = join(directory, `openai-oauth-device-${randomUUID()}.tmp`);
   await writeFile(temporary, `${id}\n`, { flag: 'wx', mode: 0o600 });
   try {
+    if (process.platform === 'win32') setWindowsPrivate(temporary);
     // Publish a complete ID without ever replacing an existing installation's ID.
     await link(temporary, path);
     return id;

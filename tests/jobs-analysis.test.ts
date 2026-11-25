@@ -8,6 +8,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test, {type TestContext} from 'node:test';
 import {AnalysisFiles} from '../runtime/analysis-files.ts';
 import {CsvJobRunner, type CsvJobRunnerOptions, type CsvAttempt} from '../runtime/jobs.ts';
+import {assertKilled, windows} from './platform-test-helpers.ts';
 
 const scope={projectId:'project',sessionId:'session',taskId:'task'};
 const identity={...scope,attemptId:'one',requestId:'req',toolId:'tool'};
@@ -183,9 +184,8 @@ test('a signalled interpreter records the signal and execution phase', live, asy
   const result = await runner.startAnalysis({ ...identity, language: 'node',
     script: { name: 'wait.mjs', bytes: Buffer.from('while (true) {}') }, inputs: [], outputs: [] }).result;
   assert.equal(result.status, 'failed');
-  assert.equal(result.exitCode, null);
-  assert.equal(result.signal, 'SIGTERM');
-  assert.match(result.error ?? '', /SIGTERM during analysis/);
+  assertKilled(result.exitCode, result.signal, 'SIGTERM');
+  assert.match(result.error ?? '', windows ? /SIGTERM during analysis|returned 1|exited with code 1/ : /SIGTERM during analysis/);
   assert.equal(result.artifacts, undefined);
 });
 

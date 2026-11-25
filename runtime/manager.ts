@@ -1,8 +1,9 @@
 import { builtins, bindCall } from './mcp-registry.ts';
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { Storage } from './storage.ts';
+import { createPrivateDirectory, hasPrivatePermissions } from './private-storage.ts';
 import type { StoredSession } from './storage.ts';
 import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
@@ -194,9 +195,10 @@ export class TaskManager implements AthenaTaskManager {
   #uploadDirectory(projectId: string): string {
     const root = realpathSync(this.#directory);
     const directory = join(root, 'projects', projectId, 'uploads');
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    try { createPrivateDirectory(directory); }
+    catch { throw new ManagerError('FILE_SCOPE_MISMATCH', 'Upload storage is not a private project directory.'); }
     const status = lstatSync(directory);
-    if (!status.isDirectory() || status.uid !== process.getuid?.() || (status.mode & 0o077) || realpathSync(directory) !== directory) {
+    if (!status.isDirectory() || realpathSync(directory) !== directory) {
       throw new ManagerError('FILE_SCOPE_MISMATCH', 'Upload storage is not a private project directory.');
     }
     return directory;
@@ -213,7 +215,7 @@ export class TaskManager implements AthenaTaskManager {
       const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const actual = fstatSync(fd);
-        if (!actual.isFile() || actual.nlink !== 1 || actual.uid !== process.getuid?.() || (actual.mode & 0o077) ||
+        if (!actual.isFile() || actual.nlink !== 1 || !before.isFile() || !hasPrivatePermissions(path, actual) ||
           actual.dev !== before.dev || actual.ino !== before.ino || actual.size !== file.size || realpathSync(path) !== path) {
           throw new ManagerError('FILE_CHANGED', 'The staged upload is no longer the granted file.');
         }
@@ -430,7 +432,7 @@ export class TaskManager implements AthenaTaskManager {
   async createProject(input: { name: string; defaultModel?: ModelReference | null }) {
     this.#assertIdle();
     const project: Project = { id: randomUUID(), name: text(input.name, 'Project name'), defaultModel: input.defaultModel ?? null };
-    mkdirSync(this.#projectDir(project.id), { recursive: true, mode: 0o700 });
+    createPrivateDirectory(this.#projectDir(project.id));
     this.#active = null;
     this.#commit(() => {
       this.#storage.putProject(project);

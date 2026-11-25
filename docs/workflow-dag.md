@@ -46,6 +46,14 @@ The browser test launches the actual host and Pi transport with a controlled loc
 
 `--fixture-smoke` runs the host/provider fixture and direct HTTP result checks without a browser. It must never be counted as rendered UI validation. Likewise, DOM contracts and browser tests with controlled responses do not verify real-account inference, native WKWebView rendering, two-account switching or cancellation during a short MCP calculation.
 
+### Verified browser candidate
+
+The `browser-chat` job in [workflow run 45564854286](https://github.com/yanaire/athena/actions/runs/45564854286) passed for PR head `337259cee5ce8c2c99a900106c273dfafda06029` on 2026-11-25. Its report identifies tree `d338268ff7f5756becd38170db835f15ce1f9595` and generated UI SHA-256 `ee9a54b2faf72b158283df136a909454b8e29de5a341c26ddf5aa01217437e89`, which match the resumed workspace before portability edits.
+
+Fourteen scenarios passed with Chromium `151.0.7922.34` and locked Playwright `1.62.1`. These include text and attachment sends, incremental streaming, request-local child activity, hidden internal activity IDs, graph node/edge selection, fit and zoom, checked downloads, rejected-send recovery, stop response, host restart/reload, attachment-only history, and the limited Browser/Device panels. At widths 1440 and 760, the graph edge endpoints met their cards within 0.001 px. Completion followed the bottom of the chat; a reader who scrolled up stayed at the same `scrollTop` across the next stream update. CSV and RC downloads retained the exact worker-reported hashes.
+
+All eleven evidence screenshots were visually inspected in the resumed session. The local DOM suites passed 246 checks and the host-only fixture repeated both numerical/download assertions. The local environment cannot create UNIX sockets required by Chromium, so rendered evidence comes from the successful CI job, not a claimed second local browser run. Native WebView2/WKWebView and real-account behavior still require their own acceptance evidence.
+
 ## Native acceptance follow-up
 
 The Mac reviewer must build the exact final candidate SHA, then check CSV and RC delegation, graph request selection and process details, downloads with matching hashes, reload/restart preservation, failed/cancelled child retry, attachment-only submission and attachment labels after reopening. The report must separate actual-account observations from controlled-provider or CI results. Browser and Device limitations listed in [the capability audit](ui-capability-audit.md) remain intentional unfinished scope.

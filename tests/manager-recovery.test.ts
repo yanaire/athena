@@ -14,6 +14,7 @@ import { ModelProfiles } from '../runtime/model-profiles.ts';
 import { createPiSession } from '../runtime/pi.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
 import { openLocalCredentials } from '../runtime/local-credentials.ts';
+import { assertKilled } from './platform-test-helpers.ts';
 
 type Wire = { model: string; messages: { role: string; content: unknown }[];
   tools: { function: { name: string } }[] };
@@ -411,7 +412,8 @@ test('host death after retry acceptance restores paused attempts and replays nei
   let errors = ''; assert.ok(host.stderr); host.stderr.on('data', value => { errors += String(value); });
   t.after(() => { if (host.exitCode === null && host.signalCode === null) host.kill('SIGKILL'); });
   const [[accepted]]: [[Awaited<ReturnType<TaskManager['retryTask']>>], void] = await Promise.all([once(host, 'message'), retryArrived.promise]) as [[Awaited<ReturnType<TaskManager['retryTask']>>], void];
-  const exit = once(host, 'exit'); host.kill('SIGKILL'); assert.deepEqual(await exit, [null, 'SIGKILL'], errors);
+  const exit = once(host, 'exit'); assert.equal(host.kill('SIGKILL'), true);
+  const [code, signal] = await exit; assertKilled(code, signal, 'SIGKILL', errors);
   const calls = state.hits.length;
   manager = await state.manager(); const restored = manager.getSnapshot();
   assert.equal(restored.run.status, 'paused');

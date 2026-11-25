@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
+import { assertKilled, posixSignalsOnly } from './platform-test-helpers.ts';
 
 type Wire = {
   messages: { role: string; content: unknown }[];
@@ -118,7 +119,7 @@ test('two child provider requests overlap at limit two; a queued third enters on
   }
 });
 
-test('cancelRun aborts both children, closes the held model request and terminates the active CSV process group', { timeout: 15000 }, async t => {
+test('cancelRun aborts both children, closes the held model request and terminates the active CSV process group', { timeout: 15000, skip: posixSignalsOnly }, async t => {
   const names = ['CSV worker', 'Streaming worker'];
   const streaming = Promise.withResolvers<void>(), disconnected = Promise.withResolvers<void>();
   const { manager, sessionId } = await fixture(t, names, (name, res) => {
@@ -198,7 +199,8 @@ for (const action of ['cancel', 'crash'] as const) {
       const host = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
       t.after(() => { if (host.exitCode === null && host.signalCode === null) host.kill('SIGKILL'); });
       const [[snapshot]] = await Promise.all([once(host, 'message'), held.promise]); before = snapshot;
-      const exited = once(host, 'exit'); host.kill('SIGKILL'); assert.deepEqual(await exited, [null, 'SIGKILL']);
+      const exited = once(host, 'exit'); assert.equal(host.kill('SIGKILL'), true);
+      const [code, signal] = await exited; assertKilled(code, signal);
     }
     assert.equal(before.run.status, 'blocked');
     const root = before.attempts.find(a => !a.parentTaskId), child = before.attempts.find(a => a.parentTaskId);

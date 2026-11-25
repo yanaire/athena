@@ -10,6 +10,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
 import { Storage } from '../runtime/storage.ts';
+import { assertKilled } from './platform-test-helpers.ts';
 
 type Message={role:string;content:unknown;tool_call_id?:string};
 type Wire={messages:Message[];tools:{function:{name:string}}[]};
@@ -245,7 +246,7 @@ test('host death after CSV admission interrupts the waiting parent, worker and q
   const child=spawn(process.execPath,['--input-type=module','-e',script],{stdio:['ignore','ignore','pipe']});
   let errors='';child.stderr.on('data',b=>{errors+=String(b);});
   t.after(()=>{if(child.exitCode===null && child.signalCode===null)child.kill('SIGKILL');});
-  const [,signal]=await once(child,'exit');assert.equal(signal,'SIGKILL',errors);
+  const [code,signal]=await once(child,'exit');assertKilled(code,signal,'SIGKILL',errors);
   const before=requests;const manager=await launch();const s=manager.getSnapshot();
   assert.equal(s.run.status,'paused');assert.deepEqual(s.attempts.map(a=>a.status),['paused','paused','paused']);
   const [proc]=s.processes;assert.ok(proc);assert.equal(proc.status,'interrupted');assert.equal(proc.job.cancellation,'unknown');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
@@ -15,6 +15,7 @@ import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
 import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
 import type { ProviderOAuthFlow } from '../athena-backend-handoff/athena-codex-ui/integrations/model-profiles.d.ts';
+import { assertPrivatePermissions } from './platform-test-helpers.ts';
 
 const issuer = 'https://auth.openai.com';
 const resource = 'https://api.openai.com/v1';
@@ -189,7 +190,7 @@ test('Pi stores only a verified OpenAI registration, preserves the catalog, and 
   t.after(() => returning.close());
   const relogin = await begin(returning);
   const deviceFile = join(f.options.deviceIdDirectory, 'openai-oauth-device.v1');
-  assert.equal((await stat(deviceFile)).mode & 0o777, 0o600);
+  await assertPrivatePermissions(deviceFile, 0o600);
   const deviceId = (await readFile(deviceFile, 'utf8')).trim();
   assert.equal(login.url.searchParams.get('ext_agent_host_id'), `urn:uuid:${deviceId}`);
   assert.equal(relogin.url.searchParams.get('ext_agent_host_id'), `urn:uuid:${deviceId}`);

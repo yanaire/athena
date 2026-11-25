@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
+import { createPrivateDirectory, hasPrivatePermissions } from './private-storage.ts';
 
 export type AnalysisScope = { readonly projectId: string; readonly sessionId: string; readonly taskId: string };
 type Attempt = AnalysisScope & { readonly attemptId: string };
@@ -26,7 +27,8 @@ export class AnalysisFileError extends Error {
 type CommandFilename = { readonly field: string; readonly mount: '/workspace/' | '/outputs/' };
 
 const isAnalysisName = (name: string) => typeof name === 'string' && name.length <= 96 &&
-  /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name) && !name.includes('..') && MIME.has(extname(name).toLowerCase());
+  /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name) && !name.includes('..') &&
+  !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) && MIME.has(extname(name).toLowerCase());
 
 export function validateAnalysisName(name: string, hint?: CommandFilename): string {
   if (!isAnalysisName(name)) {
@@ -72,17 +74,18 @@ function scopeKey(...ids: readonly string[]): string {
 // The manager owns dataDir and its ancestors. No paths from this store enter a guest.
 function privateDir(parent: string, child: string): string {
   const path = join(parent, child);
-  mkdirSync(path, { recursive: true, mode: 0o700 });
+  try { createPrivateDirectory(path); }
+  catch (cause) { throw new AnalysisFileError('Expected a private host-owned storage directory.', { cause }); }
   const st = lstatSync(path);
-  if (!st.isDirectory() || st.uid !== process.getuid?.() || (st.mode & 0o077) || realpathSync(path) !== path) {
+  if (!st.isDirectory() || realpathSync(path) !== path) {
     throw new AnalysisFileError('Expected a private host-owned storage directory.');
   }
   return path;
 }
 
-function inspect(path: string) {
+function inspect(path: string, exactMode?: number) {
   const st = lstatSync(path, { throwIfNoEntry: false });
-  if (st && (!st.isFile() || st.nlink !== 1 || st.size > ANALYSIS_FILE_LIMITS.fileBytes || st.uid !== process.getuid?.() || (st.mode & 0o077))) {
+  if (st && (!st.isFile() || st.nlink !== 1 || st.size > ANALYSIS_FILE_LIMITS.fileBytes || !hasPrivatePermissions(path, st, exactMode))) {
     throw new AnalysisFileError('Invalid analysis file.');
   }
   return st;
@@ -115,7 +118,7 @@ function replace(path: string, bytes: Uint8Array | string, mode: number): void {
     writeFileSync(temp, bytes, { flag: 'wx', mode, flush: true });
     renameSync(temp, path);
   } catch (error) {
-    if (lstatSync(temp, { throwIfNoEntry: false })) unlinkSync(temp);
+    if (lstatSync(temp, { throwIfNoEntry: false })) rmSync(temp, { force: true });
     throw error;
   }
 }
@@ -124,9 +127,9 @@ function replace(path: string, bytes: Uint8Array | string, mode: number): void {
 // batch visible. Local edits shadow an earlier publication only at index commit.
 function published(dir: string): Map<string, string> {
   const path = join(dir, '.published');
-  const st = inspect(path);
+  const st = inspect(path, 0o600);
   if (!st) return new Map();
-  if ((st.mode & 0o7777) !== 0o600 || st.size > 16 * 1024) throw new AnalysisFileError('Invalid workspace index.');
+  if (st.size > 16 * 1024) throw new AnalysisFileError('Invalid workspace index.');
   const body: unknown = JSON.parse(text(readBytes(path)));
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AnalysisFileError('Invalid workspace index.');
   const results = new Map<string, string>();
@@ -162,15 +165,18 @@ export class AnalysisFiles {
     const key = validateAnalysisName(name).toLowerCase();
     const grantPath = join(dir, '.grant-' + key);
     const workPath = join(dir, key);
-    const grant = inspect(grantPath);
-    const work = inspect(workPath);
-    if ((grant && ((grant.mode & 0o7777) !== 0o400 || work)) || (work && (work.mode & 0o7777) !== 0o600)) {
+    const grant = inspect(grantPath, 0o400);
+    const work = inspect(workPath, 0o600);
+    if (grant && work) {
       throw new AnalysisFileError('Invalid workspace entry permissions or conflicting grant.');
     }
     const ref = index.get(key);
     if (ref && grant) throw new AnalysisFileError('Invalid workspace grant collision.');
     const path = ref ? join(privateDir(join(dir, '..'), 'versions'), ref.slice(0, 64)) : grant ? grantPath : workPath;
-    if (ref && ((inspect(path)?.mode ?? 0) & 0o7777) !== 0o400) throw new AnalysisFileError('Invalid published file.');
+    if (ref) {
+      const publishedInfo = inspect(path, 0o400);
+      if (!publishedInfo) throw new AnalysisFileError('Invalid published file.');
+    }
     return { grant, work, grantPath, workPath, path, ref };
   }
 
@@ -277,7 +283,7 @@ export class AnalysisFiles {
     } catch (error) {
       const failures: unknown[] = [error];
       for (const path of created) {
-        try { unlinkSync(path); }
+        try { rmSync(path, { force: true }); }
         catch (cleanupError) { failures.push(cleanupError); }
       }
       if (failures.length > 1) throw new AggregateError(failures, 'Artifact publication and rollback failed.');

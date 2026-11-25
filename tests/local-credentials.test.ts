@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -9,6 +9,7 @@ import test, { type TestContext } from 'node:test';
 import { CredentialMigration } from '../runtime/credential-migration.ts';
 import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import { CredentialVaultError, openProviderCredentials } from '../runtime/provider-credentials.ts';
+import { assertPrivatePermissions, directoryLink, makePublicPermissions, restorePrivatePermissions } from './platform-test-helpers.ts';
 
 async function setup(t: TestContext) {
   const dir = await mkdtemp(join(await realpath(tmpdir()), 'athena-local-credentials-'));
@@ -25,9 +26,8 @@ const invalid = (error: unknown) => error instanceof CredentialVaultError && err
 test('local credentials initialize privately and restore provider and account changes independently', async t => {
   const { auth, file } = await setup(t);
   const store = await openLocalCredentials(auth);
-  assert.equal((await lstat(auth)).mode & 0o777, 0o700);
-  assert.equal((await lstat(file)).mode & 0o777, 0o600);
-  assert.equal((await lstat(file)).uid, process.getuid?.());
+  await assertPrivatePermissions(auth, 0o700);
+  await assertPrivatePermissions(file, 0o600);
   assert.deepEqual(await store.list(), []);
   await store.modify('openai', async () => apiKey('fixture-api'));
   await store.modify('openai', async () => apiKey('updated-fixture'));
@@ -50,12 +50,12 @@ test('local credentials initialize privately and restore provider and account ch
 test('local credentials fail closed on permission changes, symbolic links and damaged JSON', async t => {
   const { auth, file, dir } = await setup(t);
   await openLocalCredentials(auth);
-  await chmod(file, 0o644);
+  await makePublicPermissions(file);
   await assert.rejects(openLocalCredentials(auth), invalid);
-  await chmod(file, 0o600);
-  await chmod(auth, 0o755);
+  await restorePrivatePermissions(file, 0o600);
+  await makePublicPermissions(auth, 0o755);
   await assert.rejects(openLocalCredentials(auth), invalid);
-  await chmod(auth, 0o700);
+  await restorePrivatePermissions(auth, 0o700);
   await writeFile(file, '{incomplete');
   await assert.rejects(openLocalCredentials(auth), invalid);
   assert.equal(await readFile(file, 'utf8'), '{incomplete');
@@ -65,7 +65,7 @@ test('local credentials fail closed on permission changes, symbolic links and da
   await symlink(unrelated, file);
   await assert.rejects(openLocalCredentials(auth), invalid);
   assert.equal(await readFile(unrelated, 'utf8'), 'unchanged');
-  await symlink(auth, join(dir, 'alias'));
+  await directoryLink(auth, join(dir, 'alias'));
   await assert.rejects(openLocalCredentials(join(dir, 'alias')), invalid);
 });
 
