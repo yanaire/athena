@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createPrivateDirectory, windowsPowerShellEnvironment, windowsStorageEnvironment, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
-import { assertPrivatePermissions, makePublicPermissions } from './platform-test-helpers.ts';
+import { createPrivateDirectory, windowsPowerShellEnvironment, windowsStorageEnvironment, windowsStorageRoot, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
+import { assertPrivatePermissions, assertPublicPermissions, makePublicPermissions } from './platform-test-helpers.ts';
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'athena-private-directories-'));
@@ -44,14 +44,25 @@ test('the native storage helper receives only OS locations, with case-insensitiv
   assert.throws(() => windowsStorageEnvironment({ SystemRoot: 'relative' }), /system directory/);
 });
 
+test('Windows storage walks start after the complete drive or UNC share root', () => {
+  for (const [path, root] of [
+    [String.raw`C:\Users\fixture\private`, 'C:\\'],
+    [String.raw`\\?\C:\Users\fixture\private`, '\\\\?\\C:\\'],
+    [String.raw`\\server\share\fixture\private`, '\\\\server\\share\\'],
+    [String.raw`\\?\UNC\server\share\fixture\private`, '\\\\?\\UNC\\server\\share\\'],
+    [String.raw`\\?\unc\server\share`, '\\\\?\\unc\\server\\share\\'],
+  ] as const) {
+    assert.equal(windowsStorageRoot(path), root);
+    assert.equal(win32.isAbsolute(root), true);
+  }
+});
+
 test('private directory creation secures every new level on its first attempt', async t => {
   const root = await fixture(t);
   const first = join(root, 'private');
   const second = join(first, 'nested');
   const last = join(second, 'storage');
-  // On Windows, recursive mkdir returns a namespaced first-created path even
-  // though the requested path has an ordinary drive root. Do not retry here:
-  // repeated attempts could hide a failure after only one level was protected.
+  // Do not retry: a second attempt can conceal a partially initialized tree.
   createPrivateDirectory(last);
   for (const path of [first, second, last]) await assertPrivatePermissions(path, 0o700);
   assert.deepEqual(await readdir(root), ['private']);
@@ -97,6 +108,90 @@ test('an explicitly namespaced Windows storage path protects the same new direct
     createPrivateDirectory(win32.toNamespacedPath(directory));
     await assertPrivatePermissions(directory, 0o700);
     assert.deepEqual(await readdir(root), ['private']);
+  });
+
+test('Windows processes can concurrently initialize private directories and their shared empty lock',
+  { skip: process.platform !== 'win32' ? 'Atomic security descriptors require native Windows.' : false, timeout: 30_000 }, async t => {
+    // Deliberately retain the ordinary temporary parent's inherited permissions.
+    // Every newly published child must already have its own private descriptor.
+    const root = await mkdtemp(join(tmpdir(), 'athena-private-race-'));
+    const directory = join(root, 'private');
+    const children: ChildProcess[] = [];
+    const completions: Promise<{ code: number | null; error: string }>[] = [];
+    t.after(async () => {
+      for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill();
+      await Promise.allSettled(completions);
+      await rm(root, { recursive: true, force: true });
+    });
+    const files = new URL('../runtime/local-credential-files.ts', import.meta.url).href;
+    const privateStorage = new URL('../runtime/private-storage.ts', import.meta.url).href;
+    const program = `import { once } from 'node:events';
+      import { join } from 'node:path';
+      import { prepareCredentialDirectory, ensureCredentialLockFile, requireCredentialLockFile } from ${JSON.stringify(files)};
+      import { createPrivateDirectory } from ${JSON.stringify(privateStorage)};
+      const ready = once(process, 'message'); process.send('ready'); await ready;
+      const directory = await prepareCredentialDirectory(process.argv[1]);
+      const nested = join(directory, 'nested'); createPrivateDirectory(nested);
+      const lock = join(nested, '.lock.sqlite');
+      await ensureCredentialLockFile(lock); await requireCredentialLockFile(lock);
+      process.disconnect();`;
+    const ready = Array.from({ length: 4 }, () => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', program, directory],
+        { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true });
+      children.push(child);
+      let error = '';
+      child.stderr!.setEncoding('utf8').on('data', value => { error += value; });
+      completions.push(new Promise(resolve => { child.once('close', code => { resolve({ code, error }); }); }));
+      return new Promise<void>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('message', value => { if (value === 'ready') resolve(); else reject(new Error('Unexpected child readiness marker.')); });
+        child.once('close', code => { reject(new Error(`Private storage child exited before readiness: ${code}; ${error}`)); });
+      });
+    });
+    await Promise.all(ready);
+    for (const child of children) child.send('start');
+    for (const result of await Promise.all(completions)) assert.equal(result.code, 0, result.error);
+    await assertPrivatePermissions(directory, 0o700);
+    await assertPrivatePermissions(join(directory, 'nested'), 0o700);
+    await assertPrivatePermissions(join(directory, 'nested', '.lock.sqlite'), 0o600);
+    assert.equal((await readFile(join(directory, 'nested', '.lock.sqlite'))).length, 0);
+  });
+
+test('Windows atomic creators never repair existing unsafe objects or follow a reparse parent',
+  { skip: process.platform !== 'win32' ? 'Atomic security descriptors require native Windows.' : false }, async t => {
+    const root = await fixture(t);
+    const directory = join(root, 'private');
+    createPrivateDirectory(directory);
+    const lock = join(directory, '.lock.sqlite');
+    writeNewPrivateFileSync(lock, '');
+    const nonempty = join(directory, 'nonempty.sqlite');
+    writeNewPrivateFileSync(nonempty, 'keep these bytes');
+    const executable = fileURLToPath(new URL('../runtime/windows-private-storage.exe', import.meta.url));
+    const run = (operation: string, path: string) => spawnSync(executable, [operation], {
+      input: path, encoding: 'utf8', timeout: 15_000, windowsHide: true, env: windowsStorageEnvironment(),
+    });
+    await makePublicPermissions(lock);
+    await makePublicPermissions(directory, 0o755);
+    for (const [operation, path] of [['create-directory', directory], ['create-lock', lock]] as const) {
+      const result = run(operation, path);
+      assert.equal(result.status, 1); assert.equal(result.stdout, '');
+      assert.equal(result.stderr, 'ATHENA_PRIVATE_STORAGE_REJECTED:external_access');
+    }
+    await assertPublicPermissions(directory, 0o755);
+    await assertPublicPermissions(lock);
+    assert.equal((await readFile(lock)).length, 0);
+    const occupied = run('create-lock', nonempty);
+    assert.equal(occupied.status, 1); assert.equal(occupied.stdout, '');
+    assert.equal(await readFile(nonempty, 'utf8'), 'keep these bytes');
+    const junction = join(root, 'junction');
+    await symlink(directory, junction, 'junction');
+    for (const operation of ['create-directory', 'create-lock']) {
+      const result = run(operation, join(junction, `must-not-create-${operation}`));
+      assert.equal(result.status, 1); assert.equal(result.stdout, '');
+      assert.equal(result.stderr, 'ATHENA_PRIVATE_STORAGE_REJECTED:reparse_point');
+    }
+    assert.deepEqual((await readdir(directory)).sort(), ['.lock.sqlite', 'nonempty.sqlite']);
+    await assertPublicPermissions(directory, 0o755);
   });
 
 test('the fixed Windows helper checks fresh ACLs under restricted desktop environments and rejects ambiguous input',

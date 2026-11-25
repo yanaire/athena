@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
-import { assertKilled, posixSignalsOnly } from './platform-test-helpers.ts';
+import { privateTestDirectory, assertKilled, posixSignalsOnly } from './platform-test-helpers.ts';
 
 type Wire = {
   messages: { role: string; content: unknown }[];
@@ -51,7 +51,7 @@ async function fixture(t: TestContext, names: readonly string[], child: (name: s
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); assert.ok(address && typeof address !== 'string');
-  const directory = await mkdtemp(join(tmpdir(), 'athena-manager-limits-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-manager-limits-'));
   const settings = { ATHENA_ENDPOINT: `http://127.0.0.1:${address.port}/v1`, ATHENA_MODEL: 'limits', ATHENA_API_KEY: '',
     ATHENA_MODEL_CONCURRENCY: '2', ATHENA_MAX_CHILDREN: String(names.length), ATHENA_MAX_DEPTH: '1', ATHENA_PROCESS_CONCURRENCY: '1' };
   const previous = Object.entries(settings).map(([key, value]) => {

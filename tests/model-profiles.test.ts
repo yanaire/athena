@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import type { WorkspaceSnapshot } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import { TaskManager } from '../runtime/manager.ts';
@@ -15,7 +16,7 @@ type Request = { readonly model: string; readonly tools?: readonly { readonly fu
   readonly messages: readonly { readonly role: string; readonly content: unknown }[] };
 
 test('the next run resolves overrides while already-started parent and child use the pinned revision', { timeout: 20_000 }, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-profile-test-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-profile-test-'));
   const arrived = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const hits: { route: string; model: string; parent: boolean; key: string | undefined }[] = [];

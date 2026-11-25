@@ -11,9 +11,17 @@ import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import { CredentialVaultError, openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { assertPrivatePermissions, directoryLink, makePublicPermissions, restorePrivatePermissions, windows } from './platform-test-helpers.ts';
 
+const ownedWriters = new WeakMap<TestContext, Set<() => Promise<void>>>();
+
 async function setup(t: TestContext) {
   const dir = await mkdtemp(join(await realpath(tmpdir()), 'athena-local-credentials-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(async () => {
+    // Windows cannot remove the lock database while a fixture writer owns it.
+    const closed = await Promise.allSettled([...(ownedWriters.get(t) ?? [])].map(close => close()));
+    const removed = await Promise.allSettled([rm(dir, { recursive: true, force: true })]);
+    const failures = [...closed, ...removed].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (failures.length) throw new AggregateError(failures, 'Credential fixture cleanup failed.');
+  });
   const auth = join(dir, 'auth');
   return { dir, auth, file: join(auth, 'credentials.v2.json') };
 }
@@ -78,11 +86,15 @@ function holdCredentialUpdate(t: TestContext, auth: string) {
   };
   // Register ownership before creating a process. A timed-out callback may resume
   // after an awaited ACL operation; it must never leave a writer awaiting stdin.
-  t.after(async () => {
+  const close = async () => {
     t.signal.removeEventListener('abort', stop);
     stop();
     await exited;
-  });
+  };
+  const writers = ownedWriters.get(t) ?? new Set<() => Promise<void>>();
+  writers.add(close);
+  ownedWriters.set(t, writers);
+  t.after(close);
   t.signal.addEventListener('abort', stop, { once: true });
   t.signal.throwIfAborted();
   const script = `const {openLocalCredentials}=await import(process.argv[1]);

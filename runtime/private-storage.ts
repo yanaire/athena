@@ -33,7 +33,7 @@ export function windowsStorageEnvironment(environment: NodeJS.ProcessEnv = proce
   return result;
 }
 
-function windowsAcl(path: string, operation: 'check' | 'protect'): void {
+function windowsAcl(path: string, operation: 'check' | 'protect' | 'create-directory' | 'create-lock'): void {
   if (process.platform !== 'win32') throw new Error('Windows ACL operations require Windows.');
   if (!isAbsolute(path) || path.includes('\0') || path.length > 32767) throw new Error('Expected an absolute storage path.');
   const executable = fileURLToPath(new URL('./windows-private-storage.exe', import.meta.url));
@@ -58,6 +58,12 @@ export function assertWindowsPrivate(path: string): void { windowsAcl(path, 'che
 
 /** Only for a newly created empty directory or unpublished file. Never repair an existing store. */
 export function setWindowsPrivate(path: string): void { windowsAcl(path, 'protect'); }
+
+/** Atomically create one private directory; an existing path is validated, never repaired. */
+export function createWindowsPrivateDirectory(path: string): void { windowsAcl(path, 'create-directory'); }
+
+/** Atomically create an empty private lock file; never open or modify an existing one. */
+export function createWindowsPrivateLock(path: string): void { windowsAcl(path, 'create-lock'); }
 
 /** Create a new, unpublished file; establish its owner and DACL before writing bytes. */
 export function writeNewPrivateFileSync(path: string, bytes: string | Uint8Array,
@@ -88,24 +94,34 @@ export function hasPrivatePermissions(path: string, info: Stats, exactMode?: num
   return info.isDirectory() || exactMode === undefined || Boolean(info.mode & 0o200) === Boolean(exactMode & 0o200);
 }
 
+/** The complete root of an already-resolved Windows path, including an extended UNC share. */
+export function windowsStorageRoot(path: string): string {
+  // win32.parse stops at \\?\UNC\, before the required server/share. Walking
+  // from that prefix would attempt to inspect incomplete network roots.
+  const extendedUnc = /^(\\\\\?\\UNC\\[^\\]+\\[^\\]+)(?:\\|$)/iu.exec(path);
+  return extendedUnc ? `${extendedUnc[1]}\\` : win32.parse(path).root;
+}
+
 export function createPrivateDirectory(path: string): void {
   const absolute = resolve(path);
-  const created = mkdirSync(absolute, { recursive: true, mode: 0o700 });
-  if (process.platform === 'win32' && created) {
-    // Node returns the first created path with a \\?\ namespace prefix on
-    // Windows. Compare like forms: mixed prefixes make relative() return an
-    // absolute drive path, not the remaining newly created descendants.
-    const remainder = win32.relative(win32.toNamespacedPath(created), win32.toNamespacedPath(absolute));
-    if (win32.isAbsolute(remainder) || remainder === '..' || remainder.startsWith('..\\')) {
-      throw new Error('The created directory is outside the requested storage path.');
+  if (process.platform === 'win32') {
+    // An elevated token can default to an Administrators owner. Publishing a
+    // mkdir result before changing that owner lets concurrent hosts observe an
+    // invalid directory, so apply the owner/DACL in the creation syscall itself.
+    const root = windowsStorageRoot(absolute);
+    let current = root;
+    for (const part of absolute.slice(root.length).split(win32.sep).filter(Boolean)) {
+      current = win32.join(current, part);
+      let info: Stats;
+      try { info = lstatSync(current); }
+      catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+        createWindowsPrivateDirectory(current);
+        info = lstatSync(current);
+      }
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Expected private storage owned by the current user.');
     }
-    setWindowsPrivate(created);
-    let next = created;
-    for (const part of remainder.split(win32.sep).filter(Boolean)) {
-      next = win32.join(next, part);
-      setWindowsPrivate(next);
-    }
-  }
+  } else mkdirSync(absolute, { recursive: true, mode: 0o700 });
   const info = lstatSync(absolute);
   if (!info.isDirectory() || !hasPrivatePermissions(absolute, info)) throw new Error('Expected private storage owned by the current user.');
 }

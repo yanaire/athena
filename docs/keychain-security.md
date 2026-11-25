@@ -10,6 +10,8 @@ Credential writes hold an OS-released lock across the complete read, update, and
 
 On Windows, the prepared `windows-private-storage.exe` performs each owner and DACL check through the system's managed access-control APIs. Every access still performs a fresh check; permission results are not cached. The helper accepts a fixed operation and a bounded path on standard input, without evaluating shell text. It is built from Athena-owned source and included with its configuration in the application. Missing or invalid helper files fail closed. This avoids starting a full PowerShell process for every credential read while retaining the existing file and permission validation.
 
+New Windows credential directories and empty SQLite lock files receive their owner and protected DACL in the operating system's creation call. This avoids exposing an incompletely protected path to another process during first initialization. Existing directories and lock files are checked without repairing their permissions, truncating their contents or replacing them; unsafe objects and reparse parents are rejected.
+
 ## Import an older login
 
 If Settings → Models offers **Approve import from Keychain**, selecting it lets the app request the existing Athena Keychain item. macOS may require your consent. Do not supply your Keychain password or a token to anyone outside the macOS approval screen. Athena never provisions or deletes a legacy item in this flow. It opens the encrypted `provider-secrets.v1` read-only; after a successful decode, it copies only entries missing from the new store and checks that they can be read back. Existing local logins take precedence. The old vault and its key are not deleted or changed.

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { Storage } from '../runtime/storage.ts';
 
 test('SQLite rejects cross-project record scope and rolls back record and revision together', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'athena-storage-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-storage-'));
   const storage = new Storage(directory);
   t.after(async () => { storage.close(); await rm(directory, { recursive: true, force: true }); });
   storage.putProject({ id: 'project-a', name: 'A' });

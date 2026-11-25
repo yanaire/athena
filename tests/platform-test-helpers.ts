@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { chmod, lstat, symlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -86,8 +87,7 @@ export async function assertPublicPermissions(path: string, mode = 0o644): Promi
     'Production validation must leave the unsafe fixture permissions untouched.');
 }
 
-/** Repair synthetic test fixtures only, never an existing user object. */
-export async function restorePrivatePermissions(path: string, mode: number): Promise<void> {
+function restorePrivatePermissionsSync(path: string, mode: number): void {
   if (windows) powershell(path, `
     $user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;
     $directory=(Get-Item -LiteralPath $path).PSIsContainer;
@@ -101,7 +101,24 @@ export async function restorePrivatePermissions(path: string, mode: number): Pro
       [System.Security.AccessControl.AccessControlType]::Allow);
     $a.AddAccessRule($rule); Set-Acl -LiteralPath $path -AclObject $a
   `);
-  await chmod(path, mode);
+  chmodSync(path, mode);
+}
+
+/** Repair synthetic test fixtures only, never an existing user object. */
+export async function restorePrivatePermissions(path: string, mode: number): Promise<void> {
+  restorePrivatePermissionsSync(path, mode);
+}
+
+/** Create a fresh fixture root with the same private-owner precondition as the host. */
+export function privateTestDirectory(prefix: string): string {
+  const directory = mkdtempSync(prefix);
+  try {
+    restorePrivatePermissionsSync(directory, 0o700);
+    return directory;
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 export async function directoryLink(target: string, path: string): Promise<void> {
