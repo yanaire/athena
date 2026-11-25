@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { createPrivateDirectory, windowsPowerShellEnvironment } from '../runtime/private-storage.ts';
+import { createPrivateDirectory, windowsPowerShellEnvironment, writeNewPrivateFileSync } from '../runtime/private-storage.ts';
 import { assertPrivatePermissions, makePublicPermissions } from './platform-test-helpers.ts';
 
 async function fixture(t: TestContext) {
@@ -48,6 +48,30 @@ test('private directory validation rejects changed access without repairing it',
   await makePublicPermissions(directory, 0o755);
   assert.throws(() => createPrivateDirectory(directory), /private storage/);
   await assert.rejects(assertPrivatePermissions(directory, 0o700));
+});
+
+test('new private files have the current owner and retain their requested mutable or immutable mode', async t => {
+  const directory = join(await fixture(t), 'private');
+  createPrivateDirectory(directory);
+  for (const mode of [0o600, 0o400]) {
+    const path = join(directory, `${mode}.txt`);
+    writeNewPrivateFileSync(path, 'synthetic private content', { mode, flush: true });
+    await assertPrivatePermissions(path, mode);
+    assert.equal(await readFile(path, 'utf8'), 'synthetic private content');
+    assert.throws(() => writeNewPrivateFileSync(path, 'replacement'), { code: 'EEXIST' });
+    assert.equal(await readFile(path, 'utf8'), 'synthetic private content');
+  }
+});
+
+test('creating a private file never repairs or replaces an existing unsafe file', async t => {
+  const directory = join(await fixture(t), 'private');
+  createPrivateDirectory(directory);
+  const path = join(directory, 'existing.txt');
+  writeNewPrivateFileSync(path, 'original');
+  await makePublicPermissions(path);
+  assert.throws(() => writeNewPrivateFileSync(path, 'replacement'), { code: 'EEXIST' });
+  assert.equal(await readFile(path, 'utf8'), 'original');
+  await assert.rejects(assertPrivatePermissions(path, 0o600));
 });
 
 test('an explicitly namespaced Windows storage path protects the same new directory',

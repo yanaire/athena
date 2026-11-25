@@ -10,7 +10,7 @@ import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import { ProviderError, ProviderManager } from '../runtime/provider-manager.ts';
 import { object } from '../runtime/connections.ts';
 import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
-import { windows } from './platform-test-helpers.ts';
+import { restorePrivatePermissions, windows } from './platform-test-helpers.ts';
 
 const base = 'https://api.openai.com/v1';
 const slug = 'fixture-account-codex';
@@ -211,6 +211,9 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
     try { await closeResources(); }
     finally { await rm(directory, { recursive: true, force: true }); }
   });
+  // Only this newly created fixture is initialized; existing stores remain
+  // subject to the production reject-only ownership checks.
+  await restorePrivatePermissions(directory, 0o700);
   const credentialDirectory = join(directory, 'auth');
   let store = await openLocalCredentials(credentialDirectory);
   await store.modify('openai', async () => registration, { signal: t.signal });

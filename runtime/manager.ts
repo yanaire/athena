@@ -1,9 +1,9 @@
 import { builtins, bindCall } from './mcp-registry.ts';
 import { randomUUID } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { Storage } from './storage.ts';
-import { createPrivateDirectory, hasPrivatePermissions } from './private-storage.ts';
+import { createPrivateDirectory, hasPrivatePermissions, writeNewPrivateFileSync } from './private-storage.ts';
 import type { StoredSession } from './storage.ts';
 import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
@@ -543,7 +543,7 @@ export class TaskManager implements AthenaTaskManager {
       const directory = this.#uploadDirectory(session.projectId);
       for (const { bytes, record } of prepared) {
         const path = join(directory, `${record.id}.txt`);
-        writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 });
+        writeNewPrivateFileSync(path, bytes, { mode: 0o600 });
         written.push(path);
       }
       this.#storage.transaction(() => {

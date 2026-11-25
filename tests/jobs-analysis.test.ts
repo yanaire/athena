@@ -13,7 +13,7 @@ import {assertKilled, windows} from './platform-test-helpers.ts';
 const scope={projectId:'project',sessionId:'session',taskId:'task'};
 const identity={...scope,attemptId:'one',requestId:'req',toolId:'tool'};
 const job=(source:string)=>({...identity,language:'python' as const,script:{name:'main.py',bytes:Buffer.from(source)},inputs:[],outputs:[]});
-const live={timeout:30000};
+const live={timeout:60000};
 async function fixture(t:TestContext,opts:Partial<CsvJobRunnerOptions>={}) {
   const dir=await mkdtemp(join(tmpdir(),'athena-analysis-')); const files=new AnalysisFiles(dir);
   const runner=new CsvJobRunner({dataDir:dir,...opts});
@@ -31,7 +31,8 @@ test('analysis rejects a script with an extension mismatched to the selected int
 });
 
 test('Python works on frozen inputs, enforces isolation, and publishes reusable outputs plus the exact source',live,async t=>{
-  const {runner,files,dir}=await fixture(t);
+  // This fixture tests capabilities and publication, not the short-job deadline.
+  const {runner,files,dir}=await fixture(t,{timeoutMs:30000});
   const access=await runner.analysisAccess(); assert.ok(access.available,JSON.stringify(access));
   assert.match(access.node.version,/^QuickJS-ng /); assert.match(access.python.version,/^CPython 3\./);
   const auth=join(dir,'auth'); await mkdir(auth,{mode:0o700});
@@ -163,7 +164,8 @@ for (const scenario of [
   {name:'captured output', source:"open('/outputs/marker.txt','w').write('synthetic')\nprint('x' * 16385)"},
   {name:'output file size', source:"open('/outputs/marker.txt','w').write('x' * (1024 * 1024 + 1))"},
 ]) test(`benign ${scenario.name} overflow fails without artifacts and removes scratch`,live,async t=>{
-  const {runner,files,dir}=await fixture(t);
+  // Let the guest reach the byte limit on every native architecture.
+  const {runner,files,dir}=await fixture(t,{timeoutMs:30000});
   const result=await runner.startAnalysis({...job(scenario.source),outputs:['marker.txt']}).result;
   assert.equal(result.status,'failed',result.error);
   assert.ok(result.executionId, 'the interpreter must start before exercising the output limit');
@@ -174,18 +176,21 @@ for (const scenario of [
   assert.deepEqual(await readdir(join(dir,'csv-jobs','attempts',attempt)),[]);
 });
 
-test('a signalled interpreter records the signal and execution phase', live, async t => {
+for (const signal of (windows ? ['SIGTERM'] : ['SIGTERM','SIGXCPU']) as NodeJS.Signals[]) test(`a signalled interpreter records ${signal} with the correct outcome`, live, async t => {
   const { runner } = await fixture(t, { onEvent(event) {
     if (event.type === 'process_started') {
       assert.ok(event.attempt.pid);
-      process.kill(event.attempt.pid, 'SIGTERM');
+      process.kill(event.attempt.pid, signal);
     }
   } });
   const result = await runner.startAnalysis({ ...identity, language: 'node',
     script: { name: 'wait.mjs', bytes: Buffer.from('while (true) {}') }, inputs: [], outputs: [] }).result;
-  assert.equal(result.status, 'failed');
-  assertKilled(result.exitCode, result.signal, 'SIGTERM');
-  assert.match(result.error ?? '', windows ? /SIGTERM during analysis|returned 1|exited with code 1/ : /SIGTERM during analysis/);
+  assert.equal(result.status, signal === 'SIGXCPU' ? 'timed_out' : 'failed');
+  assertKilled(result.exitCode, result.signal, signal);
+  if (signal === 'SIGXCPU') {
+    assert.match(result.error ?? '', /exceeded its time limit/);
+    assert.equal(result.cancellation, 'confirmed');
+  } else assert.match(result.error ?? '', windows ? /SIGTERM during analysis|returned 1|exited with code 1/ : /SIGTERM during analysis/);
   assert.equal(result.artifacts, undefined);
 });
 

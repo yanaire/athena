@@ -633,6 +633,9 @@ export class JobRunner {
         stop:reason=>this.#stop(pending,reason)});
       exitCode=result.exitCode;
       exitSignal=result.signal;
+      // Unix may deliver the cumulative native CPU limit before the wall or
+      // guest-epoch watchdog exits. It is still a confirmed execution timeout.
+      if (exitSignal === 'SIGXCPU') this.#stop(pending,'timed_out');
       ctl.signal.throwIfAborted();
       pending.exited=true;
       const phase = result.started ? 'during analysis' : 'before the interpreter was ready';

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { lstatSync, mkdirSync, type Stats } from 'node:fs';
+import { closeSync, constants, lstatSync, mkdirSync, openSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { isAbsolute, resolve, win32 } from 'node:path';
 
 // Node's Windows mode bits do not express ownership or a DACL. This fixed,
@@ -76,6 +76,25 @@ export function assertWindowsPrivate(path: string): void { windowsAcl(path, 'che
 
 /** Only for a newly created empty directory or unpublished file. Never repair an existing store. */
 export function setWindowsPrivate(path: string): void { windowsAcl(path, 'protect'); }
+
+/** Create a new, unpublished file; establish its owner and DACL before writing bytes. */
+export function writeNewPrivateFileSync(path: string, bytes: string | Uint8Array,
+  options: { readonly mode?: number; readonly flush?: boolean } = {}): void {
+  const fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    options.mode ?? 0o600);
+  try {
+    try {
+      // An elevated Windows token may default new files to the Administrators
+      // group as owner, even when they inherit a private parent directory DACL.
+      if (process.platform === 'win32') setWindowsPrivate(path);
+      writeFileSync(fd, bytes, { flush: options.flush ?? false });
+    } finally { closeSync(fd); }
+  } catch (error) {
+    try { rmSync(path, { force: true }); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Private file creation and cleanup failed.'); }
+    throw error;
+  }
+}
 
 export function hasPrivatePermissions(path: string, info: Stats, exactMode?: number): boolean {
   if (info.isSymbolicLink()) return false;

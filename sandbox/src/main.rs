@@ -7,6 +7,7 @@ use std::{
     io::{self, Read, Write},
     path::Path,
     process, thread,
+    sync::mpsc,
     time::Duration,
 };
 use wasmtime::{AsContextMut, Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
@@ -15,7 +16,7 @@ use wasmtime_wasi::p1::{types, wasi_snapshot_preview1::WasiSnapshotPreview1};
 
 mod memory;
 
-const STARTUP_MS: u64 = 10_000;
+const STARTUP_MS: u64 = 20_000;
 const PREVIEW1: &str = "wasi_snapshot_preview1";
 const NOTCAPABLE: i32 = 76;
 const OUTPUTS_FD: i32 = 5;
@@ -219,10 +220,15 @@ fn run(args: &[String]) -> Result<u8> {
         let _event = io::stdin().lock().read(&mut byte);
         process::exit(125);
     })?;
-    // Independent hard deadline even if the Node parent or a host call stalls.
-    // Allow bounded time for compilation/instantiation as well as guest execution.
+    // Independent phase deadlines even if the Node parent or a host call stalls.
+    // Readiness ends the bounded startup allowance; guest execution then gets
+    // exactly the requested budget. Neither phase can borrow the other's time.
+    let (ready_tx, ready_rx) = mpsc::sync_channel::<()>(0);
     thread::Builder::new().name("athena-deadline".into()).spawn(move || {
-        thread::sleep(Duration::from_millis(hard_deadline_ms));
+        if ready_rx.recv_timeout(Duration::from_millis(STARTUP_MS)).is_err() {
+            process::exit(124);
+        }
+        thread::sleep(Duration::from_millis(timeout));
         process::exit(124);
     })?;
 
@@ -263,6 +269,7 @@ fn run(args: &[String]) -> Result<u8> {
     let mut linker = Linker::new(&engine);
     add_wasi(&mut linker)?;
     let start = linker.instantiate(&mut store, &module)?.get_typed_func::<(), ()>(&mut store, "_start")?;
+    ready_tx.send(()).context("Sandbox deadline monitor is unavailable")?;
     thread::Builder::new().name("athena-guest-deadline".into()).spawn(move || {
         thread::sleep(Duration::from_millis(timeout));
         engine.increment_epoch();

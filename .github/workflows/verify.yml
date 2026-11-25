@@ -9,7 +9,7 @@ jobs:
   windows-storage:
     name: storage-${{ matrix.shell }}
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -24,5 +24,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.22.3'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Trace a synthetic first write
         run: node scripts/probe-windows-storage.mjs
+      - name: Verify storage, rollback and account transitions
+        timeout-minutes: 20
+        run: node --test --test-reporter=tap --test-concurrency=1 tests/private-storage.test.ts tests/analysis-files.test.ts tests/analysis-publication.test.ts tests/chatgpt-account.test.ts tests/desktop-host.test.ts
