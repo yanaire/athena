@@ -32,8 +32,7 @@ function preparePythonBytecode(runtime, preparer) {
   // This separate build-only executable uses the same pinned Wasmtime engine
   // on every platform. It is not copied into staged or distributed runtimes.
   // Node's built-in uvwasi cannot iterate directories on Windows (ENOSYS).
-  // Cold Pulley and stdlib compilation can exceed five minutes on Intel CI.
-  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 600_000, windowsHide: true });
+  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 300_000, windowsHide: true });
 }
 
 export async function prepareAnalysis(destination, binaryDestination) {
