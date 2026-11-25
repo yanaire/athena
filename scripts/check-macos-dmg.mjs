@@ -6,7 +6,7 @@ import { copyFile, mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detachMacOSImage, macOSEjectTarget, macOSImageAttachment, resolveDesktopPlatform } from './desktop-platform.mjs';
+import { detachMacOSImage, macOSEjectTarget, macOSImageAttachment, MACOS_IMAGE_EJECT_ATTEMPTS, resolveDesktopPlatform } from './desktop-platform.mjs';
 
 const { platform, target } = resolveDesktopPlatform();
 assert.equal(platform, 'darwin', 'DMG verification requires a native Mac build.');
@@ -30,12 +30,14 @@ const volumeImage = join(work, 'Athena.sparseimage');
 const candidate = join(work, name);
 let attachedImage;
 let ownedPartition;
+let ejectAttemptsRemaining = 0;
 let mountDevice;
 const failures = [];
 
 function attach(path, readOnly = false) {
   // Arm cleanup before the command in case it fails after attaching the volume.
   attachedImage = path;
+  ejectAttemptsRemaining = MACOS_IMAGE_EJECT_ATTEMPTS;
   image('attach', readOnly ? '-readonly' : '-readwrite', '-nobrowse', '-noautoopen', '-mountpoint', mount, path);
   const attachment = readAttachment();
   assert.equal(attachment.state, 'mounted', 'Could not identify the newly mounted private disk image.');
@@ -66,8 +68,13 @@ function readAttachment() {
 }
 
 function detach() {
+  // Share the retry budget so a late ejection can still finish packaging.
   detachMacOSImage(() => macOSEjectTarget(readAttachment(), ownedPartition),
-    target => run('/usr/sbin/diskutil', ['eject', target]));
+    target => {
+      if (ejectAttemptsRemaining < MACOS_IMAGE_EJECT_ATTEMPTS) console.log('Retrying ejection of the private disk image.');
+      ejectAttemptsRemaining -= 1;
+      run('/usr/sbin/diskutil', ['eject', target]);
+    }, ejectAttemptsRemaining);
   attachedImage = undefined;
   ownedPartition = undefined;
 }
