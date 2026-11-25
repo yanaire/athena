@@ -330,7 +330,7 @@ test('desktop also handles POSIX SIGTERM and SIGINT with a graceful exit', {
   }
 });
 
-test('desktop drains an active SSE connection when its parent is killed', { timeout: 15_000 }, async t => {
+test('desktop releases an active SSE connection and workspace when its parent is killed', { timeout: 15_000 }, async t => {
   const directory = await workspace(t);
   const host = launch(t, directory, {}, true);
   assert.equal((await host.lines.next()).value, marker);
@@ -339,10 +339,30 @@ test('desktop drains an active SSE connection when its parent is killed', { time
   const base = await ready(host);
   const stream = await fetch(`${base}/api/events`, { headers: { Cookie: `athena_desktop=${startup.token}` }, signal: AbortSignal.timeout(7_000) });
   assert.equal(stream.status, 200);
-  const drain = stream.text();
-  host.child.kill('SIGKILL');
-  assert.equal(await drain, ': subscribed\n\n');
-  // Only the relay is signalled. The inherited stdout/stderr pipes close after Node drains and exits.
+  assert.ok(stream.body);
+  const reader = stream.body.getReader();
+  const subscription = ': subscribed\n\n';
+  let received = Buffer.alloc(0);
+  while (received.length < subscription.length) {
+    const chunk = await reader.read();
+    assert.equal(chunk.done, false);
+    received = Buffer.concat([received, chunk.value!]);
+  }
+  assert.equal(received.toString('utf8'), subscription);
+  const disconnected = reader.read().then(result => {
+    assert.deepEqual(result, { done: true, value: undefined });
+  }, (error: unknown) => {
+    // libuv's Windows job kills non-detached children with their parent. The
+    // already-subscribed socket may close without an HTTP response terminator.
+    if (!windows) throw error;
+    assert.ok(error instanceof TypeError);
+    assert.equal(error.message, 'terminated');
+    assert.match((error.cause as NodeJS.ErrnoException | undefined)?.code ?? '', /^(UND_ERR_SOCKET|ECONNRESET)$/);
+  });
+  assert.equal(host.child.kill('SIGKILL'), true);
+  await disconnected;
+  reader.releaseLock();
+  // close waits for the relay and its inherited stdout/stderr handles to close.
   const killed = await host.exited;
   assertKilled(killed.code, killed.signal);
   const restarted = await start(t, directory, startup);

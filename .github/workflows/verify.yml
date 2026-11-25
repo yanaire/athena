@@ -93,7 +93,7 @@ jobs:
           node --test pi-host-adapter-test.mjs runtime-integrity-test.cjs workspace-session-test.cjs connection-manager-test.cjs research-records-test.cjs workspace-views-test.cjs model-profiles-test.cjs
       - name: Build and verify the arm64 app bundle
         run: npm run desktop:build
-      - name: Test desktop startup safeguards
+      - name: Compile the desktop test target
         run: cargo test --release --target aarch64-apple-darwin --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
 
   browser-chat:
@@ -183,7 +183,9 @@ jobs:
       - name: Check Windows credential permissions before the native build
         if: runner.os == 'Windows'
         timeout-minutes: 10
-        run: node --test --test-reporter=tap tests/local-credentials.test.ts tests/private-storage.test.ts
+        run: |
+          npm run windows:prepare
+          node --test --test-reporter=tap tests/local-credentials.test.ts tests/private-storage.test.ts
       - name: Prepare and test the native analysis runtime
         run: |
           npm run analysis:prepare
@@ -192,7 +194,7 @@ jobs:
         run: node --test --test-reporter=tap --test-concurrency=2 tests/*.test.*
       - name: Build and verify the native application
         run: npm run desktop:build
-      - name: Test desktop startup safeguards
+      - name: Compile the desktop test target
         run: cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
       - name: Install the Windows package in an isolated runner directory
         if: runner.os == 'Windows'

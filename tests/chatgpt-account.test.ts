@@ -300,8 +300,12 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
     }
   });
   await manager.initialize();
-  const { accountRef } = await providers.catalog('openai');
-  assert.ok(accountRef);
+  const catalogStarted = performance.now();
+  const catalog = await providers.catalog('openai');
+  const { accountRef } = catalog;
+  assert.ok(accountRef, JSON.stringify({ source: catalog.source, auth: catalog.provider.auth,
+    error: catalog.error, errorReason: catalog.errorReason, availableModelIds: catalog.availableModelIds,
+    catalogDurationMs: performance.now() - catalogStarted }));
   const profile = profiles.save({ name: 'Fixture', provider: 'openai', modelId: slug, authMode: 'chatgpt', accountRef },
     await providers.authorChatGPTProfile(slug, accountRef));
   const otherProfile = profiles.save({ name: 'Other', provider: 'openai', modelId: otherSlug, authMode: 'chatgpt', accountRef: otherRef },

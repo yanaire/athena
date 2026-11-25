@@ -27,6 +27,7 @@ const binary = join(executables, `athena-node${platform.exe}`);
 const sandbox = join(executables, `athena-sandbox${platform.exe}`);
 const application = join(executables, `athena-desktop${platform.exe}`);
 const host = join(bundle, macOS ? 'Contents/Resources/host' : 'host');
+const windowsStorage = join(host, 'runtime', 'windows-private-storage.exe');
 const environment = isolatedRuntimeEnvironment(tmpdir());
 const bundleIdentifier = expectChatGPT ? 'com.athena.desktop.local-chatgpt' : 'com.athena.desktop';
 assert.ok(macOS || !['--pre-notarization', '--release'].includes(mode), 'Apple notarization/release verification is only valid on macOS; Windows installer signing requires its own release review.');
@@ -86,7 +87,7 @@ assert.equal(existsSync(join(host, 'node_modules', '@earendil-works', 'pi-coding
   'examples', 'extensions', 'doom-overlay')), false, 'The non-runtime Pi DOOM example must not ship.');
 assert.equal(execFileSync(binary, ['-p', '[process.version,process.platform,process.arch].join(" ")'], { encoding: 'utf8', env: environment }).trim(),
   `v${platform.version} ${platform.platform} ${platform.arch}`);
-for (const path of [application, binary, sandbox]) {
+for (const path of [application, binary, sandbox, ...(!macOS ? [windowsStorage] : [])]) {
   if (macOS) {
     assert.equal(execFileSync('/usr/bin/lipo', ['-archs', path], { encoding: 'utf8' }).trim(),
       platform.arch === 'arm64' ? 'arm64' : 'x86_64', 'Each executable must match the selected native architecture.');
@@ -110,6 +111,20 @@ assert.equal(helper.target, platform.target, 'Sandbox provenance must match the 
 const provenance = JSON.parse(await readFile(join(host, 'provenance.json'), 'utf8'));
 assert.equal(provenance.node.target, platform.target);
 assert.equal(provenance.node.archiveSha256, platform.archiveSha256);
+if (macOS) {
+  assert.equal(existsSync(windowsStorage), false, 'The Windows storage helper must not enter the Mac signing scope.');
+  assert.equal(existsSync(windowsStorage + '.config'), false, 'The Windows CLR config must not enter the Mac bundle.');
+} else {
+  assert.equal(provenance.windowsStorage.target, platform.target);
+  assert.equal(provenance.windowsStorage.framework, '4.8');
+  assert.match(provenance.windowsStorage.sourceSha256, /^[a-f0-9]{64}$/);
+  for (const [path, digest] of [[windowsStorage, provenance.windowsStorage.executableSha256],
+    [windowsStorage + '.config', provenance.windowsStorage.configurationSha256]]) {
+    assert.equal(createHash('sha256').update(await readFile(path)).digest('hex'), digest, 'Windows storage helper provenance mismatch.');
+  }
+  assert.equal(execFileSync(windowsStorage, ['--version'], { encoding: 'utf8', env: environment, timeout: 15_000, windowsHide: true }).trim(),
+    'athena-windows-private-storage/1 .NETFramework/4.8');
+}
 for (const name of ['python.wasm', 'qjs.wasm']) {
   assert.equal(createHash('sha256').update(await readFile(join(analysis, name))).digest('hex'), digests[name]);
 }
@@ -247,6 +262,10 @@ try {
     import { createPrivateDirectory } from './runtime/private-storage.ts';
     createPrivateDirectory(process.argv[1]);
   `, workspace], { cwd: host, env: environment, timeout: 20_000, stdio: 'inherit' });
+  if (!macOS) {
+    assert.equal(execFileSync(windowsStorage, ['check'], { input: workspace, encoding: 'utf8', env: environment,
+      timeout: 15_000, windowsHide: true }), 'ATHENA_PRIVATE_STORAGE_OK', 'The shipped ACL helper must work in the isolated OS environment.');
+  }
   await promisify(execFile)(binary, ['--input-type=module', '--eval', `
     import assert from 'node:assert/strict';
     import { JobRunner } from './runtime/jobs.ts';
