@@ -17,7 +17,7 @@ const bundles = join(root, 'src-tauri', 'target', target, 'release', 'bundle');
 const app = join(bundles, 'macos', 'Athena.app');
 const name = `Athena-${target}.dmg`;
 const artifact = join(bundles, 'dmg', name);
-const run = (executable, args) => execFileSync(executable, args, { cwd: root, stdio: 'inherit', timeout: 300_000 });
+const run = (executable, args, timeout = 300_000) => execFileSync(executable, args, { cwd: root, stdio: 'inherit', timeout });
 const image = (...args) => run('/usr/bin/hdiutil', args);
 
 // desktop:build seals the app after Tauri finishes. Package that sealed copy.
@@ -34,7 +34,11 @@ const failures = [];
 try {
   await Promise.all([mkdir(payload), mkdir(mount), mkdir(installation)]);
   run('/usr/bin/ditto', [app, join(payload, 'Athena.app')]);
-  image('create', '-srcfolder', payload, '-fs', 'HFS+', '-format', 'UDZO', '-volname', 'Athena', candidate);
+  const imageStarted = performance.now();
+  console.log(`Creating read-only ${name}.`);
+  // Keep package creation separate from installer and application checks.
+  run('/usr/bin/hdiutil', ['create', '-srcfolder', payload, '-fs', 'HFS+', '-format', 'UDRO', '-volname', 'Athena', candidate], 600_000);
+  console.log(`Created ${name} in ${((performance.now() - imageStarted) / 1000).toFixed(1)} seconds.`);
   image('verify', candidate);
   image('attach', '-readonly', '-nobrowse', '-mountpoint', mount, candidate);
   mounted = true;
