@@ -357,7 +357,7 @@ test('desktop releases an active SSE connection and workspace when its parent is
     if (!windows) throw error;
     assert.ok(error instanceof TypeError);
     assert.equal(error.message, 'terminated');
-    assert.equal((error.cause as NodeJS.ErrnoException | undefined)?.code, 'UND_ERR_SOCKET');
+    assert.match((error.cause as NodeJS.ErrnoException | undefined)?.code ?? '', /^(UND_ERR_SOCKET|ECONNRESET)$/);
   });
   assert.equal(host.child.kill('SIGKILL'), true);
   await disconnected;

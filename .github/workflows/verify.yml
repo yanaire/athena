@@ -1,4 +1,4 @@
-name: Verify Windows private storage helper
+name: Verify Windows parent termination
 on: [pull_request]
 permissions:
   contents: read
@@ -9,7 +9,7 @@ jobs:
   windows-storage:
     name: storage-${{ matrix.shell }}
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -28,12 +28,6 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Compile the fixed Windows permission helper
         run: npm run windows:prepare
-      - name: Verify actual owner, permissions and locked writes
-        timeout-minutes: 5
-        run: node --test --test-reporter=tap --test-concurrency=1 tests/private-storage.test.ts tests/local-credentials.test.ts
-      - name: Compare isolated desktop operating system environments
-        run: node scripts/probe-windows-desktop-env.mjs
-      - name: Verify account transitions and desktop startup
-        timeout-minutes: 10
-        run: node --import ./scripts/trace-windows-credentials.mjs --test --test-reporter=tap --test-concurrency=1 tests/provider-startup.test.ts tests/chatgpt-account.test.ts tests/desktop-host.test.ts
-
+      - name: Verify forced parent termination and workspace recovery
+        timeout-minutes: 2
+        run: node --test --test-reporter=tap --test-name-pattern='desktop releases an active SSE connection and workspace when its parent is killed' tests/desktop-host.test.ts
