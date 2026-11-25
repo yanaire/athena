@@ -4,7 +4,7 @@
 
 The repository owner requested inspection of the open pull requests and
 integration of the changes that pass review. After native platform checks
-identified unresolved Windows and Intel Mac failures, the integration was
+identified Windows and Intel Mac failures, the stable integration was
 restricted to the Apple Silicon feature stack and compatible dependency updates.
 
 This candidate combines main after repository setup PR #7 with PR #5 and its
@@ -29,7 +29,7 @@ acceptance was performed in this Linux review environment. The earlier
 | PR #3: Mac corrections and acceptance report | `6c3e2698c4c4e892ca6a98200bfbfc708fd5c868` | Already an ancestor of PR #1; not applied twice |
 | PR #4: research and approved extensions | `6d38a5c0def941b00fc98f2d9eabdeabe60ab72f` | Included through PR #5 ancestry, with the portable correction below |
 | PR #5: workflow DAG and chat behavior | `337259cee5ce8c2c99a900106c273dfafda06029` | Included feature-stack parent |
-| PR #6: Windows and Intel Mac | Reviewed `5bb7a1a59ba99e2bf0890d8ea26627f93e3615cd`; later observed `5b2f01f9e769a27dc8d089c29ecfbc3a8aea0ac2` | Held; neither head is included, and the later head is not covered by the earlier review |
+| PR #6: Windows and Intel Mac | Initial review `5bb7a1a59ba99e2bf0890d8ea26627f93e3615cd`; follow-ups `5b2f01f9e769a27dc8d089c29ecfbc3a8aea0ac2` and `2f4f83809c773ed31b1dea6742c65740e70d76a9` | Held separately; latest account regressions pass, but the platform expansion needs its own complete review and native integration acceptance |
 | PR #8: GitHub Actions | `9f3d066f87090efbd4c940d143cc9701a3f79cd9` | Reviewed checkout/setup-node pins applied to the three existing jobs |
 | PR #9: Pi SDK 1.6.0 | `a96f0ad102d38c92bdb51139f5badb182e299e99` | Included with locked transitive dependencies |
 | PR #10: TypeBox 1.4.7 | `4004ef9a87b595bbf33b435b7a475f068d3675f9` | Included; combined lockfile preserves Pi's own exact TypeBox dependency |
@@ -37,7 +37,7 @@ acceptance was performed in this Linux review environment. The earlier
 | PR #12: partial Tauri stack update | `6a1d966d8a40e9a02650634038070203e17f4624` | Held; not included |
 | PR #13: getrandom 0.4.3 | `e76714bc8b1d8c50b14b16411808e739957d2a30` | Included; existing lockfile package, direct dependency edge updated |
 | PR #14: earlier combined integration | Initial review head `06e988b0c794493f57d61838ef545851358c4c11`; preserved platform draft `6f3dee5aab0918c3b96b5fd6245d81fa0d010ce7` | Retained as a separate blocked platform stabilization draft; neither head is imported |
-| PR #15: Windows storage diagnostic | Observed `61ffde32e7eedc1fbfdfedfd62c38cce38f96152` | Diagnostic-only draft targeting the platform branch; excluded |
+| PR #15: Windows storage diagnostic | Initial `61ffde32e7eedc1fbfdfedfd62c38cce38f96152`; latest observed `50b686d0872cc1f9e0889f1615fed36dcb61441f` | Diagnostic-only draft targeting the platform branch; excluded |
 
 ## Portable review corrections included
 
@@ -90,6 +90,34 @@ switching to another one. Regression coverage exercises a real loopback MCP
 transport failure, restart and token-free recheck, together with stored-state
 compatibility and configuration-isolation boundaries.
 
+Both new regressions failed on the original production code and passed after
+the correction. All eleven tests in the extension store and manager-extension
+files passed, including existing immutable-pin, manual-retry, namespace and
+cross-project isolation cases. TypeScript and independent source reviews passed.
+
+## Workflow trigger correction
+
+The corrected source commit `48e66d223ab2355cf8635e3d69232de2988f01bc` passed
+every required PR job in
+[run 45590711397](https://github.com/yanaire/athena/actions/runs/45590711397),
+including **259/259 host tests with zero failures or skips**, all UI groups and
+the arm64 app bundle. Its four CodeQL analyses also passed in
+[run 45590700510](https://github.com/yanaire/athena/actions/runs/45590700510),
+with no new alerts in changed code. Nevertheless, GitHub rejected the merge
+because all three required check names also had cancelled results from the
+duplicate [push run 45590698489](https://github.com/yanaire/athena/actions/runs/45590698489).
+The branch-only concurrency group had allowed the PR run to cancel the push run.
+
+The workflow now verifies pushes to `main` and every normally triggered pull
+request, without branch/path filters or conditional skips on the PR jobs.
+Concurrency groups include the event name and PR number or ref, so PR work and
+main-push work cannot cancel each other. Feature-branch pushes no longer create
+a duplicate Verify run before the PR event. All three jobs, their steps, action
+pins, permissions and required branch-protection checks are unchanged. The
+official actionlint 1.7.12 release was checksum-verified and the corrected
+workflow passed it; the job definitions were also compared byte-for-byte.
+This workflow correction needs successful checks on its own new candidate SHA.
+
 ## Why the platform work remains separate
 
 ### Windows
@@ -110,11 +138,30 @@ environment; the proposed environment-cache explanation remains unverified.
 Platform fixes and unfinished diagnosis stay with PR #6, draft PR #14 and the
 diagnostic draft PR #15.
 
-The same Windows account failure was subsequently reproduced in the later
-PR #6 work and PR #15 diagnostic. The pending platform changes were preserved in
+The failure was reproduced in the intermediate PR #6 and PR #15 revisions, but
+later concurrent work in PR #6 changed the implementation. Head
+`2f4f83809c773ed31b1dea6742c65740e70d76a9` replaces repeated PowerShell ACL
+processes with a fixed helper compiled at build time, retaining fresh owner/DACL
+checks, and removes an unused global OAuth registration that initiated broad
+credential scans. The original authentication deadlines remain unchanged.
+In [diagnostic run 45590297692](https://github.com/yanaire/athena/actions/runs/45590297692),
+the account profile/restart regression passed under both Bash and PowerShell
+(about 22.90 and 20.58 seconds for the whole test), as did the twelve storage and
+credential checks. **The earlier account failure must not be reported as an
+unresolved failure of that newer source.**
+
+The latest [PR #15 diagnostic run 45591462608](https://github.com/yanaire/athena/actions/runs/45591462608)
+also passed both shells, but covers only the forced-parent-termination and
+workspace-recovery regression. The latest full PR #6
+[native run 45590964160](https://github.com/yanaire/athena/actions/runs/45590964160)
+was still in progress at this follow-up review checkpoint. The new helper,
+packaging and platform expansion remain outside this Apple Silicon integration
+and need their own complete source and native/installed-app acceptance.
+
+The earlier platform corrections and failure evidence remain in
 [draft PR #14](https://github.com/yanaire/athena/pull/14) at
-`6f3dee5aab0918c3b96b5fd6245d81fa0d010ce7`, rather than being treated as accepted
-changes in this Apple Silicon candidate.
+`6f3dee5aab0918c3b96b5fd6245d81fa0d010ce7`. That draft is a separate historical
+review/fix candidate, not proof of acceptance for the newer PR #6 source.
 
 ### Intel Mac
 
@@ -200,15 +247,14 @@ acceptance remains separate.
 
 All four CodeQL language jobs passed for that first stable commit in
 [run 45586870515](https://github.com/yanaire/athena/actions/runs/45586870515), and
-the aggregate reported no new alerts in changed code. The MCP review correction
-above creates a newer candidate and therefore requires its own successful CI;
-the first stable result is preserved as historical evidence, not reused as its
-merge proof.
+the aggregate reported no new alerts in changed code. The subsequent MCP and CI
+trigger corrections are recorded above. These earlier successful runs are
+historical evidence, not a substitute for the final candidate's own checks.
 
 Merge readiness requires successful `history-secrets`, `apple-silicon` and
 `browser-chat` checks on this exact candidate. The workflow retains the three
-PR #5 jobs with the reviewed PR #8 action pins, and adds branch-scoped concurrency
-with cancellation of stale runs. Windows and Intel Mac jobs are outside this
+PR #5 jobs with the reviewed PR #8 action pins, verifies main pushes and PRs,
+and uses separate event-scoped concurrency groups. Windows and Intel Mac jobs are outside this
 candidate. Record the actual final candidate SHA and CI run in its pull request.
 Do not use an earlier feature head or PR #14 result as proof of the new tree.
 
