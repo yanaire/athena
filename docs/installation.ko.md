@@ -23,6 +23,7 @@
 - Python 3. 터미널에서 `python --version`으로 확인합니다.
 - [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). 설치 화면에서 **C++를 사용한 데스크톱 개발**과 Windows SDK를 선택합니다.
 - [Rustup](https://rustup.rs/). MSVC 툴체인을 사용합니다.
+- [.NET Framework 4.8 이상](https://learn.microsoft.com/ko-kr/dotnet/framework/install/on-windows-and-server). Windows 10 1903 이후 버전과 Windows 11에는 4.8 또는 4.8.1이 포함됩니다. Windows용 파일 권한 확인기가 이 시스템 런타임을 사용합니다.
 - [Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). 최신 런타임을 사용합니다. 앱의 비공개 웹뷰에는 **101.0.1210.39 이상**이 필요합니다([Wry 공식 지원 기준](https://docs.rs/wry/0.55.1/wry/struct.WebViewBuilder.html#method.with_incognito)).
 
 도구 설치 뒤 새 **Developer PowerShell for Visual Studio**를 열고 진행합니다. 준비 항목의 공식 기준은 [Tauri Windows 사전 준비](https://v2.tauri.app/start/prerequisites/#windows)에 있습니다.
@@ -36,6 +37,7 @@ node -p "process.version + ' ' + process.platform + ' ' + process.arch"
 rustup toolchain install 1.99.1 --profile minimal --target x86_64-pc-windows-msvc
 rustup override set 1.99.1
 npm ci --ignore-scripts --no-audit --no-fund
+npm run windows:prepare
 python athena-backend-handoff/athena-codex-ui/build.py
 npm run check
 npm run analysis:prepare
@@ -43,6 +45,10 @@ npm run desktop:build:windows
 ```
 
 Node 확인 결과는 `v24.22.3 win32 x64`여야 합니다. 첫 빌드는 Rust 의존성과 분석 런타임을 내려받고 컴파일하므로 시간이 걸립니다. 빌드 도중 원본 파일의 SHA-256을 확인하며, 일치하지 않으면 중단합니다.
+
+`windows:prepare`는 Windows에 설치된 .NET Framework 컴파일러로 Athena의 파일 권한 확인기를 준비합니다. 완성된 앱에는 확인기가 포함되므로 앱 실행 중에 코드를 컴파일하지 않습니다. 소스에서 `npm start`, `npm test`, `npm run analysis:prepare`를 실행할 때도 준비 단계가 자동으로 실행됩니다.
+
+설치 프로그램은 WebView2와 Athena 파일을 설치하기 전에 .NET Framework 4.8 이상인지 확인합니다. 조건을 만족하지 않으면 설치를 중단하고 Microsoft의 .NET Framework 설치를 안내합니다. 자동 설치(`/S`)에서는 대화창 없이 종료 코드 `2`를 반환합니다.
 
 생성 위치:
 
@@ -107,6 +113,6 @@ npm run desktop:build:local-chatgpt
 
 ## 4. 이번 변경의 검증 범위
 
-자동 검사는 운영체제·아키텍처 일치, 타입 검사, 생성된 UI 일치, 호스트 회귀, 분석 런타임, 앱 내부 실행 파일, 번들된 호스트의 스트리밍·도구 호출·저장·재시작을 검사합니다. Windows CI는 NSIS 설치 뒤 설치 폴더를 대상으로 같은 기능 검사를 반복합니다. 기본 브랜치에 통합되기 전에는 [후보 브랜치의 Actions 결과](https://github.com/yanaire/athena/actions?query=branch%3Afeature%2Fathena-cross-platform)를 확인합니다.
+자동 검사는 운영체제·아키텍처 일치, 타입 검사, 생성된 UI 일치, 호스트 회귀, 분석 런타임, 앱 내부 실행 파일, 번들된 호스트의 스트리밍·도구 호출·저장·재시작을 검사합니다. Windows CI는 NSIS 설치 뒤 설치 폴더를 대상으로 같은 기능 검사를 반복하고, 제거 프로그램이 설치한 실행 파일과 호스트 리소스를 지우는지도 확인합니다. 레지스트리·바로가기·별도 작업 폴더의 삭제까지 확인한다는 뜻은 아닙니다. 기본 브랜치에 통합되기 전에는 [후보 브랜치의 Actions 결과](https://github.com/yanaire/athena/actions?query=branch%3Afeature%2Fathena-cross-platform)를 확인합니다.
 
 채팅·워크플로우의 Chromium 검사 결과는 [워크플로우 검증 기록](workflow-dag.md)에, 아직 연결되지 않은 UI 기능은 [기능 점검표](ui-capability-audit.md)에 정리돼 있습니다. 이 문서에 새 플랫폼의 실제 빌드 성공을 소급해 가정하지 않습니다. 성공 여부는 해당 커밋의 CI 결과로 판단합니다.

@@ -5,6 +5,7 @@ import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareAnalysis } from './prepare-analysis.mjs';
+import { prepareWindowsStorage } from './prepare-windows-storage.mjs';
 import { buildEnvironment, isolatedRuntimeEnvironment, resolveDesktopPlatform, runNpm } from './desktop-platform.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -85,6 +86,10 @@ async function stageHost(host) {
       await copyFile(join(root, 'runtime', entry.name), join(host, 'runtime', entry.name));
     }
   }
+  // Only Windows ships this fixed, app-owned ACL helper and its CLR config.
+  // It is compiled during packaging, never from the installed application.
+  const windowsStorage = platform.platform === 'win32'
+    ? await prepareWindowsStorage(join(host, 'runtime')) : undefined;
   // Host-owned procedure catalog; no project/user discovery, symlinks, scripts
   // or package hooks are copied into the application.
   const skillRoot=join(root,'skills');
@@ -105,7 +110,7 @@ async function stageHost(host) {
   for (const asset of ['athena-preview.html', 'integrations/athena-host.js', 'integrations/pi-host-adapter.mjs']) {
     await copyFile(join(root, ui, asset), join(host, ui, asset));
   }
-  return lockSha256;
+  return { packageLockSha256: lockSha256, windowsStorage };
 }
 
 async function assertRegularResources(directory) {
@@ -123,12 +128,13 @@ try {
   const host = join(work, 'host');
   await mkdir(host);
   const binary = await stageNode(work, host);
-  const packageLockSha256 = await stageHost(host);
+  const { packageLockSha256, windowsStorage } = await stageHost(host);
   const sandbox = join(work, `athena-sandbox-${target}${exe}`);
   await prepareAnalysis(join(host, 'analysis-runtime'), sandbox);
   const provenance = {
     node: { version, target, platform: platform.platform, arch: platform.arch, url, archiveSha256, executableSha256: await sha256(binary) },
     npm: { packageLockSha256, omit: ['dev'], ignoreScripts: true },
+    ...(windowsStorage ? { windowsStorage } : {}),
   };
   await writeFile(join(host, 'provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`);
   await assertRegularResources(host);

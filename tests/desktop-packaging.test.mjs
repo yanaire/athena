@@ -68,6 +68,7 @@ test('Windows installer keeps per-user installation and an actual WebView2 insta
   assert.deepEqual(windows.bundle.targets, ['nsis']);
   assert.equal(windows.bundle.windows.nsis.installMode, 'currentUser');
   assert.equal(windows.bundle.windows.minimumWebview2Version, '101.0.1210.39');
+  assert.equal(windows.bundle.windows.nsis.installerHooks, 'windows-installer-hooks.nsh');
   assert.equal(windows.bundle.windows.webviewInstallMode.type, 'downloadBootstrapper');
   assert.equal(windows.app, undefined, 'Platform packaging must not broaden application capabilities.');
   const icon = await readFile(new URL('../src-tauri/icons/icon.ico', import.meta.url));
