@@ -66,16 +66,39 @@ export function isolatedRuntimeEnvironment(home, environment = process.env, plat
     HOME: home, USERPROFILE: home, APPDATA: win32.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: win32.join(home, 'AppData', 'Local') };
 }
 
-export function detachMacOSImage(readAttachment, detach) {
-  const failures = [];
-  for (const force of [false, true]) {
-    const attachment = readAttachment();
-    if (attachment === 'detached') return;
-    if (attachment !== 'mounted') break;
-    try { detach(force); }
-    catch (error) { failures.push(error); }
+export function macOSImageAttachment(images, path, mount, mountedHere) {
+  const entries = images.filter(entry => entry['image-path'] === path);
+  if (entries.length === 0 && !mountedHere) return { state: 'detached' };
+  const entities = entries[0]?.['system-entities'];
+  if (entries.length !== 1 || !Array.isArray(entities)) return { state: 'ambiguous' };
+  const mounted = entities.filter(entity => entity['mount-point']);
+  if (mountedHere ? mounted.length !== 1 || mounted[0]['mount-point'] !== mount : mounted.length !== 0) {
+    return { state: 'ambiguous' };
   }
-  if (readAttachment() !== 'detached') {
+
+  // A detached filesystem can leave its backing GPT disk and HFS partition registered.
+  const whole = entities.filter(entity => entity['content-hint'] === 'GUID_partition_scheme'
+    && /^\/dev\/disk\d+$/.test(entity['dev-entry']));
+  if (whole.length !== 1) return { state: 'ambiguous' };
+  const device = whole[0]['dev-entry'];
+  const partitions = (mountedHere ? mounted : entities).filter(entity => {
+    const name = entity['dev-entry'];
+    return typeof name === 'string' && name.startsWith(`${device}s`) && /^\d+$/.test(name.slice(device.length + 1));
+  });
+  if (partitions.length !== 1) return { state: 'ambiguous' };
+  return { state: mountedHere ? 'mounted' : 'unmounted', device, partition: partitions[0]['dev-entry'] };
+}
+
+export function detachMacOSImage(readAttachment, eject) {
+  const failures = [];
+  let attachment = readAttachment();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!attachment.target) break;
+    try { eject(attachment.target); }
+    catch (error) { failures.push(error); }
+    attachment = readAttachment();
+  }
+  if (attachment.state !== 'detached') {
     throw new AggregateError(failures, 'The scratch disk image is still attached or its mount cannot be confirmed.');
   }
 }
