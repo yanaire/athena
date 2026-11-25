@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { writeSync } from 'node:fs';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Connections, object } from './connections.ts';
@@ -21,6 +20,8 @@ import { ModelProfiles } from './model-profiles.ts';
 import { ManagerError } from './orchestration.ts';
 import { ExtensionError } from './extensions.ts';
 import { ExternalMcpError } from './external-mcp-client.ts';
+import { createPrivateDirectory } from './private-storage.ts';
+import { nativeBrowserAvailable, openAccountBrowser } from './native-browser.ts';
 
 const desktopMode = process.argv.includes('--desktop', 2);
 async function initialize() {
@@ -30,7 +31,7 @@ async function initialize() {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new RangeError('Invalid ATHENA_PORT.');
   const modelId = process.env.ATHENA_MODEL?.trim();
   process.umask(0o077);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  createPrivateDirectory(directory);
   const lock = lockWorkspace(directory, desktopMode);
   if (desktopMode) writeSync(1, 'ATHENA_DESKTOP_BOOTSTRAP\n');
   const desktop = desktopMode ? await readDesktopStartup() : undefined;
@@ -47,7 +48,7 @@ async function initialize() {
   });
   const migration = new CredentialMigration({ workspace: realWorkspace, store: credentials,
     requestKey: process.platform === 'darwin' ? desktop?.requestMigrationKey : undefined });
-  const nativeBrowser = Boolean(desktop && process.platform === 'darwin');
+  const nativeBrowser = Boolean(desktop && nativeBrowserAvailable());
   const providers = await ProviderManager.create(credentials, directory, {
     nativeBrowser, chatGPTEnabled: nativeBrowser && localChatGPTPlanUsage,
   });
@@ -196,20 +197,12 @@ async function rpc(method: string, args: unknown[]) {
     }
     case 'openProviderOAuthBrowser':
     case 'openChatGPTUsage': {
-      if (!desktop || process.platform !== 'darwin' || !providers.oauth) {
+      if (!desktop || !nativeBrowserAvailable() || !providers.oauth) {
         throw new ProviderError('UNSUPPORTED_AUTH', 'The native browser launcher is unavailable.');
       }
       const url = method === 'openChatGPTUsage' ? 'https://chatgpt.com/settings/usage' : providers.oauth.authorizeUrl(string(input));
-      // The official returning flow may include an ID-token hint. Pass it via
-      // stdin to LaunchServices, never the process list or the renderer.
-      const opened = await new Promise<boolean>(resolve => {
-        const browser = spawn('/usr/bin/osascript', ['-l', 'JavaScript', '-'], { timeout: 5000, stdio: ['pipe', 'ignore', 'ignore'] });
-        browser.once('error', () => resolve(false));
-        browser.once('close', code => resolve(code === 0));
-        browser.stdin.on('error', () => resolve(false));
-        browser.stdin.end(`ObjC.import('AppKit'); if (!$.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(${JSON.stringify(url)}))) throw Error('Browser unavailable');\n`);
-      });
-      if (!opened) throw new ProviderOAuthError('BROWSER_FAILED', 'macOS could not open the ChatGPT page. Try again.');
+      const opened = await openAccountBrowser(url);
+      if (!opened) throw new ProviderOAuthError('BROWSER_FAILED', 'The system browser could not open the account page. Try again.');
       return { opened: true };
     }
     case 'cancelProviderOAuth': {
@@ -321,7 +314,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
         case '/favicon.ico': res.writeHead(204).end(); return;
         case '/api/bootstrap': {
           const snapshot = manager.getSnapshot();
-          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && process.platform === 'darwin' && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && nativeBrowserAvailable() && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
         }
         case '/api/events': {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });

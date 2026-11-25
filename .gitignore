@@ -16,4 +16,6 @@ credentials.v2.json
 /src-tauri/target/
 /sandbox/target/
 /.analysis-runtime/
+/runtime/windows-private-storage.exe
+/runtime/windows-private-storage.exe.config
 /athena-backend-handoff/athena-codex-ui/qa/browser-evidence/

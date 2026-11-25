@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmod, link, mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { ANALYSIS_FILE_LIMITS as limits, AnalysisFileError, AnalysisFiles } from '../runtime/analysis-files.ts';
+import { assertPrivatePermissions, directoryLink, makePublicPermissions } from './platform-test-helpers.ts';
 
 const scope = { projectId: 'project', sessionId: 'session', taskId: 'task' };
 const attempt = { ...scope, attemptId: 'attempt' };
@@ -27,7 +28,7 @@ test('task files persist; other tasks, sessions and projects cannot see them', a
   await files.write(scope, 'calc.py', 'print(1)');
   assert.equal(await new AnalysisFiles(root).read(scope, 'calc.py'), 'print(1)');
   const dir = await taskPath(root);
-  assert.equal((await stat(dir)).mode & 0o777, 0o700);
+  await assertPrivatePermissions(dir, 0o700);
   for (const key of ['projectId', 'sessionId', 'taskId']) {
     const other = { ...scope, [key]: 'other' };
     assert.equal(await files.has(other, 'calc.py'), false);
@@ -88,14 +89,14 @@ test('workspace probes, reads and replacements reject links, directories, oversi
   await symlink(join(root, 'absent'), join(dir, 'broken.txt'));
   await mkdir(join(dir, 'dir.txt'));
   await writeFile(join(dir, 'oversize.txt'), Buffer.alloc(limits.fileBytes + 1), { mode: 0o600 });
-  await chmod(join(dir, 'seed.txt'), 0o644);
+  await makePublicPermissions(join(dir, 'seed.txt'));
   for (const name of ['hard.txt', 'soft.txt', 'broken.txt', 'dir.txt', 'oversize.txt', 'seed.txt']) {
     await assert.rejects(files.has(scope, name), AnalysisFileError);
     await assert.rejects(files.read(scope, name), AnalysisFileError);
     await assert.rejects(files.write(scope, name, 'replacement'), AnalysisFileError);
   }
   await rm(dir, { recursive: true });
-  await symlink(root, dir);
+  await directoryLink(root, dir);
   await assert.rejects(files.has(scope, 'missing.txt'), AnalysisFileError);
 });
 
@@ -119,7 +120,7 @@ test('same-name artifact versions survive process restart and reject forged refe
   }
   for (const entry of await readdir(versions)) {
     const path = join(versions, entry);
-    assert.equal((await stat(path)).mode & 0o777, 0o400);
+    await assertPrivatePermissions(path, 0o400);
     await chmod(path, 0o600);
     await writeFile(path, '{"n":0}');
     await chmod(path, 0o400);

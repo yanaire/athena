@@ -96,17 +96,17 @@ workflow inspired by Hyra 2.0, not an imported Hyra runtime.
 [Research workflow and Books](docs/research-workflow.md) ·
 [Candidate acceptance and Mac handoff](docs/ecosystem/ACCEPTANCE.md)
 
-### Workflow and desktop platform
+### Workflow and desktop platforms
 
-The source includes the recorded Workflow DAG and reviewed chat fixes. The
-current desktop target is Apple Silicon on macOS 13.5 or later; Windows and
-Intel Mac work remains outside this candidate in the separate platform review.
-Use `npm run desktop:build` for the Apple Silicon source build described in the
-[installation guide](docs/installation.md).
-The candidate's own CI result is the source of truth for automated verification.
-Signed releases and actual Mac/account acceptance remain separate. See the
-[UI capability audit](docs/ui-capability-audit.md) for Browser, Device, Files and
-Diff features that are still unavailable.
+The source includes the recorded Workflow DAG and reviewed chat fixes. Desktop
+builds support Apple Silicon and Intel on macOS 13.5 or later, and Windows x64
+with an NSIS installer. `npm run desktop:build` selects the native target. See
+the [installation guide](docs/installation.md) and [한국어 설치 안내](docs/installation.ko.md)
+for prerequisites and explicit target commands.
+
+The current commit's CI result records automated verification. Signed releases
+and real-account acceptance remain separate. See the [UI capability audit](docs/ui-capability-audit.md)
+for Browser, Device, Files and Diff features that are still unavailable.
 
 ## Architecture
 

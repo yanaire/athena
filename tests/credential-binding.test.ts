@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 import { CredentialBindings } from '../runtime/credential-binding.ts';
+import { assertPrivatePermissions, assertPublicPermissions, makePublicPermissions } from './platform-test-helpers.ts';
 
 test('concurrent processes publish one private binding key and reopening preserves opaque references', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'athena-binding-'));
@@ -31,8 +32,8 @@ test('concurrent processes publish one private binding key and reopening preserv
   assert.notEqual(await reopened.bind('other', { key: 'binding-fixture-secret' }), references[0]);
   const path = join(directory, 'provider-bindings', 'key.v1');
   const key = (await readFile(path, 'utf8')).trim();
-  assert.equal((await stat(path)).mode & 0o777, 0o600);
-  assert.equal((await stat(join(directory, 'provider-bindings'))).mode & 0o777, 0o700);
+  await assertPrivatePermissions(path, 0o600);
+  await assertPrivatePermissions(join(directory, 'provider-bindings'), 0o700);
   assert.equal(key.includes('binding-fixture-secret'), false);
   assert.equal(references[0]!.includes(key), false);
   assert.equal(references[0]!.includes('binding-fixture-secret'), false);
@@ -48,10 +49,10 @@ test('damaged or unsafe binding keys fail closed without replacing the existing 
   await writeFile(path, 'damaged\n');
   await assert.rejects(bind(), { code: 'VAULT_INVALID' });
   assert.equal(await readFile(path, 'utf8'), 'damaged\n');
-  await writeFile(path, saved); await chmod(path, 0o644);
+  await writeFile(path, saved); await makePublicPermissions(path);
   await assert.rejects(bind(), { code: 'VAULT_INVALID' });
   assert.deepEqual(await readFile(path), saved);
-  assert.equal((await stat(path)).mode & 0o777, 0o644);
+  await assertPublicPermissions(path);
 });
 
 test('memory-only bindings belong to the credential-store object and cannot imply durable identity', async () => {

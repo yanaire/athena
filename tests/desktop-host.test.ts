@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
@@ -13,6 +13,7 @@ import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
 import { artifactRef, type ArtifactRow } from '../runtime/orchestration.ts';
 import { openProviderCredentials } from '../runtime/provider-credentials.ts';
 import { Storage } from '../runtime/storage.ts';
+import { assertKilled, assertPrivatePermissions, restorePrivatePermissions, systemEnvironment, windows } from './platform-test-helpers.ts';
 
 const marker = 'ATHENA_DESKTOP_BOOTSTRAP';
 const authPath = (directory: string) => join(directory, 'auth/credentials.v2.json');
@@ -26,11 +27,49 @@ const prohibitKeychain = `import cp from 'node:child_process';
   syncBuiltinESMExports();`;
 const script = fileURLToPath(new URL('../runtime/server.ts', import.meta.url));
 const hex = () => randomBytes(32).toString('hex');
+const ownedChildren = new WeakMap<TestContext, Set<() => Promise<void>>>();
 
 async function workspace(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-desktop-test-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(async () => {
+    // Windows cannot remove a workspace while its host still owns SQLite files.
+    const closed = await Promise.allSettled([...(ownedChildren.get(t) ?? [])].map(close => close()));
+    await rm(directory, { recursive: true, force: true });
+    const failure = closed.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  });
+  // Match the private/current-user precondition for a freshly created test root.
+  await restorePrivatePermissions(directory, 0o700);
   return directory;
+}
+
+function ownChild(t: TestContext, start: () => ChildProcessWithoutNullStreams) {
+  t.signal.throwIfAborted();
+  let owned: ChildProcessWithoutNullStreams | undefined;
+  let completion: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined;
+  const stop = () => {
+    if (owned && owned.exitCode === null && owned.signalCode === null) owned.kill('SIGKILL');
+  };
+  const close = async () => {
+    t.signal.removeEventListener('abort', stop);
+    stop();
+    await completion;
+  };
+  const children = ownedChildren.get(t) ?? new Set<() => Promise<void>>();
+  children.add(close);
+  ownedChildren.set(t, children);
+  t.after(close); // Register ownership before a timed-out callback can create a child.
+  t.signal.addEventListener('abort', stop, { once: true });
+  t.signal.throwIfAborted();
+  const child = start();
+  owned = child;
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once('close', (code, signal) => resolve({ code, signal }));
+    child.once('error', reject);
+  });
+  completion = exited;
+  void exited.catch(() => undefined); // Awaiters below still observe spawn errors.
+  return { child, exited };
 }
 
 function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, throughParent = false) {
@@ -38,10 +77,10 @@ function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, 
     const host = spawn(process.execPath, [process.argv[1], '--desktop'], { stdio: ['pipe', 'inherit', 'inherit'] });
     process.stdin.pipe(host.stdin);
     host.once('exit', code => process.exit(code ?? 1));`;
-  const child = spawn(process.execPath, throughParent ? ['--input-type=commonjs', '-e', relay, script] : [script, '--desktop'], {
+  const { child, exited } = ownChild(t, () => spawn(process.execPath, throughParent ? ['--input-type=commonjs', '-e', relay, script] : [script, '--desktop'], {
     cwd: directory, stdio: ['pipe', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH, HOME: directory, ATHENA_DATA_DIR: directory, ATHENA_PORT: 'not-a-port', NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(prohibitKeychain)}`, ...env },
-  });
+    env: { ...systemEnvironment(), HOME: directory, USERPROFILE: directory, ATHENA_DATA_DIR: directory, ATHENA_PORT: 'not-a-port', NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(prohibitKeychain)}`, ...env },
+  }));
   const output: string[] = [];
   const stdout = createInterface({ input: child.stdout });
   stdout.on('line', line => output.push(line));
@@ -49,18 +88,11 @@ function launch(t: TestContext, directory: string, env: NodeJS.ProcessEnv = {}, 
   const stderr = child.stderr.setEncoding('utf8');
   let diagnostics = '';
   stderr.on('data', chunk => { diagnostics += chunk; });
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-    child.once('close', (code, signal) => resolve({ code, signal }));
-    child.once('error', reject);
-  });
-  t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-    await exited;
-  });
-  return { child, output, lines, exited, diagnostics: () => diagnostics };
+  return { child, output, lines, exited, testSignal: t.signal, diagnostics: () => diagnostics };
 }
 
 async function ready(host: ReturnType<typeof launch>) {
+  host.testSignal.throwIfAborted();
   const { value } = await host.lines.next();
   assert.ok(typeof value === 'string', host.diagnostics());
   const port = /^ATHENA_DESKTOP_READY ([1-9][0-9]{0,4})$/.exec(value)?.[1];
@@ -70,6 +102,7 @@ async function ready(host: ReturnType<typeof launch>) {
 
 async function start(t: TestContext, directory: string, startup: { readonly token: string } = { token: hex() }) {
   const host = launch(t, directory);
+  t.signal.throwIfAborted();
   assert.equal((await host.lines.next()).value, marker);
   host.child.stdin.write(JSON.stringify(startup) + '\n');
   return { ...host, base: await ready(host), cookie: `athena_desktop=${startup.token}` };
@@ -111,14 +144,10 @@ test('private migration pipe accepts explicit key replies and rejects malformed 
         } catch (error) { console.log('RESULT ' + error.code); }
         process.stdin.destroy();
       `;
-      const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
-        env: { PATH: process.env.PATH, HOME: await workspace(t) }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      const exited = new Promise<number | null>(resolve => child.once('close', resolve));
-      t.after(async () => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        await exited;
-      });
+      const fixtureHome = await workspace(t);
+      const { child, exited } = ownChild(t, () => spawn(process.execPath, ['--input-type=module', '-e', source], {
+        env: { ...systemEnvironment(), HOME: fixtureHome }, stdio: ['pipe', 'pipe', 'pipe'],
+      }));
       const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
       child.stdin.write(JSON.stringify({ token: hex() }) + '\n');
       assert.equal((await lines.next()).value, `ATHENA_DESKTOP_IMPORT ${account}`);
@@ -128,7 +157,7 @@ test('private migration pipe accepts explicit key replies and rejects malformed 
         child.stdin.write(reply.slice(12) + '\n');
       }
       assert.equal((await lines.next()).value, `RESULT ${expected}`);
-      assert.equal(await exited, 0);
+      assert.deepEqual(await exited, { code: 0, signal: null });
     });
   }
 });
@@ -246,7 +275,8 @@ test('desktop rejects cookie ambiguity, other secret transports and invalid host
   }
 });
 
-test('desktop fails closed with a structured frame for invalid startup input', { timeout: 25_000 }, async t => {
+// Fifteen independent host starts exceeded the old 25s budget on native Intel CI.
+test('desktop fails closed with a structured frame for invalid startup input', { timeout: 60_000 }, async t => {
   const directory = await workspace(t);
   const token = 'a'.repeat(64), key = hex();
   const valid = JSON.stringify({ token });
@@ -267,7 +297,7 @@ test('desktop fails closed with a structured frame for invalid startup input', {
   }
 });
 
-test('desktop owns the workspace before requesting a private session token and supports SIGTERM and SIGINT', { timeout: 15_000 }, async t => {
+test('desktop owns the workspace before requesting a private session token and shuts down through its parent pipe', { timeout: 15_000 }, async t => {
   const directory = await workspace(t);
   const first = launch(t, directory);
   assert.equal((await first.lines.next()).value, marker);
@@ -281,15 +311,26 @@ test('desktop owns the workspace before requesting a private session token and s
   first.child.stdin.write(line.slice(45));
   first.child.stdin.write('\n');
   await ready(first);
-  first.child.kill('SIGTERM');
+  first.child.stdin.end();
   assert.deepEqual(await first.exited, { code: 0, signal: null });
 
   const restarted = await start(t, directory, startup);
-  restarted.child.kill('SIGINT');
+  restarted.child.stdin.end();
   assert.deepEqual(await restarted.exited, { code: 0, signal: null });
 });
 
-test('desktop drains an active SSE connection when its parent is killed', { timeout: 15_000 }, async t => {
+test('desktop also handles POSIX SIGTERM and SIGINT with a graceful exit', {
+  timeout: 15_000, skip: windows ? 'Windows process.kill is forced termination; graceful desktop shutdown is verified through its parent pipe.' : false,
+}, async t => {
+  const directory = await workspace(t);
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    const host = await start(t, directory);
+    assert.equal(host.child.kill(signal), true);
+    assert.deepEqual(await host.exited, { code: 0, signal: null });
+  }
+});
+
+test('desktop releases an active SSE connection and workspace when its parent is killed', { timeout: 15_000 }, async t => {
   const directory = await workspace(t);
   const host = launch(t, directory, {}, true);
   assert.equal((await host.lines.next()).value, marker);
@@ -298,11 +339,32 @@ test('desktop drains an active SSE connection when its parent is killed', { time
   const base = await ready(host);
   const stream = await fetch(`${base}/api/events`, { headers: { Cookie: `athena_desktop=${startup.token}` }, signal: AbortSignal.timeout(7_000) });
   assert.equal(stream.status, 200);
-  const drain = stream.text();
-  host.child.kill('SIGKILL');
-  assert.equal(await drain, ': subscribed\n\n');
-  // Only the relay is signalled. The inherited stdout/stderr pipes close after Node drains and exits.
-  assert.deepEqual(await host.exited, { code: null, signal: 'SIGKILL' });
+  assert.ok(stream.body);
+  const reader = stream.body.getReader();
+  const subscription = ': subscribed\n\n';
+  let received = Buffer.alloc(0);
+  while (received.length < subscription.length) {
+    const chunk = await reader.read();
+    assert.equal(chunk.done, false);
+    received = Buffer.concat([received, chunk.value!]);
+  }
+  assert.equal(received.toString('utf8'), subscription);
+  const disconnected = reader.read().then(result => {
+    assert.deepEqual(result, { done: true, value: undefined });
+  }, (error: unknown) => {
+    // libuv's Windows job kills non-detached children with their parent. The
+    // already-subscribed socket may close without an HTTP response terminator.
+    if (!windows) throw error;
+    assert.ok(error instanceof TypeError);
+    assert.equal(error.message, 'terminated');
+    assert.match((error.cause as NodeJS.ErrnoException | undefined)?.code ?? '', /^(UND_ERR_SOCKET|ECONNRESET)$/);
+  });
+  assert.equal(host.child.kill('SIGKILL'), true);
+  await disconnected;
+  reader.releaseLock();
+  // close waits for the relay and its inherited stdout/stderr handles to close.
+  const killed = await host.exited;
+  assertKilled(killed.code, killed.signal);
   const restarted = await start(t, directory, startup);
   restarted.child.stdin.end();
   assert.deepEqual(await restarted.exited, { code: 0, signal: null });
@@ -319,7 +381,7 @@ test('desktop persists local credentials across token-only restarts without read
   const response = await fetch(first.base + '/api/rpc', { ...rpc('saveProviderApiKey', ['openai', 'local-test-fixture']),
     headers: { 'Content-Type': 'application/json', Cookie: first.cookie }, signal: AbortSignal.timeout(3_000) });
   assert.equal(response.status, 200);
-  assert.equal((await stat(authPath(directory))).mode & 0o777, 0o600);
+  await assertPrivatePermissions(authPath(directory), 0o600);
   first.child.stdin.end();
   assert.deepEqual(await first.exited, { code: 0, signal: null });
   const local = await readFile(authPath(directory));

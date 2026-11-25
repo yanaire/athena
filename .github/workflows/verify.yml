@@ -95,7 +95,7 @@ jobs:
       - name: Build and verify the arm64 app bundle
         run: npm run desktop:build
       - name: Test desktop startup safeguards
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
+        run: cargo test --release --target aarch64-apple-darwin --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
 
   browser-chat:
     runs-on: ubuntu-24.04
@@ -133,3 +133,71 @@ jobs:
           path: athena-backend-handoff/athena-codex-ui/qa/browser-evidence/
           if-no-files-found: warn
           retention-days: 14
+
+  desktop-platform:
+    name: desktop-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mac-intel
+            os: macos-15-intel
+            platform: darwin
+            arch: x64
+            target: x86_64-apple-darwin
+          - name: windows-x64
+            os: windows-2022
+            platform: win32
+            arch: x64
+            target: x86_64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
+    env:
+      ATHENA_EXPECT_PLATFORM: ${{ matrix.platform }}
+      ATHENA_EXPECT_ARCH: ${{ matrix.arch }}
+      ATHENA_DESKTOP_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Require the native platform and architecture
+        run: |
+          node --input-type=module -e 'import assert from "node:assert/strict"; assert.equal(process.platform, process.env.ATHENA_EXPECT_PLATFORM); assert.equal(process.arch, process.env.ATHENA_EXPECT_ARCH); console.log(process.version, process.platform, process.arch);'
+      - name: Install locked Rust and npm dependencies
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target "$ATHENA_DESKTOP_TARGET"
+          rustup override set 1.99.1
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check types and the generated UI
+        run: |
+          npm run check
+          python3 athena-backend-handoff/athena-codex-ui/build.py
+          git diff --exit-code -- athena-backend-handoff/athena-codex-ui/athena-preview.html
+      - name: Check Windows credential permissions before the native build
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        run: |
+          npm run windows:prepare
+          node --test --test-reporter=tap tests/local-credentials.test.ts tests/private-storage.test.ts
+      - name: Prepare and test the native analysis runtime
+        run: |
+          npm run analysis:prepare
+          cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path sandbox/Cargo.toml --locked
+      - name: Run host and controlled provider tests on this OS
+        run: node --test --test-reporter=tap --test-concurrency=2 tests/*.test.*
+      - name: Build and verify the native application
+        run: npm run desktop:build
+      - name: Compile the desktop test target
+        run: cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path src-tauri/Cargo.toml --locked --bin athena-desktop
+      - name: Install the Windows package in an isolated runner directory
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/check-windows-installer.ps1

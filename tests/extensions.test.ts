@@ -3,6 +3,7 @@ import { mkdtempSync, cpSync, readFileSync, writeFileSync, rmSync, symlinkSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { Storage } from '../runtime/storage.ts';
 import { BUILTIN_SKILLS_ID, ExtensionStore, emptyExtensionPin, validatePluginManifest } from '../runtime/extensions.ts';
 import type { PluginManifest } from '../runtime/extensions.ts';
@@ -11,7 +12,7 @@ import type { ExternalServerDefinition, ExternalVerification } from '../runtime/
 import type { Context } from '../runtime/orchestration.ts';
 
 function setup() {
-  const directory = mkdtempSync(join(tmpdir(), 'athena-extensions-'));
+  const directory = privateTestDirectory(join(tmpdir(), 'athena-extensions-'));
   const storage = new Storage(directory), store = new ExtensionStore(storage);
   return { directory, storage, store, close() { storage.close(); rmSync(directory, { recursive: true, force: true }); } };
 }

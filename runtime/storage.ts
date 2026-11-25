@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createPrivateDirectory } from './private-storage.ts';
 import type { Project, Session, Scope } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 
 export type StoredSession = Session & { readonly sessionFile: string; readonly sessionDir: string };
@@ -25,7 +25,7 @@ export class Storage {
   readonly #db: DatabaseSync;
 
   constructor(directory: string) {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    createPrivateDirectory(directory);
     this.#db = new DatabaseSync(join(directory, 'workspace.sqlite'));
     this.#db.exec(`
       PRAGMA foreign_keys=ON;

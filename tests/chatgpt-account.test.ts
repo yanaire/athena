@@ -10,6 +10,7 @@ import { openLocalCredentials } from '../runtime/local-credentials.ts';
 import { ProviderError, ProviderManager } from '../runtime/provider-manager.ts';
 import { object } from '../runtime/connections.ts';
 import { chatGPTAccountRef } from '../runtime/chatgpt-catalog.ts';
+import { restorePrivatePermissions, windows } from './platform-test-helpers.ts';
 
 const base = 'https://api.openai.com/v1';
 const slug = 'fixture-account-codex';
@@ -195,31 +196,48 @@ function sse(model: string, output: { readonly text: string } | { readonly funct
     { headers: { 'content-type': 'text/event-stream' } });
 }
 
-test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen', { timeout: 15_000 }, async t => {
+test('switching ChatGPT profiles mid-run preserves the selected account for the parent and child across reopen',
+  { timeout: windows ? 180_000 : 15_000 }, async t => {
   const directory = await mkdtemp(join(await realpath(tmpdir()), 'athena-chatgpt-run-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  const proceed = Promise.withResolvers<void>();
+  const release = () => proceed.resolve();
+  let closeResources = async () => {};
+  t.signal.addEventListener('abort', release, { once: true });
+  t.after(async () => {
+    t.signal.removeEventListener('abort', release);
+    // Release the paused provider before awaiting manager shutdown, then close
+    // SQLite users before removing the directory on Windows.
+    release();
+    try { await closeResources(); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  // Only this newly created fixture is initialized; existing stores remain
+  // subject to the production reject-only ownership checks.
+  await restorePrivatePermissions(directory, 0o700);
   const credentialDirectory = join(directory, 'auth');
   let store = await openLocalCredentials(credentialDirectory);
-  await store.modify('openai', async () => registration);
+  await store.modify('openai', async () => registration, { signal: t.signal });
   const other = { ...registration, clientId: 'oaiapp_fixture_B', subject: 'fixture-subject-B', access: 'fixture-access-B',
     refresh: 'fixture-refresh-B', idToken: 'fixture-id-token-B' };
   const otherRef = chatGPTAccountRef(other);
   assert.ok(otherRef);
-  await store.modify(otherRef, async () => other);
+  await store.modify(otherRef, async () => other, { signal: t.signal });
+  t.signal.throwIfAborted();
   let providers = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
+  closeResources = async () => { await providers.close(); };
+  if (t.signal.aborted) { await closeResources(); t.signal.throwIfAborted(); }
   const makeProfiles = () => new ModelProfiles(directory, (p, id) => providers.model(p, id));
   let profiles = makeProfiles();
+  closeResources = async () => { profiles.close(); await providers.close(); };
   const makeManager = () => new TaskManager({ dataDir: directory, models: {
     resolve: (c, p) => profiles.resolve(c, p), pin: ref => providers.pin(ref), requireProfile: id => { profiles.get(id); },
   } });
   let manager = makeManager();
-  t.after(async () => { await manager.close(); profiles.close(); await providers.close(); });
+  closeResources = async () => { await manager.close(); profiles.close(); await providers.close(); };
   const calls: Array<{ readonly parent: boolean; readonly outputs: readonly string[] }> = [];
   const events: unknown[] = [];
   const outboundErrors: unknown[] = [];
   const entered = Promise.withResolvers<void>();
-  const proceed = Promise.withResolvers<void>();
-  t.after(() => proceed.resolve());
   const otherSlug = 'fixture-other-model';
   let terminal: 'completed' | 'incomplete' | 'forbidden' | 'limited' | 'network' = 'completed';
   t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -282,8 +300,12 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
     }
   });
   await manager.initialize();
-  const { accountRef } = await providers.catalog('openai');
-  assert.ok(accountRef);
+  const catalogStarted = performance.now();
+  const catalog = await providers.catalog('openai');
+  const { accountRef } = catalog;
+  assert.ok(accountRef, JSON.stringify({ source: catalog.source, auth: catalog.provider.auth,
+    error: catalog.error, errorReason: catalog.errorReason, availableModelIds: catalog.availableModelIds,
+    catalogDurationMs: performance.now() - catalogStarted }));
   const profile = profiles.save({ name: 'Fixture', provider: 'openai', modelId: slug, authMode: 'chatgpt', accountRef },
     await providers.authorChatGPTProfile(slug, accountRef));
   const otherProfile = profiles.save({ name: 'Other', provider: 'openai', modelId: otherSlug, authMode: 'chatgpt', accountRef: otherRef },
@@ -298,6 +320,7 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
     if (snapshot.run.status === 'succeeded') settled.resolve();
     if (snapshot.run.status === 'failed') settled.reject(new Error(JSON.stringify({ attempts: snapshot.attempts, outboundErrors })));
   });
+  t.signal.throwIfAborted();
   const started = manager.pi(conversation.sessionId, { type: 'prompt', id: 'account-codex-run', message: 'Have a worker report.' });
   try {
     await Promise.race([entered.promise, settled.promise.then(() => assert.fail('Run settled before the parent began streaming'))]);
@@ -322,8 +345,11 @@ test('switching ChatGPT profiles mid-run preserves the selected account for the 
   const history = await manager.getAgentHistory(conversation.sessionId, conversation.sessionId);
   assert.match(JSON.stringify(history), /Parent received fixture report/);
   await manager.close(); profiles.close(); await providers.close();
+  t.signal.throwIfAborted();
   store = await openLocalCredentials(credentialDirectory);
+  t.signal.throwIfAborted();
   providers = await ProviderManager.create(store, directory, { chatGPTEnabled: true });
+  if (t.signal.aborted) { await providers.close(); t.signal.throwIfAborted(); }
   profiles = makeProfiles(); manager = makeManager(); await manager.initialize();
   assert.deepEqual(await store.read('openai'), registration);
   assert.equal((await store.read(otherRef))?.type, 'oauth');
