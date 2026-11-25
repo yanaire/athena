@@ -1,4 +1,4 @@
-name: Verify Windows parent termination
+name: Diagnose Windows test process cleanup
 on: [pull_request]
 permissions:
   contents: read
@@ -28,6 +28,6 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Compile the fixed Windows permission helper
         run: npm run windows:prepare
-      - name: Verify forced parent termination and workspace recovery
-        timeout-minutes: 2
-        run: node --test --test-reporter=tap --test-name-pattern='desktop releases an active SSE connection and workspace when its parent is killed' tests/desktop-host.test.ts
+      - name: Locate unfinished test resources
+        timeout-minutes: 5
+        run: node --import ./scripts/probe-test-resources.mjs --test --test-reporter=tap --test-concurrency=1 --test-timeout=45000 tests/chatgpt-responses.test.ts tests/connections.test.ts tests/credential-binding.test.ts
