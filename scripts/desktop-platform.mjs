@@ -89,6 +89,14 @@ export function macOSImageAttachment(images, path, mount, mountedHere) {
   return { state: mountedHere ? 'mounted' : 'unmounted', device, partition: partitions[0]['dev-entry'] };
 }
 
+export function macOSEjectTarget(attachment, ownership) {
+  if (attachment.state === 'detached') return attachment;
+  if (ownership && attachment.device === ownership.device && attachment.partition === ownership.partition) {
+    return { ...attachment, target: ownership.uuid };
+  }
+  return { state: 'ambiguous' };
+}
+
 export function detachMacOSImage(readAttachment, eject) {
   const failures = [];
   let attachment = readAttachment();

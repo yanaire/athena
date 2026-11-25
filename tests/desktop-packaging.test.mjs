@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { desktopBuildPlan } from '../scripts/build-desktop.mjs';
-import { detachMacOSImage, isolatedRuntimeEnvironment, macOSImageAttachment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
+import { detachMacOSImage, isolatedRuntimeEnvironment, macOSEjectTarget, macOSImageAttachment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
 
 test('macOS packaging confirms detachment despite a late DiskArbitration response', () => {
   const calls = [];
@@ -53,18 +53,25 @@ test('macOS packaging finds the owned partition after unmount and retries with i
   const report = (entities, imagePath = path) => [{ 'image-path': imagePath, 'system-entities': entities }];
   const mounted = report([whole, { ...hfs, 'mount-point': mount }]);
   const unmounted = report([whole, hfs]);
-  assert.deepEqual(macOSImageAttachment(mounted, path, mount, true), { state: 'mounted', device, partition });
-  assert.deepEqual(macOSImageAttachment(unmounted, path, mount, false), { state: 'unmounted', device, partition });
+  const mountedAttachment = macOSImageAttachment(mounted, path, mount, true);
+  const unmountedAttachment = macOSImageAttachment(unmounted, path, mount, false);
+  assert.deepEqual(mountedAttachment, { state: 'mounted', device, partition });
+  assert.deepEqual(unmountedAttachment, { state: 'unmounted', device, partition });
   assert.deepEqual(macOSImageAttachment(report([whole, hfs], '/another-image'), path, mount, false), { state: 'detached' });
   assert.deepEqual(macOSImageAttachment(report([whole, { ...hfs, 'mount-point': '/different-mount' }]), path, mount, false),
     { state: 'ambiguous' });
   assert.deepEqual(macOSImageAttachment(mounted, path, mount, false), { state: 'ambiguous' });
+  assert.deepEqual(macOSEjectTarget(mountedAttachment, undefined), { state: 'ambiguous' });
+  assert.deepEqual(macOSEjectTarget(unmountedAttachment, undefined), { state: 'ambiguous' });
+  assert.deepEqual(macOSEjectTarget(unmountedAttachment, { device, partition: `${device}s3`, uuid: target }),
+    { state: 'ambiguous' });
 
   const calls = [];
+  const ownership = { device, partition, uuid: target };
   let images = mounted;
   detachMacOSImage(() => {
     const attachment = macOSImageAttachment(images, path, mount, images === mounted);
-    return attachment.partition ? { ...attachment, target } : attachment;
+    return macOSEjectTarget(attachment, ownership);
   }, uuid => {
     calls.push(uuid);
     if (images === mounted) {
