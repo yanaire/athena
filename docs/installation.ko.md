@@ -1,6 +1,6 @@
 # Athena 윈도우·인텔 맥 설치 안내
 
-이 안내는 `feature/athena-cross-platform` 개발 브랜치에 해당합니다. 기본 `main`에 통합되기 전에는 아래 브랜치를 받아야 새 빌드 명령과 운영체제별 수정이 함께 적용됩니다.
+Windows x64와 Intel Mac 지원이 포함된 소스 리비전에서 아래 명령을 실행합니다. 검토 중인 빌드를 재현할 때는 PR 또는 Actions에 표시된 커밋을 체크아웃합니다.
 
 ## 어떤 버전을 만들면 되나요?
 
@@ -31,7 +31,7 @@
 ### 소스 받기와 빌드
 
 ```powershell
-git clone --branch feature/athena-cross-platform https://github.com/yanaire/athena.git
+git clone https://github.com/yanaire/athena.git
 cd athena
 node -p "process.version + ' ' + process.platform + ' ' + process.arch"
 rustup toolchain install 1.99.1 --profile minimal --target x86_64-pc-windows-msvc
@@ -71,7 +71,7 @@ xcode-select --install
 설치가 끝난 뒤:
 
 ```sh
-git clone --branch feature/athena-cross-platform https://github.com/yanaire/athena.git
+git clone https://github.com/yanaire/athena.git
 cd athena
 node -p "process.version + ' ' + process.platform + ' ' + process.arch"
 rustup toolchain install 1.99.1 --profile minimal --target x86_64-apple-darwin
@@ -93,6 +93,8 @@ src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Athena.app
 
 Apple Silicon 맥에서는 macOS **arm64용 Node 24.22.3**을 사용하고 Rust 대상을 `aarch64-apple-darwin`으로 선택한 뒤 `npm run desktop:build`를 실행합니다. Node 확인 결과는 `v24.22.3 darwin arm64`여야 합니다.
 
+두 Mac에서 모두 앱 빌드 후 `node scripts/check-macos-dmg.mjs`를 실행하면 대상별 `release/bundle/dmg`에 DMG가 생성됩니다. DMG를 읽기 전용으로 열어 복사한 앱을 임시 작업공간에서 시작하고 종료한 뒤 결과를 기록합니다.
+
 ## 3. 처음 실행한 뒤 모델 연결
 
 1. **Settings → Models & connections**를 엽니다.
@@ -113,6 +115,6 @@ npm run desktop:build:local-chatgpt
 
 ## 4. 이번 변경의 검증 범위
 
-자동 검사는 운영체제·아키텍처 일치, 타입 검사, 생성된 UI 일치, 호스트 회귀, 분석 런타임, 앱 내부 실행 파일, 번들된 호스트의 스트리밍·도구 호출·저장·재시작을 검사합니다. Windows CI는 NSIS 설치 뒤 설치 폴더를 대상으로 같은 기능 검사를 반복하고, 제거 프로그램이 설치한 실행 파일과 호스트 리소스를 지우는지도 확인합니다. 레지스트리·바로가기·별도 작업 폴더의 삭제까지 확인한다는 뜻은 아닙니다. 기본 브랜치에 통합되기 전에는 [후보 브랜치의 Actions 결과](https://github.com/yanaire/athena/actions?query=branch%3Afeature%2Fathena-cross-platform)를 확인합니다.
+자동 검사는 운영체제·아키텍처 일치, 타입과 UI, 호스트 회귀, 분석 런타임과 번들된 호스트의 스트리밍·도구 호출·저장·재시작을 확인합니다. Windows CI는 NSIS로 설치한 뒤 WebView2와 호스트의 연결을 확인하고 앱을 종료합니다. 제거 프로그램으로 설치 실행 파일과 호스트 리소스가 제거되는지도 확인합니다. macOS와 Windows의 설치 파일 이름 및 SHA-256은 [Actions](https://github.com/yanaire/athena/actions/workflows/verify.yml) 로그에서 확인할 수 있습니다.
 
 채팅·워크플로우의 Chromium 검사 결과는 [워크플로우 검증 기록](workflow-dag.md)에, 아직 연결되지 않은 UI 기능은 [기능 점검표](ui-capability-audit.md)에 정리돼 있습니다. 이 문서에 새 플랫폼의 실제 빌드 성공을 소급해 가정하지 않습니다. 성공 여부는 해당 커밋의 CI 결과로 판단합니다.

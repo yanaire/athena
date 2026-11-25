@@ -1,6 +1,6 @@
 # Installation from source
 
-The `feature/athena-cross-platform` candidate adds native **Intel macOS** and **Windows x64** builds to the existing Apple Silicon build. Use that branch until its changes are integrated; the default branch may not contain these commands. [한국어 설치 안내](installation.ko.md) includes the complete Windows and Intel Mac steps.
+Build a revision that includes native **Intel macOS** and **Windows x64** support. The [Korean installation guide](installation.ko.md) includes complete Windows and Intel Mac steps.
 
 | Build computer | Rust target | Build command | Output |
 | --- | --- | --- | --- |
@@ -31,13 +31,15 @@ The NSIS installer checks the framework before WebView2 and Athena payload insta
 
 Build on Windows x64 with `npm run desktop:build:windows`, then open the generated `Athena_…_x64-setup.exe` under `bundle/nsis`. The NSIS installer supports English and Korean and installs for the current user. If WebView2 is absent or below **101.0.1210.39**, the installer requests a runtime installation/update and needs an internet connection. That is the minimum version for [Wry's private browsing mode](https://docs.rs/wry/0.55.1/wry/struct.WebViewBuilder.html#method.with_incognito); use the current Microsoft WebView2 Evergreen runtime when launching a source-built executable directly. The installed app includes its own Node runtime, host dependencies and WASI analysis runtimes; the end user does not need Node or Rust to run it. A model provider still must be configured.
 
-The standard installer does not enable ChatGPT plan sign-in. Use supported API credentials or a compatible endpoint, or build the personal local variant described below. Source build verification checks the release layout; the Windows CI job also installs the NSIS package into a fresh disposable directory and repeats functional verification against the installed files. A successful CI installation does not establish SmartScreen reputation, publisher signing or real-account acceptance on the user's PC.
+Use supported API credentials or a compatible endpoint with the standard installer. For ChatGPT plan sign-in, build the personal local variant described below. The Windows CI job installs NSIS into a fresh disposable directory, verifies the installed runtime, starts the desktop with WebView2, quits it and runs the uninstaller. Publisher signing, SmartScreen and real-account acceptance on a user's PC have separate release checks.
 
 ## Intel Mac installation
 
 Use native **x64 Node** on the Intel Mac and install the `x86_64-apple-darwin` Rust target. Run `npm run desktop:build:mac-intel`; the resulting `.app` contains Intel versions of the application, Node and the analysis helper. Copy the complete `Athena.app` to the desired Applications directory. An Apple Silicon `.app` is not the Intel build, and this candidate does not require Rosetta on an Intel Mac.
 
-The locally generated seal is not Developer ID signing or Apple notarization. Do not disable Gatekeeper or remove quarantine to claim installation acceptance. See [model providers](model-providers.md) to connect a supported model. The app contains no model weights or credentials.
+On either Mac architecture, run `node scripts/check-macos-dmg.mjs` after `npm run desktop:build` to create a DMG under the target's `release/bundle/dmg` directory. The script verifies the image, copies the app from its read-only mount, then verifies and starts that copy with a temporary workspace. The local app has an ad hoc seal. Developer ID signing, Apple notarization and Gatekeeper distribution checks remain part of the release process. See [model providers](model-providers.md) to connect a supported model.
+
+The native CI jobs record package names and SHA-256 digests in their logs. The verification images and installers stay on the runner.
 
 ## Personal local build with ChatGPT
 
