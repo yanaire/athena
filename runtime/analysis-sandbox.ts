@@ -10,7 +10,9 @@ import { ANALYSIS_FILE_LIMITS, type AnalysisSnapshot } from './analysis-files.ts
 export const ANALYSIS_LIMITS = Object.freeze({ guestLinearMemoryMiB: 192, hostMemoryMiB: 768, hostMemorySampleMs: 10, openFiles: 96,
   fileBytes: ANALYSIS_FILE_LIMITS.fileBytes, streamBytes: 16384, maxArgs: 16, argBytes: 256,
   snapshotBytes: 2 * 1024 * 1024, maxFiles: ANALYSIS_FILE_LIMITS.batchFiles, maxTimeoutMs: 30000 });
-const startupMs = 10_000;
+// Cold compilation of the pinned interpreter is separate from guest execution.
+// Keep this bounded startup allowance aligned with the native helper.
+const startupMs = 30_000;
 const ready = Buffer.from('ATHENA_SANDBOX_READY\n');
 const bundled = fileURLToPath(new URL('../analysis-runtime', import.meta.url));
 const staged = fileURLToPath(new URL('../.analysis-runtime/staged', import.meta.url));
@@ -80,7 +82,7 @@ export async function runSandbox(run: SandboxRun): Promise<{ started: boolean; e
       if (signal.aborted) abort();
       else signal.addEventListener('abort', abort, { once: true });
     };
-    const timer = setTimeout(() => run.stop('timed_out'), startupMs + timeoutMs + 1_000);
+    let timer = setTimeout(() => run.stop('timed_out'), startupMs + 1_000);
     child.stdin.on('error', error => { if ('code' in error && error.code !== 'EPIPE') problem = error; });
     const streams = {
       stdout: { bytes: 0, decoder: new StringDecoder('utf8') },
@@ -100,6 +102,8 @@ export async function runSandbox(run: SandboxRun): Promise<{ started: boolean; e
         if (preamble.length !== ready.length) return;
         if (signal.aborted || child.pid === undefined) return;
         started = true;
+        clearTimeout(timer);
+        timer = setTimeout(() => run.stop('timed_out'), timeoutMs + 1_000);
         run.started(id, child.pid);
         bytes = bytes.subarray(pending);
       }
@@ -121,7 +125,7 @@ export async function runSandbox(run: SandboxRun): Promise<{ started: boolean; e
         const rest = streams[stream].decoder.end();
         if (rest) run.output(stream, rest);
       }
-      if (result.exitCode === 124) run.stop('timed_out');
+      if (result.exitCode === 124 || result.signal === 'SIGXCPU') run.stop('timed_out');
       if (problem && !signal.aborted) throw problem;
       return { ...result, started };
     } finally {

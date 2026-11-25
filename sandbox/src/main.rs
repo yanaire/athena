@@ -7,7 +7,8 @@ use std::{
     io::{self, Read, Write},
     path::Path,
     process, thread,
-    time::Duration,
+    sync::mpsc::{self, RecvTimeoutError},
+    time::{Duration, Instant},
 };
 use wasmtime::{AsContextMut, Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{I32Exit, WasiCtxBuilder, filesystem::FsPerms, p1::{self, WasiP1Ctx, wasi_snapshot_preview1}};
@@ -15,7 +16,9 @@ use wasmtime_wasi::p1::{types, wasi_snapshot_preview1::WasiSnapshotPreview1};
 
 mod memory;
 
-const STARTUP_MS: u64 = 10_000;
+// Cold compilation of the pinned interpreter is separate from guest execution.
+// Keep this bounded startup allowance aligned with the Node launcher.
+const STARTUP_MS: u64 = 30_000;
 const PREVIEW1: &str = "wasi_snapshot_preview1";
 const NOTCAPABLE: i32 = 76;
 const OUTPUTS_FD: i32 = 5;
@@ -222,11 +225,21 @@ fn run(args: &[String]) -> Result<u8> {
         let _event = io::stdin().lock().read(&mut byte);
         process::exit(125);
     })?;
-    // Independent hard deadline even if the Node parent or a host call stalls.
-    // Allow bounded time for compilation/instantiation as well as guest execution.
+    // Independent deadlines also cover blocking host calls, which the guest
+    // epoch cannot interrupt. Startup never consumes or extends the guest budget.
+    let (guest_ready, readiness) = mpsc::channel::<Instant>();
+    let startup_deadline = Instant::now() + Duration::from_millis(STARTUP_MS);
     thread::Builder::new().name("athena-deadline".into()).spawn(move || {
-        thread::sleep(Duration::from_millis(hard_deadline_ms));
-        process::exit(124);
+        match readiness.recv_timeout(startup_deadline.saturating_duration_since(Instant::now())) {
+            Ok(started) if started <= startup_deadline => {
+                let deadline = started + Duration::from_millis(timeout);
+                thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                process::exit(124);
+            }
+            Ok(_) | Err(RecvTimeoutError::Timeout) => process::exit(124),
+            // Preserve an initialization error's own exit code.
+            Err(RecvTimeoutError::Disconnected) => {}
+        }
     })?;
 
     let root = Path::new(root);
@@ -266,6 +279,7 @@ fn run(args: &[String]) -> Result<u8> {
     let mut linker = Linker::new(&engine);
     add_wasi(&mut linker)?;
     let start = linker.instantiate(&mut store, &module)?.get_typed_func::<(), ()>(&mut store, "_start")?;
+    guest_ready.send(Instant::now()).context("Sandbox deadline watchdog stopped")?;
     thread::Builder::new().name("athena-guest-deadline".into()).spawn(move || {
         thread::sleep(Duration::from_millis(timeout));
         engine.increment_epoch();
