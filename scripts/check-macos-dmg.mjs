@@ -6,7 +6,7 @@ import { copyFile, mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detachMacOSImage, macOSImageAttachment, resolveDesktopPlatform } from './desktop-platform.mjs';
+import { detachMacOSImage, macOSEjectTarget, macOSImageAttachment, resolveDesktopPlatform } from './desktop-platform.mjs';
 
 const { platform, target } = resolveDesktopPlatform();
 assert.equal(platform, 'darwin', 'DMG verification requires a native Mac build.');
@@ -29,6 +29,7 @@ const installation = join(work, 'Installed Athena');
 const volumeImage = join(work, 'Athena.sparseimage');
 const candidate = join(work, name);
 let attachedImage;
+let ownedPartition;
 let mountDevice;
 const failures = [];
 
@@ -36,10 +37,24 @@ function attach(path, readOnly = false) {
   // Arm cleanup before the command in case it fails after attaching the volume.
   attachedImage = path;
   image('attach', readOnly ? '-readonly' : '-readwrite', '-nobrowse', '-noautoopen', '-mountpoint', mount, path);
+  const attachment = readAttachment();
+  assert.equal(attachment.state, 'mounted', 'Could not identify the newly mounted private disk image.');
+  // Record the persistent media UUID before copying the app. On Intel CI, querying
+  // Disk Arbitration just after the copy can stall while the volume is busy.
+  const probeStarted = performance.now();
+  const partition = readPlist('/usr/sbin/diskutil', ['info', '-plist', attachment.partition], 120_000);
+  const current = readAttachment();
+  assert.ok(current.state === 'mounted' && current.device === attachment.device && current.partition === attachment.partition
+    && partition.BusProtocol === 'Disk Image' && partition.WholeDisk === false
+    && partition.ParentWholeDisk === basename(current.device) && partition.DeviceNode === current.partition
+    && typeof partition.DiskUUID === 'string' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(partition.DiskUUID),
+    'Could not verify the private disk image partition UUID.');
+  ownedPartition = { device: current.device, partition: current.partition, uuid: partition.DiskUUID };
+  console.log(`Identified the image partition before copying files in ${((performance.now() - probeStarted) / 1000).toFixed(1)} seconds.`);
 }
 
-function readPlist(command, args) {
-  const input = execFileSync(command, args, { timeout: 30_000 });
+function readPlist(command, args, timeout = 30_000) {
+  const input = execFileSync(command, args, { timeout });
   return JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'],
     { input, encoding: 'utf8', timeout: 30_000 }));
 }
@@ -51,28 +66,10 @@ function readAttachment() {
 }
 
 function detach() {
-  detachMacOSImage(() => {
-    const attachment = readAttachment();
-    if (!attachment.partition) return attachment;
-    // Eject by the private image's persistent media UUID. BSD disk numbers can be reused.
-    let partition;
-    try { partition = readPlist('/usr/sbin/diskutil', ['info', '-plist', attachment.partition]); }
-    catch (error) {
-      const current = readAttachment();
-      if (current.state === 'detached') return current;
-      throw error;
-    }
-    const current = readAttachment();
-    if (current.state === 'detached') return current;
-    if (current.device === attachment.device && current.partition === attachment.partition
-      && partition.BusProtocol === 'Disk Image' && partition.WholeDisk === false
-      && partition.ParentWholeDisk === basename(current.device) && partition.DeviceNode === current.partition
-      && typeof partition.DiskUUID === 'string' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(partition.DiskUUID)) {
-      return { ...current, target: partition.DiskUUID };
-    }
-    return { state: 'ambiguous' };
-  }, target => run('/usr/sbin/diskutil', ['eject', target]));
+  detachMacOSImage(() => macOSEjectTarget(readAttachment(), ownedPartition),
+    target => run('/usr/sbin/diskutil', ['eject', target]));
   attachedImage = undefined;
+  ownedPartition = undefined;
 }
 
 try {
