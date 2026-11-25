@@ -3279,6 +3279,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     const listeners=new Set(),eventListeners=new Set(),pending=new Map(),dialogTimers=new Map(),busy=new Map(),uiPending=new Map();
     let declared=null,attachOptions={},facade=null;
     function getState(){return clone(state)}
+    const supportsStreamingPrompts=()=>target?.inputContract?.supportsStreamingPrompts!==false;
     function syncUIRequests(){state.ui.requests=[...uiPending.values()].map(record=>({...record.request,detached:record.connection!==target||record.epoch!==epoch||record.sessionEpoch!==sessionEpoch,responding:record.responding,responseError:record.responseError||null}));state.ui.pendingRequestCount=uiPending.size;}
     function publish(){if(destroyed)return;syncUIRequests();state.revision++;state.busy=[...busy.keys()];state.capabilities=Object.fromEntries([...RPC,...NATIVE,'stop_all','invoke_command'].map(id=>[id,capability(id)]));const snapshot=getState();for(const fn of listeners){try{fn(snapshot)}catch(e){options.onError?.(e)}}}
     function capability(id){
@@ -3286,6 +3287,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if(id==='stop_all')return {available:available('abort')&&available('clear_queue'),reason:'Requires abort and queue control.'};
       if(id==='invoke_command')return capability('prompt');
       if(declared&&!declared.has(id))return {available:false,reason:'This connection does not expose this capability.'};
+      if(id==='prompt'&&state.session.isStreaming&&!supportsStreamingPrompts())return {available:false,reason:'Wait for the current response before sending a message.'};
       if(mode==='rpc'||mode==='host')return {available:declared?declared.has(id):RPC.includes(id),reason:NATIVE.includes(id)?'Requires the native Pi host adapter.':''};
       let ok=false;
       if(id==='bash')return {available:false,reason:'Use the Pi host adapter so extension shell hooks are respected.'};
@@ -3299,7 +3301,15 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       return {available:ok,reason:ok?'':'Requires the native Pi host adapter or this SDK method.'};
     }
     const available=id=>capability(id).available;
-    function getInputContract(){const configured=target?.inputContract?.maxMessageCharacters??attachOptions.maxMessageCharacters,files=(mode==='rpc'||mode==='host')&&target?.supportsFileReferences===true;return {maxMessageCharacters:Number.isSafeInteger(configured)&&configured>0?configured:DEFAULT_MESSAGE_LIMIT,lengthUnit:'utf16-code-units',supportsFileReferences:Boolean(files),canStageFiles:Boolean(files&&typeof target?.stageFiles==='function')};}
+    function getInputContract(){
+      const configured=target?.inputContract?.maxMessageCharacters??attachOptions.maxMessageCharacters;
+      const files=(mode==='rpc'||mode==='host')&&target?.supportsFileReferences===true;
+      return {
+        maxMessageCharacters:Number.isSafeInteger(configured)&&configured>0?configured:DEFAULT_MESSAGE_LIMIT,
+        lengthUnit:'utf16-code-units',supportsFileReferences: files,
+        canStageFiles:files&&typeof target?.stageFiles==='function',supportsStreamingPrompts:supportsStreamingPrompts(),
+      };
+    }
     function validateMessage(value){if(value!=null&&typeof value!=='string')throw new TypeError('Message must be text.');const message=value??'',limit=getInputContract().maxMessageCharacters;if(message.length>limit){const error=new RangeError('The message contains '+message.length.toLocaleString()+' characters and exceeds this connection’s '+limit.toLocaleString()+' character limit. Nothing was sent. Keep the full draft, or attach content through a supported file reference.');error.code='INPUT_TOO_LARGE';error.limit=limit;error.actual=message.length;throw error;}return message;}
     function fileReferences(value){if(value===undefined)return undefined;if(!Array.isArray(value))throw new TypeError('File references must be an array.');if(value.length&&!getInputContract().supportsFileReferences){const error=new Error('This connection does not accept file references. Keep the attachments until a file service is connected.');error.code='FILES_UNSUPPORTED';throw error;}return value.map(ref=>{if(!ref||typeof ref.id!=='string'||!ref.id||typeof ref.name!=='string'||typeof ref.mimeType!=='string'||!Number.isSafeInteger(ref.size)||ref.size<0||ref.projectId!==null&&typeof ref.projectId!=='string'||ref.versionId!=null&&typeof ref.versionId!=='string')throw new TypeError('The file service returned an invalid file reference.');return {id:ref.id,projectId:ref.projectId,name:ref.name,mimeType:ref.mimeType,size:ref.size,...(ref.versionId==null?{}:{versionId:ref.versionId})};});}
     async function stageFiles(files,context={}){const connection=target,bound=epoch,sessionBound=sessionEpoch;if(!getInputContract().canStageFiles)throw new Error('File storage is not connected. Your attachments are still in the draft.');if(!Array.isArray(files)||!files.length)throw new TypeError('Choose files to stage.');const result=await connection.stageFiles(files,context);if(bound!==epoch||sessionBound!==sessionEpoch||connection!==target)throw new Error('The active Pi session changed while files were being stored. Nothing was sent.');const refs=fileReferences(result?.fileReferences);if(!refs||refs.length!==files.length)throw new Error('The file service did not confirm every attachment. Nothing was sent.');return {fileReferences:refs};}
@@ -3312,6 +3322,9 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       const models=state.models.map(m=>({value:m.provider+'\u241f'+m.id,label:(m.name||m.id)+' · '+m.provider}));
       const modelKey=state.model?state.model.provider+'\u241f'+state.model.id:'';
       const entries=state.forkMessages.map(m=>({value:m.entryId,label:string(m.text,100)||m.entryId}));
+      const promptFields=[area('message','Message',{required:true})];
+      if(supportsStreamingPrompts())promptFields.push(select('streamingBehavior','When a response is running',[
+        {value:'',label:'Require an idle session'},{value:'steer',label:'Steer current work'},{value:'followUp',label:'Queue a follow-up'}],''));
       const c=[
         action('get_state','session','Refresh session','Read the active conversation and runtime state.','refresh-cw'),
         action('new_session','session','New session','Start a conversation while preserving the current session.','square-pen',[text('parentSession','Parent session path',{hint:'Optional: link the new conversation to an existing session.'})],'Create session'),
@@ -3338,7 +3351,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
         action('cycle_thinking_level','model','Next reasoning level','Cycle through supported reasoning levels.','repeat-2'),
         action('get_scoped_models','model','Model rotation','Inspect the scoped model list.','list-filter'),
         action('set_scoped_models','model','Configure model rotation','Set explicit provider/model pairs for model cycling.','list-filter',[area('models','Models (JSON)',{required:true,value:JSON.stringify(state.scopedModels,null,2),hint:'An array of {"provider":"…","modelId":"…","thinkingLevel":"…"}.'})],'Save rotation'),
-        action('prompt','queue','Send a message','Send text to Pi. During a run, choose how it should be delivered.','send',[area('message','Message',{required:true}),select('streamingBehavior','When a response is running',[{value:'',label:'Require an idle session'},{value:'steer',label:'Steer current work'},{value:'followUp',label:'Queue a follow-up'}],'')],'Send to Pi'),
+        action('prompt','queue','Send a message','Send text to Pi.','send',promptFields,'Send to Pi'),
         action('steer','queue','Steer current work','Deliver an additional instruction after the current tool calls.','corner-up-right',[area('message','Instruction',{required:true})],'Send instruction'),
         action('follow_up','queue','Queue a follow-up','Run this message after the current work has settled.','list-plus',[area('message','Follow-up',{required:true})],'Queue message'),
         action('set_steering_mode','queue','Steering delivery','Choose how queued steering instructions are consumed.','list-ordered',[select('mode','Delivery',['one-at-a-time','all'],state.queues.steeringMode)],'Save delivery'),
@@ -3482,6 +3495,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if(!spec)throw new Error('Unknown Pi action.');
       for(const f of spec.fields){if(f.type==='checkbox'&&p[f.name]!==undefined)p[f.name]=p[f.name]===true||p[f.name]==='true';if(f.required&&(p[f.name]==null||String(p[f.name]).trim()==='')&&!(f.name==='message'&&(list(p.images).length||list(p.fileReferences).length)))throw new Error(f.label+' is required.');}
       if(['prompt','steer','follow_up'].includes(id)){p.message=validateMessage(p.message);p.fileReferences=fileReferences(p.fileReferences);if(!p.message.trim()&&!list(p.images).length&&!list(p.fileReferences).length)throw new Error('Enter a message or attach a file.');if(p.streamingBehavior&&!['steer','followUp'].includes(p.streamingBehavior))throw new Error('Choose a valid streaming delivery mode.');}
+      if(id==='prompt'&&p.streamingBehavior&&!supportsStreamingPrompts())throw new Error('This connection does not support streaming delivery.');
       if(id==='set_model'){
         const m=state.models.find(m=>p.modelKey===m.provider+'\u241f'+m.id||(m.provider===p.provider&&m.id===p.modelId));
         if(!m)throw new Error('Choose a model returned by this connection.');return {provider:m.provider,modelId:m.id};

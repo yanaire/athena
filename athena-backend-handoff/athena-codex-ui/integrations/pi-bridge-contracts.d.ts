@@ -5,6 +5,8 @@ export interface InputContract {
   lengthUnit: 'utf16-code-units';
   supportsFileReferences: boolean;
   canStageFiles: boolean;
+  /** False when the host accepts prompts only while idle. */
+  supportsStreamingPrompts?: boolean;
 }
 
 export interface FileReference {

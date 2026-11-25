@@ -2200,6 +2200,31 @@ test('A TaskManager-only workspace never substitutes demonstration tasks or arti
   assert.equal(app.startDemo(), false); assert.equal(env.state().workspace.mode, 'runtime');
 });
 
+test('Pi workbench hides unsupported streaming delivery and enables idle sends after settlement', async () => {
+  const env = createEnvironment(), runtime = runtimeFor(env);
+  const host = hostFor({ capabilities: ['get_state', 'prompt', 'abort'] });
+  host.inputContract = { supportsStreamingPrompts: false };
+  const { session } = runtime.attach(host, { refresh: false });
+  assert.equal(session.inputContract.supportsStreamingPrompts, false);
+  const { view, slot, q } = workbenchFor(env, runtime);
+  view.open('queue');
+  assert.equal(slot.querySelector('[data-apw-form="prompt"] [name="streamingBehavior"]'), null);
+  const send = q('[data-apw-run="prompt"]');
+  assert.equal(send.disabled, false);
+
+  host.emit({ type: 'agent_start' });
+  assert.equal(send.disabled, true);
+  await assert.rejects(runtime.execute('prompt', { message: 'During streaming' }), /wait for the current response/i);
+  host.emit({ type: 'agent_settled', aborted: false });
+  assert.equal(send.disabled, false);
+  await assert.rejects(runtime.execute('prompt', { message: 'Unsupported delivery', streamingBehavior: 'followUp' }), /streaming delivery/i);
+  assert.equal(host.calls.filter(call => call.type === 'prompt').length, 0);
+
+  await runtime.execute('prompt', { message: 'Send when idle' });
+  assert.equal(host.calls.filter(call => call.type === 'prompt').at(-1).message, 'Send when idle');
+  env.destroy();
+});
+
 test('Pi shell queues explicit instructions without completing the active run and preserves newer drafts until recovery is chosen', async () => {
   const env = createEnvironment(), app = env.window.AthenaApp, queued = deferred();
   let fail = true;
