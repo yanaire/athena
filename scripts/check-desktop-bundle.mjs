@@ -326,7 +326,11 @@ try {
     assert.equal(JSON.parse((await runner.download(external.artifact)).toString()).result.structuredContent.doubled,14);
     storage.close();
     await runner.close();
-  `, workspace, `http://127.0.0.1:${fixture.address().port}/mcp`, mcpFixtureKey, '--desktop'], { cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' }, timeout: macOS ? 45_000 : 120_000 });
+  `, workspace, `http://127.0.0.1:${fixture.address().port}/mcp`, mcpFixtureKey, '--desktop'], {
+    cwd: host, env: { ...environment, DOCKER_HOST: 'unix:///nonexistent-athena-bundle-check.sock' },
+    // The combined verifier launches two independent WASI interpreters and MCP workers.
+    timeout: 120_000,
+  });
   let profileId;
   let projectId;
   await withHost(async rpc => {

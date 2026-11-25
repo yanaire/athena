@@ -16,7 +16,7 @@ use wasmtime_wasi::p1::{types, wasi_snapshot_preview1::WasiSnapshotPreview1};
 
 mod memory;
 
-const STARTUP_MS: u64 = 20_000;
+const STARTUP_MS: u64 = 30_000;
 const PREVIEW1: &str = "wasi_snapshot_preview1";
 const NOTCAPABLE: i32 = 76;
 const OUTPUTS_FD: i32 = 5;
