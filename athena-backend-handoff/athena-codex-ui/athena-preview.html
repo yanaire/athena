@@ -2484,6 +2484,22 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
 #athena-codex .arr-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media(pointer: coarse) { #athena-codex .arr-actions button, #athena-codex .arr-revision-row select { min-height: 44px; } }
 
+#athena-codex .ac-pi-transcript { display: flex; flex-direction: column; gap: 18px; }
+#athena-codex .ac-pi-transcript[hidden] { display: none; }
+#athena-codex .ac-stream-message { margin: 0; }
+#athena-codex .ac-stream-message[data-role="assistant"] + .ac-stream-message[data-role="assistant"] > strong { display: none; }
+#athena-codex .ac-stream-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+#athena-codex .ac-stream-tool { margin: -5px 0; }
+#athena-codex .ac-stream-tool .ap-tool-event { margin: 0; }
+#athena-codex .aw-attempt { border-left: 2px solid var(--ac-line); padding-left: 15px; margin: 2px 0 8px; }
+#athena-codex .aw-attempt-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 5px; color: var(--ac-text); font-size: 14px; }
+#athena-codex .aw-attempt-heading strong { font-weight: 550; }
+#athena-codex .aw-attempt-meta { margin: 0 0 8px; color: var(--ac-muted); font-size: 12px; }
+#athena-codex .aw-attempt .aw-agent-events { margin: 0; }
+#athena-codex .aw-attempt .aw-approval-inline { margin-top: 10px; }
+#athena-codex .aw-attempt-results { margin-top: 8px; }
+#athena-codex .aw-attempt-results:empty { display: none; }
+
 </style>
 </head>
 <body>
@@ -2825,7 +2841,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     const listeners = new Set();
     const outputModes = safeArgs(options.toolOutputModes);
     let destroyed = false, started = false, counter = 0, current = null, blocks = new Map();
-    let messageBoundary = 0, lastTerminal = null;
+    let messageBoundary = 0, lastTerminal = null, streamOrder = 0, owner = null, messageTimestamp = null;
     const completedMessages = new Map();
     const messageKey = (message, event) => message?.id ?? message?.messageId ?? event?.messageId ?? null;
     let state;
@@ -2852,13 +2868,17 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if (current) return current;
       blocks = new Map();
       const index = state.messages.length ? state.messages[state.messages.length - 1].index + 1 : 0;
-      current = { id: 'pi-' + state.runId + '-message-' + index, index, text: '', complete: false, stopReason: null };
+      current = { id: 'pi-' + state.runId + '-message-' + index, index, order: null, parts: [], athena: owner, timestamp: messageTimestamp, text: '', complete: false, stopReason: null };
       state.messages.push(current);
       state.messageId = current.id;
       return current;
     }
     function syncText() {
-      if (current) current.text = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(entry => entry[1]).join('').slice(0, maxText);
+      if (current) {
+        current.parts = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(([index, text]) => ({ index, text, order: current.parts.find(part => part.index === index)?.order ?? (text ? ++streamOrder : null) }));
+        current.text = current.parts.map(part => part.text).join('').slice(0, maxText);
+        current.order = current.parts.find(part => part.order != null)?.order ?? null;
+      }
       const text = state.messages.map(message => message.text).filter(Boolean).join('\n\n').slice(-maxText);
       if (text !== state.text) { state.text = text; state.textRevision += 1; }
     }
@@ -2872,16 +2892,19 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       // never deduplicate by text, because separate messages can be identical.
       const companion = !current && lastTerminal && !lastTerminal.paired && lastTerminal.boundary === messageBoundary && lastTerminal.source !== source && (externalId == null || lastTerminal.externalId == null || String(externalId) === String(lastTerminal.externalId));
       const record = known || (companion ? lastTerminal.record : ensureMessage());
+      record.timestamp ??= message.timestamp ?? null;
+      record.athena ||= owner;
       if (Array.isArray(message.content)) {
         if (record === current) {
           blocks.clear();
           message.content.forEach((block, i) => { if (block?.type === 'text') blocks.set(i, textValue(block.text, maxText)); });
-        } else record.text = message.content.filter(block => block?.type === 'text').map(block => textValue(block.text, maxText)).join('');
+        } else { record.parts = message.content.flatMap((block, index) => block?.type === 'text' ? [{ index, text: textValue(block.text, maxText), order: record.parts.find(part => part.index === index)?.order ?? ++streamOrder }] : []); record.text = record.parts.map(part => part.text).join(''); }
       } else if (typeof message.content === 'string') {
         if (record === current) { blocks.clear(); blocks.set(0, message.content); }
-        else record.text = message.content;
+        else { record.text = message.content; record.parts = [{ index: 0, text: message.content, order: record.parts[0]?.order ?? ++streamOrder }]; }
       }
       syncText();
+      if (record.text && record.order == null) record.order = ++streamOrder;
       record.complete = true; record.stopReason = textValue(message.stopReason, 50) || null;
       if (externalId != null) { record.sourceMessageId = String(externalId); completedMessages.set(String(externalId), record); }
       lastTerminal = { record, source, externalId, boundary: messageBoundary, paired: Boolean(known || companion) };
@@ -2896,7 +2919,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       let tool = findTool(id);
       if (!tool) {
         const toolName = textValue(event.toolName, 100) || 'custom';
-        tool = { id, toolCallId: id, toolName, ...inputPreview(event.args), status, output: '', outputCharacters: 0, outputPreviewCharacters: 0, outputTruncated: false, outputRevision: 0, durationMs: null, parentToolCallId: textValue(event.parentToolCallId, 300) || null, startedAt: status === 'running' ? now() : null, endedAt: null };
+        tool = { id, toolCallId: id, toolName, ...inputPreview(event.args), order: ++streamOrder, athena: owner, status, output: '', outputCharacters: 0, outputPreviewCharacters: 0, outputTruncated: false, outputRevision: 0, durationMs: null, parentToolCallId: textValue(event.parentToolCallId, 300) || null, startedAt: status === 'running' ? now() : null, endedAt: null };
         state.tools.push(tool);
         if (state.tools.length > maxTools) { const removable = state.tools.findIndex(item => item !== tool && item.status !== 'running'); state.tools.splice(removable < 0 ? 0 : removable, 1); }
       } else {
@@ -2922,6 +2945,10 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if (!meaningful.includes(type)) return false;
       if (state.settled && started && !['agent_start','queue_update'].includes(type)) return false;
       if (['message_start','message_update','message_end'].includes(type) && event.message?.role && event.message.role !== 'assistant') return false;
+      // Ownership is supplied by the host's normalized event, never inferred
+      // from message text. Order records receipt, including identical messages.
+      if (typeof event.runId === 'string' && typeof event.attemptId === 'string') owner = Object.fromEntries(['projectId','sessionId','runId','taskId','parentTaskId','agentSessionId','attemptId'].filter(key => typeof event[key] === 'string' || key === 'parentTaskId' && event[key] === null).map(key => [key, event[key]]));
+      messageTimestamp = event.message?.timestamp ?? event.assistantMessageEvent?.message?.timestamp ?? null;
       const previousText = state.textRevision;
       if (type === 'agent_start') {
         if (state.settled) { state = initial(state.runId + 1); current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; }
@@ -3020,7 +3047,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       receive,
       getState: snapshot,
       subscribe(listener) { if (destroyed || typeof listener !== 'function') return () => {}; listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
-      reset() { if (destroyed) return false; state = initial(state.runId + 1); started = false; current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; publish(); return true; },
+      reset() { if (destroyed) return false; state = initial(state.runId + 1); started = false; current = null; owner = null; messageTimestamp = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; messageBoundary++; publish(); return true; },
       destroy() { if (destroyed) return; destroyed = true; listeners.clear(); current = null; blocks.clear(); completedMessages.clear(); lastTerminal = null; }
     });
   }
@@ -3074,12 +3101,12 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
   const select = (name,label,options,value) => field(name,label,'select',{options:options.map(v=>typeof v==='string'?{value:v,label:v}:v),value});
   const action = (id,group,title,description,icon,fields=[],submitLabel) => ({id,group,title,description,icon,fields,submitLabel:submitLabel||title});
   function initial() {
-    return {revision:0,connected:false,mode:'disconnected',connectionLabel:'No Pi connection',busy:[],error:null,session:{},model:null,models:[],thinkingLevel:null,thinkingLevels:[],thinkingLevelsPending:false,tools:[],activeTools:[],queues:{steering:[],followUp:[],steeringMode:'one-at-a-time',followUpMode:'one-at-a-time'},stats:{},context:{},config:{autoCompaction:null,autoRetry:null},resources:{commands:[],skills:[],prompts:[],extensions:[],themes:[],contextFiles:[],diagnostics:[]},messages:[],entries:[],tree:[],forkMessages:[],sessions:[],ui:{requests:[],pendingRequestCount:0,notifications:[],statuses:[],widgets:[],editorText:'',title:''},capabilities:{},lastResult:null,clearedQueue:null,retry:null,compaction:null,settings:{},scopedModels:[],cacheWarming:null,systemPrompt:''};
+    return {revision:0,connected:false,mode:'disconnected',connectionLabel:'No Pi connection',busy:[],error:null,session:{},model:null,models:[],thinkingLevel:null,thinkingLevels:[],thinkingLevelsPending:false,tools:[],activeTools:[],queues:{steering:[],followUp:[],steeringMode:'one-at-a-time',followUpMode:'one-at-a-time'},stats:{},context:{},config:{autoCompaction:null,autoRetry:null},resources:{commands:[],skills:[],prompts:[],extensions:[],themes:[],contextFiles:[],diagnostics:[]},messages:[],historyRevision:0,entries:[],tree:[],forkMessages:[],sessions:[],ui:{requests:[],pendingRequestCount:0,notifications:[],statuses:[],widgets:[],editorText:'',title:''},capabilities:{},lastResult:null,clearedQueue:null,retry:null,compaction:null,settings:{},scopedModels:[],cacheWarming:null,systemPrompt:''};
   }
   function create(options = {}) {
     const requestPrefix=window.crypto.randomUUID();
     let state=initial(),target=null,mode='disconnected',epoch=0,sessionEpoch=0,sequence=0,unsubscribe=null,destroyed=false,refreshing=null,refreshTimer=0;
-    let modelRevision=0,thinkingRevision=0,scheduledFullRefresh=false,queuedFullRefresh=false;
+    let modelRevision=0,thinkingRevision=0,messagesRevision=0,scheduledFullRefresh=false,queuedFullRefresh=false;
     const listeners=new Set(),eventListeners=new Set(),pending=new Map(),dialogTimers=new Map(),busy=new Map(),uiPending=new Map();
     let declared=null,attachOptions={},facade=null;
     function getState(){return clone(state)}
@@ -3209,7 +3236,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if(type==='extension_ui_resolved'){removeUIRequest(epoch+':'+sessionEpoch+':'+event.id);publish();return true;}
       if(type==='queue_update'){state.queues.steering=list(event.steering).map(v=>String(v??''));state.queues.followUp=list(event.followUp).map(v=>String(v??''));}
       else if(type==='agent_start')state.session.isStreaming=true;
-      else if(type==='agent_settled'){state.session.isStreaming=false;scheduleRefresh();}
+      else if(type==='agent_settled'){state.session.isStreaming=false;scheduleRefresh(true);}
       else if(type==='session_info_changed'){state.session.sessionName=string(event.name);state.session.name=string(event.name);}
       else if(type==='thinking_level_changed'){thinkingRevision++;state.thinkingLevel=string(event.level);}
       else if(type==='entry_appended'){state.entries=[...state.entries.filter(e=>e.id!==event.entry?.id),safe(event.entry)].filter(Boolean).slice(-250);}
@@ -3218,17 +3245,17 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       else if(type==='auto_retry_start'||type==='auto_retry_end'||type.startsWith('summarization_retry_'))state.retry=safe(event);
       else if(type==='session_changed'||type==='host_session_changed'){if(Array.isArray(event.capabilities))declared=new Set(event.capabilities);resetSessionData();scheduleRefresh(true);}
       else if(type==='extension_error'||type==='host_error'){state.error=string(event.message||event.error||'The host reported an error.');notification(state.error,'error');}
-      else if(type==='message_end'){if(event.message)state.messages=[...state.messages,safe(event.message)].slice(-150);}
+      else if(type==='message_end'){if(event.message){messagesRevision++;state.messages=[...state.messages,safe(event.message)].slice(-150);}}
       if(!['message_update','tool_execution_update','bash_execution_update'].includes(type))publish();
       emit(event);return true;
     }
     function scheduleRefresh(full=false){clearTimeout(refreshTimer);scheduledFullRefresh=scheduledFullRefresh||full;const bound=epoch;refreshTimer=setTimeout(()=>{refreshTimer=0;const nextFull=scheduledFullRefresh;scheduledFullRefresh=false;if(!destroyed&&bound===epoch&&target)refresh(nextFull).catch(()=>{})},100)}
     function resetSessionData(){
       cancelPendingUI('session-changed');
-      sessionEpoch++;modelRevision++;thinkingRevision++;refreshing=null;queuedFullRefresh=false;
+      sessionEpoch++;modelRevision++;thinkingRevision++;messagesRevision++;refreshing=null;queuedFullRefresh=false;
       for(const timer of dialogTimers.values())clearTimeout(timer);dialogTimers.clear();
       const next=initial();
-      for(const key of ['session','messages','entries','tree','forkMessages','stats','context','queues','retry','compaction','ui','model','models','thinkingLevel','thinkingLevels','thinkingLevelsPending','tools','activeTools','resources','scopedModels','cacheWarming','settings','config','systemPrompt'])state[key]=next[key];
+      for(const key of ['session','messages','historyRevision','entries','tree','forkMessages','stats','context','queues','retry','compaction','ui','model','models','thinkingLevel','thinkingLevels','thinkingLevelsPending','tools','activeTools','resources','scopedModels','cacheWarming','settings','config','systemPrompt'])state[key]=next[key];
     }
     function updateResult(command,data,params,scope={model:modelRevision,thinking:thinkingRevision,modelChanging:false}){
       const result=safe(data);
@@ -3250,7 +3277,12 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       else if(command==='cycle_thinking_level'&&result?.level&&scope.thinking===thinkingRevision)state.thinkingLevel=result.level;
       else if(command==='get_session_stats'){state.stats=result||{};if(result?.contextUsage)state.context=result.contextUsage;}
       else if(command==='get_context_usage')state.context=result&&Object.hasOwn(result,'contextUsage')?(result.contextUsage||{}):(result||{});
-      else if(command==='get_messages')state.messages=list(result?.messages||result);
+      else if(command==='get_messages'){
+        // A same-session history response can still predate newly observed
+        // messages. Keep that live suffix and request an authoritative reread.
+        if(scope.messages!==messagesRevision){scheduleRefresh(true);return;}
+        state.messages=list(result?.messages||result);messagesRevision++;state.historyRevision++;
+      }
       else if(command==='get_entries'){state.entries=params.since?[...state.entries,...list(result?.entries)].slice(-250):list(result?.entries);state.session.leafId=result?.leafId;}
       else if(command==='get_tree'){state.tree=list(result?.tree||result);state.session.leafId=result?.leafId;}
       else if(command==='get_fork_messages')state.forkMessages=list(result?.messages||result);
@@ -3367,7 +3399,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if(MODEL_CHANGE.has(id)){modelRevision++;thinkingRevision++;invalidateThinkingLevels();}
       else if(MODEL_CONTROL.has(id))thinkingRevision++;
       if(id==='get_available_thinking_levels')state.thinkingLevelsPending=true;
-      const scope={model:modelRevision,thinking:thinkingRevision,modelChanging:modelChanging()};
+      const scope={model:modelRevision,thinking:thinkingRevision,messages:messagesRevision,modelChanging:modelChanging()};
       busy.set(id,marker);state.error=null;publish();
       try{
         let data;
@@ -3421,7 +3453,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     }
     function detach(){
       cancelPendingUI('disconnected');
-      epoch++;modelRevision++;thinkingRevision++;clearTimeout(refreshTimer);refreshTimer=0;scheduledFullRefresh=false;queuedFullRefresh=false;unsubscribe?.();unsubscribe=null;
+      epoch++;modelRevision++;thinkingRevision++;messagesRevision++;clearTimeout(refreshTimer);refreshTimer=0;scheduledFullRefresh=false;queuedFullRefresh=false;unsubscribe?.();unsubscribe=null;
       for(const wait of pending.values()){clearTimeout(wait.timer);wait.reject(new Error('Pi disconnected.'));}pending.clear();
       for(const timer of dialogTimers.values())clearTimeout(timer);dialogTimers.clear();
       target=null;mode='disconnected';declared=null;refreshing=null;facade=null;attachOptions={};busy.clear();state=initial();publish();
@@ -4955,6 +4987,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     const api = Object.freeze({
       start, begin, append, replaceText, setPhase, end, stop, destroy,
       getActivityHost: () => activitySlot,
+      setConversationMode(value) { bubble.hidden = value === true; },
       getState: () => ({ active, phase, mode, text, reducedMotion: prefersReduced(), steps: stepper?.getState() || null })
     });
     MOUNTS.set(slot, api);
@@ -9240,6 +9273,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const controller = new AbortController();
     const { signal } = controller;
     const listen = (element, type, callback, settings = {}) => element.addEventListener(type, callback, { ...settings, signal });
+    const attemptSections = new Map();
     const expanded = new Set();
     const expandedTools = new Set();
     const expandedProcesses = new Set();
@@ -9258,19 +9292,21 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     let destroyed = false;
     let renderSignature = '';
     let lastRunStatus = '';
-    const q = selector => host.querySelector(selector);
+    const all = selector => [...new Set([...host.querySelectorAll(selector), ...[...attemptSections.values()].flatMap(node => [...node.querySelectorAll(selector)])])];
+    const contains = node => host.contains(node) || [...attemptSections.values()].some(section => section.contains(node));
+    const q = selector => all(selector)[0] || null;
     const refreshIcons = () => options.icons?.();
     const labels = window.AthenaActivityLabels;
     const identifiers = state => [state.sessionId, state.run?.id, ...['tasks', 'agents', 'tools', 'attempts', 'processes'].flatMap(key => (state[key] || []).flatMap(item => [item.id, item.taskId, item.parentTaskId, item.agentSessionId, item.attemptId, item.processId, item.toolId, item.toolCallId])), ...Object.values(state.retryOperations || {}).map(item => item.requestId)].filter(Boolean);
     const displayText = (value, fallback = '', state = snapshot) => labels.text(value, fallback, identifiers(state));
     function rememberDiagnostics() {
-      for (const element of host.querySelectorAll('[data-aw-diagnostics]')) {
+      for (const element of all('[data-aw-diagnostics]')) {
         if (element.open) expandedDiagnostics.add(element.dataset.awDiagnostics);
         else expandedDiagnostics.delete(element.dataset.awDiagnostics);
       }
     }
     function restoreDiagnostics() {
-      for (const element of host.querySelectorAll('[data-aw-diagnostics]')) element.open = expandedDiagnostics.has(element.dataset.awDiagnostics);
+      for (const element of all('[data-aw-diagnostics]')) element.open = expandedDiagnostics.has(element.dataset.awDiagnostics);
     }
     const backdrop = document.createElement('div');
     backdrop.id = 'aw-approval-backdrop';
@@ -9368,6 +9404,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
       const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
       // A retry changes the task's current attempt, not the recorded tool outcome.
+      // A successful worker process can still be followed by a failed tool wrapper.
       const activityStatus = state.mode === 'runtime' ? tool.status : task.status;
       const presentation = window.AthenaPiActivity.toolPresentation(tool.sdkToolName || tool.name, tool.args || {}, activityStatus, state.tasks);
       const glyph = window.AthenaPiActivity.iconHTML(presentation.icon, { active: presentation.active });
@@ -9406,7 +9443,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
       if (process) {
         expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
-        const row = [...host.querySelectorAll('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
+        const row = [...all('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
         if (!row) return false;
         row.open = true;
         row.querySelector('summary').focus({ preventScroll: true });
@@ -9420,7 +9457,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const agent = snapshot.agents.find(item => item.taskId === tool.taskId);
       if (agent) expanded.add(agent.id);
       renderSignature = ''; render(snapshot);
-      const row = Array.from(host.querySelectorAll('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
+      const row = Array.from(all('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
       const summary = row?.querySelector('summary');
       if (focusable(summary)) { summary.focus({ preventScroll: true }); summary.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); }
       return true;
@@ -9434,7 +9471,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       } catch (_) {
         if (destroyed) return;
         copyFallbacks.set(tool.id, text); revealTool({ toolId: tool.id });
-        const field = Array.from(host.querySelectorAll('[data-aw-copy-fallback]')).find(item => item.dataset.awCopyFallback === tool.id);
+        const field = Array.from(all('[data-aw-copy-fallback]')).find(item => item.dataset.awCopyFallback === tool.id);
         if (focusable(field)) { field.focus({ preventScroll: true }); field.select?.(); }
         options.toast?.('Select and copy the text in the conversation.');
       }
@@ -9478,24 +9515,69 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
     }
 
+    function renderAttempts(state, availableTools) {
+      const placedTools = new Set(), placedProcesses = new Set(), placedTasks = new Set(), kept = new Set();
+      if (!options.placeActivity) return { placedTools, placedProcesses, placedTasks };
+      const attempts = (state.attempts || []).filter(attempt => state.tasks.some(task => task.id === attempt.taskId && task.parentTaskId));
+      for (const attempt of attempts) {
+        const task = state.tasks.find(item => item.id === attempt.taskId);
+        const tools = availableTools.filter(item => item.attemptId === attempt.id);
+        const processes = (state.processes || []).filter(item => item.attemptId === attempt.id);
+        const results = state.artifacts.filter(item => item.attemptId === attempt.id);
+        const agent = state.agents.find(item => item.taskId === task.id);
+        let node = attemptSections.get(attempt.id);
+        if (!node) { node = document.createElement('section'); node.className = 'aw-attempt'; node.dataset.awAttempt = attempt.id; attemptSections.set(attempt.id, node); }
+        kept.add(attempt.id);
+        const ownStatus = LABELS[attempt.status] || displayText(attempt.status, 'Waiting', state);
+        const attemptLabel = labels.attempt(attempt.id, { ...task, attempts: attempts.filter(item => item.taskId === task.id) });
+        const current = task.attemptId === attempt.id;
+        const recovery = current && (['failed','paused','cancelled'].includes(attempt.status) || state.retryOperations?.[task.id]?.pending || state.retryOperations?.[task.id]?.accepted) ? taskRecoveryHTML({ ...task, status: attempt.status }, state) : '';
+        const observed = [...tools.map((tool, index) => ({ at: state.events.find(event => event.toolId === tool.id)?.at ?? tool.logs?.[0]?.at ?? Infinity, index, html: toolEventHTML(tool, state, agent) })), ...processes.map((process, index) => ({ at: process.job?.startedAt ?? state.events.find(event => event.processId === process.id)?.at ?? Infinity, index: tools.length + index, html: processHTML(process) }))].sort((a, b) => a.at - b.at || a.index - b.index);
+        const summary = attempt.result ? displayText(attempt.result, '', state) : '';
+        const resultButtons = results.map(item => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(item.id) + '" data-aw-artifact-version="' + esc(item.version || '') + '">' + icon('file-check') + esc(displayText(item.title || item.file?.name, 'View result', state)) + '</button>').join('');
+        node.innerHTML = '<header class="aw-attempt-heading"><strong>' + esc(labels.task(task, state.tasks)) + '</strong><span class="aw-status" data-status="' + esc(attempt.status) + '">' + esc(ownStatus) + '</span></header>'
+          + '<p class="aw-attempt-meta">' + esc([agent ? labels.agent(agent, state.tasks) : 'Subagent', attemptLabel].join(' · ')) + '</p>'
+          + '<div class="aw-agent-events">' + observed.map(item => item.html).join('') + '</div>'
+          + (summary && summary.length <= 300 ? '<p class="aw-attempt-result">' + esc(summary) + '</p>' : '')
+          + (!current && attempt.error ? '<p class="aw-tool-task">' + esc(displayText(attempt.error, 'This attempt did not finish.', state)) + '</p>' : '')
+          + recovery + '<div class="aw-agent-links aw-attempt-results">' + resultButtons + resultFilesHTML(results) + '</div>'
+          + labels.diagnostics([['Run ID', attempt.runId || task.runId], ['Task ID', task.id], ['Attempt ID', attempt.id], ['Agent session ID', attempt.agentSessionId]], 'attempt:' + attempt.id);
+        // The timeline owns placement only; all existing controls and artifact
+        // downloads are still handled here against the host snapshot.
+        if (!options.placeActivity(node, { runId: attempt.runId || task.runId, taskId: task.id, attemptId: attempt.id, at: attempt.acceptedAt ?? attempt.startedAt })) host.appendChild(node);
+        for (const tool of tools) placedTools.add(tool.id);
+        for (const process of processes) placedProcesses.add(process.id);
+        placedTasks.add(task.id);
+      }
+      for (const [id, node] of attemptSections) if (!kept.has(id)) { options.removeActivity?.(id); node.remove(); attemptSections.delete(id); }
+      return { placedTools, placedProcesses, placedTasks };
+    }
+
     function render(state) {
       if (destroyed) return;
       snapshot = state;
-      const runKey = JSON.stringify([state.sessionId, state.run.id]);
+      const runKey = JSON.stringify([state.mode, state.sessionId]);
       if (currentRunKey && currentRunKey !== runKey) { expanded.clear(); expandedTools.clear(); expandedProcesses.clear(); expandedDiagnostics.clear(); requestedTools.clear(); outputModes.clear(); copyFallbacks.clear(); }
       else rememberDiagnostics();
       currentRunKey = runKey;
+      if (state.mode !== 'runtime') { for (const [id, node] of attemptSections) { options.removeActivity?.(id); node.remove(); } attemptSections.clear(); }
       if(state.mode==='runtime'){
         const signature=JSON.stringify([state.revision,state.sessionId,state.run,state.tasks,state.agents,state.attempts,state.tools,state.processes,state.artifacts,state.approvals,state.retryOperations,[...requestedTools],[...expandedTools]]);
         if(signature!==renderSignature){
           renderSignature=signature;
-          const previous=host.contains(document.activeElement)?captureKey(document.activeElement):null;
-          const tools=state.tools.filter(tool=>tool.source!=='pi'||requestedTools.has(tool.id));
+          const previous=contains(document.activeElement)?captureKey(document.activeElement):null;
+          const tools=state.tools.filter(tool=>(tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id));
           const pending=state.approvals.filter(request=>request.status==='pending');
           const recovery=state.tasks.filter(task=>task.parentTaskId&&(['failed','paused','cancelled'].includes(task.status)||state.retryOperations?.[task.id]?.pending||state.retryOperations?.[task.id]?.accepted));
           const runContext = (LABELS[state.run.status] || displayText(state.run.status, 'Ready', state)) + ' · ' + state.tasks.length + (state.tasks.length === 1 ? ' task' : ' tasks');
           const diagnostics = labels.diagnostics([['Session ID', state.sessionId], ['Run ID', state.run.id]], 'run');
-          host.innerHTML=(!state.agents.length&&!tools.length&&!pending.length&&!recovery.length&&!state.processes?.length?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+agentGroupHTML(state)+recovery.map(task=>taskRecoveryHTML(task,state)).join('')+'<div class="aw-agent-events">'+tools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+(state.processes || []).map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>');
+          host.replaceChildren();
+          const placed=renderAttempts(state,tools);
+          const remainingTools=tools.filter(item=>!placed.placedTools.has(item.id)), remainingProcesses=(state.processes || []).filter(item=>!placed.placedProcesses.has(item.id)), remainingRecovery=recovery.filter(item=>!placed.placedTasks.has(item.id));
+          const fallback=document.createElement('div');
+          const empty=!remainingTools.length&&!pending.length&&!remainingRecovery.length&&!remainingProcesses.length&&(!state.agents.length||placed.placedTasks.size);
+          fallback.innerHTML=empty?'':'<details class="aw-thinking" data-aw-thinking'+(thinkingOpen?' open':'')+'><summary class="aw-thinking-summary cursor-interaction" data-aw-thinking-summary="main">'+icon('workflow')+'<span>Workspace activity</span>'+icon('chevron-down')+'</summary><div class="aw-thinking-body"><p class="aw-run-context">'+esc(runContext)+'</p>'+(placed.placedTasks.size?'':agentGroupHTML(state))+remainingRecovery.map(task=>taskRecoveryHTML(task,state)).join('')+'<div class="aw-agent-events">'+remainingTools.map(tool=>toolEventHTML(tool,state,state.agents.find(agent=>agent.taskId===tool.taskId))).join('')+remainingProcesses.map(processHTML).join('')+'</div>'+pending.map(request=>'<div class="aw-approval-inline"><span>'+icon('shield-check')+'</span><div><strong>Permission requested</strong><p>'+esc(request.description)+'</p><button type="button" class="aw-text-button cursor-interaction" data-aw-approval-open="'+esc(request.id)+'">Review request'+icon('arrow-right')+'</button></div></div>').join('')+diagnostics+'</div></details>';
+          host.append(...fallback.childNodes);
           for(const line of host.querySelectorAll('.aw-tool-task'))line.textContent=line.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*demo steps/,'');
           if(!state.capabilities?.retryTask)host.querySelectorAll('[data-aw-retry]').forEach(button=>button.disabled=true);
           restoreDiagnostics();
@@ -9507,7 +9589,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const signature = JSON.stringify([state.run.id, state.run.status, state.run.scenario, state.tasks.map(task => [task.id, task.status, task.progress]), state.approvals.map(item => [item.id, item.status]), state.events.length, state.artifacts.length, state.agents.length]);
       if (signature !== renderSignature) {
         renderSignature = signature;
-        const previous = host.contains(document.activeElement) ? captureKey(document.activeElement) : null;
+        const previous = contains(document.activeElement) ? captureKey(document.activeElement) : null;
         const isLocalDemo = state.run.status === 'ready';
         const completed = state.tasks.filter(task => task.status === 'succeeded').length;
         const pending = state.approvals.find(item => item.status === 'pending');
@@ -9534,7 +9616,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (openedApproval && !state.approvals.some(item => item.id === openedApproval && item.status === 'pending')) closeApproval();
     }
 
-    listen(host, 'toggle', event => {
+    listen(root, 'toggle', event => {
+      if (!contains(event.target)) return;
       if (event.target.matches?.('[data-aw-diagnostics]')) {
         if (event.target.open) expandedDiagnostics.add(event.target.dataset.awDiagnostics);
         else expandedDiagnostics.delete(event.target.dataset.awDiagnostics);
@@ -9552,16 +9635,17 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (event.target.open) { if (id) expanded.add(id); expandedTools.add(toolId); }
       else { if (id) expanded.delete(id); expandedTools.delete(toolId); }
     }, { capture: true });
-    listen(host, 'change', event => {
+    listen(root, 'change', event => {
+      if (!contains(event.target)) return;
       if (event.target.id === 'aw-demo-scenario') {
         const scenario = event.target.value;
         if (!['ready', 'running', 'blocked', 'paused'].includes(snapshot.run.status)) { expanded.clear(); store.reset(); }
         store.setScenario(scenario);
       }
     });
-    listen(host, 'click', event => {
+    listen(root, 'click', event => {
       const button = event.target.closest('button');
-      if (!button || button.disabled || !host.contains(button)) return;
+      if (!button || button.disabled || !contains(button)) return;
       if (button.dataset.awApprovalOpen) { openApproval(button.dataset.awApprovalOpen); return; }
       if (button.dataset.awAgentReveal) {
         const agent = snapshot.agents.find(item => item.id === button.dataset.awAgentReveal);
@@ -9622,7 +9706,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     });
     const unsubscribe = store.subscribe(render);
     return {
-      openApproval, closeApproval, revealTool, isApprovalOpen: () => Boolean(openedApproval),
+      openApproval, closeApproval, revealTool, refresh() { renderSignature = ''; render(snapshot); }, isApprovalOpen: () => Boolean(openedApproval),
       getState: () => ({ approvalId: openedApproval, expanded: [...expanded], expandedTools: [...expandedTools], thinkingOpen }),
       destroy() {
         if (destroyed) return;
@@ -9630,7 +9714,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         destroyed = true;
         for (const [timer, url] of downloadTimers) { clearTimeout(timer); URL.revokeObjectURL(url); }
         downloadTimers.clear();
-        unsubscribe(); controller.abort(); backdrop.remove(); host.replaceChildren();
+        unsubscribe(); controller.abort(); backdrop.remove(); host.replaceChildren(); for (const node of attemptSections.values()) node.remove(); attemptSections.clear();
       }
     };
   }
@@ -9649,14 +9733,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const error = document.createElement('p');
     error.className = 'ap-session-error'; error.hidden = true;
     error.setAttribute('role', 'alert');
-    host.appendChild(error);
+    if (!options.managedLayout) host.appendChild(error);
     function createRow(id) {
       const element = document.createElement('details');
       element.className = 'ap-tool-event'; element.dataset.apTool = id;
       element.innerHTML = '<summary class="cursor-interaction"><span class="ap-tool-icon"></span><span class="ap-tool-copy"><span class="ap-tool-label"></span><span class="ap-tool-target"></span></span><i data-lucide="chevron-down" aria-hidden="true"></i></summary><div class="ap-tool-body"><dl><div><dt>Status</dt><dd data-ap-state></dd></div></dl><details class="aw-diagnostics" data-aw-diagnostics><summary class="cursor-interaction">Technical details</summary><dl><div><dt>Tool</dt><dd data-ap-name></dd></div><div><dt>Tool call ID</dt><dd data-ap-call-id></dd></div></dl><pre data-ap-input aria-label="Tool input"></pre><pre data-ap-output aria-label="Tool output"></pre><div class="ap-tool-actions"><button type="button" class="cursor-interaction" data-ap-copy="input">Copy input</button><button type="button" class="cursor-interaction" data-ap-copy="output">Copy output</button></div><label class="ap-copy-label" hidden>Select and copy manually<textarea readonly aria-label="Copy tool text manually"></textarea></label></details></div>';
       element.querySelector('summary').dataset.apToolSummary = id;
       element.querySelector('[data-aw-diagnostics]').dataset.awDiagnostics = 'pi-tool-' + id;
-      host.insertBefore(element, error);
+      if (options.managedLayout) host.appendChild(element); else host.insertBefore(element, error);
       const row = { element, tool: null, iconKey: '' };
       rows.set(id, row); return row;
     }
@@ -9704,7 +9788,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       }
       error.textContent = snapshot.error || '';
       error.hidden = !snapshot.error;
-      host.hidden = !rows.size && !snapshot.error;
+      if (options.managedLayout) { if (snapshot.error) host.appendChild(error); else error.remove(); }
+      if (!options.managedLayout) host.hidden = !rows.size && !snapshot.error;
       if (iconsChanged) options.icons?.();
     }
     async function onClick(event) {
@@ -9726,12 +9811,207 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     host.addEventListener('click', onClick, { signal: controller.signal });
     function reset() {
       for (const row of rows.values()) row.element.remove();
-      rows.clear(); lastSnapshot = null; error.textContent = ''; error.hidden = true; host.hidden = true;
+      rows.clear(); lastSnapshot = null; error.textContent = ''; error.hidden = true; if (!options.managedLayout) host.hidden = true;
     }
     reset();
-    return Object.freeze({ render, refresh() { if (lastSnapshot) render(lastSnapshot); }, reset, revealTool(id) { const row = [...rows.values()].find(item => item.tool?.toolCallId === id || item.tool?.id === id); if (!row) return false; row.element.open = true; row.element.querySelector('summary').focus({preventScroll:true}); row.element.scrollIntoView?.({block:'nearest'}); return true; }, destroy() { if (destroyed) return; destroyed = true; controller.abort(); reset(); error.remove(); } });
+    return Object.freeze({ render, refresh() { if (lastSnapshot) render(lastSnapshot); }, reset, getToolElement: id => rows.get(id)?.element || null, revealTool(id) { const row = [...rows.values()].find(item => item.tool?.toolCallId === id || item.tool?.id === id); if (!row) return false; row.element.open = true; row.element.querySelector('summary').focus({preventScroll:true}); row.element.scrollIntoView?.({block:'nearest'}); return true; }, destroy() { if (destroyed) return; destroyed = true; controller.abort(); reset(); error.remove(); } });
   }
   window.AthenaPiSessionView = Object.freeze({ mount });
+})();
+
+</script>
+<script>
+/* Public conversation messages and observed actions in their original order.
+ * Context links work to a turn; it is not a message identity. Hidden reasoning
+ * and raw tool results are never used as progress descriptions.
+ */
+(() => {
+  'use strict';
+  const text = content => typeof content === 'string' ? content : (Array.isArray(content) ? content : []).filter(block => block?.type === 'text').map(block => String(block.text || '')).join('\n');
+  const context = value => value && typeof value.runId === 'string' && typeof value.attemptId === 'string' ? Object.fromEntries(['projectId', 'sessionId', 'runId', 'taskId', 'parentTaskId', 'agentSessionId', 'attemptId'].filter(key => typeof value[key] === 'string' || key === 'parentTaskId' && value[key] === null).map(key => [key, value[key]])) : null;
+  const timestamp = value => Number.isFinite(value) ? value : typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+
+  function mount(host, options = {}) {
+    const view = window.AthenaPiSessionView.mount(host, { ...options, managedLayout: true });
+    const nodes = new Map(), tools = new Map(), activities = new Map();
+    let entries = [], generation = 0, userCounter = 0, lastObservedOrder = 0, pendingUser = null, liveOwner = null, liveKeys = new Set(), destroyed = false, error = null;
+
+    function toolRecord(block, owner, status = 'queued') {
+      return { id: block.id, toolCallId: block.id, toolName: block.name || 'custom', args: block.arguments || {}, status, active: status === 'running', output: '', athena: owner };
+    }
+    function assign(node, owner) {
+      for (const key of ['runId', 'taskId', 'attemptId']) {
+        if (owner?.[key]) node.dataset[key] = owner[key]; else delete node.dataset[key];
+      }
+    }
+    function makeNode(entry) {
+      const article = document.createElement(entry.kind === 'tool' ? 'div' : 'article');
+      article.className = entry.kind === 'tool' ? 'ac-stream-tool' : 'ac-pi-history-message ac-stream-message';
+      article.dataset.streamKey = entry.key;
+      if (entry.kind !== 'tool') {
+        article.dataset.role = entry.role;
+        const label = document.createElement('strong'); label.textContent = entry.role === 'user' ? 'You' : 'Athena';
+        const body = document.createElement('p'); body.className = 'ac-stream-text';
+        article.append(label, body);
+      }
+      nodes.set(entry.key, article);
+      return article;
+    }
+    function currentTools() {
+      const workspace = options.getWorkspace?.();
+      return [...tools.values()].map(tool => {
+        // Saved host tool outcomes remain authoritative across retries and
+        // restarts, even if the parent task's latest status has changed.
+        const recorded = workspace?.tools?.find(item => item.id === tool.id || item.toolCallId === tool.id);
+        if (!recorded) return tool;
+        const status = ['succeeded','failed','stopped','cancelled'].includes(tool.status) && ['queued','running'].includes(recorded.status) ? tool.status : recorded.status;
+        return { ...tool, status, active: status === 'running', taskId: recorded.taskId, sessionId: recorded.sessionId };
+      });
+    }
+    function layout() {
+      if (destroyed) return;
+      const arranged = entries.filter(entry => entry.kind === 'tool' || entry.text !== '' || entry.attachments?.length).map(entry => ({ entry, node: nodes.get(entry.key) })).filter(item => item.node);
+      // A child attempt belongs to an exact run supplied by the host. Use
+      // recorded timestamps only for placement within that run; unmatched
+      // legacy records stay in the workspace fallback instead of being guessed.
+      for (const item of [...activities.values()].sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity))) {
+        const owned = arranged.filter(row => row.entry?.athena?.runId === item.runId);
+        if (!owned.length) { const fallback = options.getActivityFallback?.(); if (fallback && item.node.parentElement !== fallback) fallback.appendChild(item.node); else if (!fallback) item.node.remove(); continue; }
+        const next = item.at == null ? null : owned.find(row => row.entry.at != null && row.entry.at > item.at);
+        const anchor = next || owned[owned.length - 1];
+        let index = arranged.indexOf(anchor) + (next ? 0 : 1);
+        // Preserve sibling/retry order when they share one message anchor.
+        while (index < arranged.length && arranged[index].activity && arranged[index].activity.runId === item.runId && (arranged[index].activity.at ?? Infinity) <= (item.at ?? Infinity)) index++;
+        arranged.splice(index, 0, { node: item.node, activity: item });
+      }
+      let cursor = host.firstElementChild;
+      for (const item of arranged) {
+        if (item.node === cursor) cursor = cursor.nextElementSibling;
+        else host.insertBefore(item.node, cursor);
+      }
+      host.hidden = !arranged.length && !error;
+    }
+    function render() {
+      if (destroyed) return;
+      view.render({ runId: 'conversation', tools: currentTools(), error });
+      const present = new Set(entries.map(entry => entry.key));
+      for (const [key, node] of nodes) if (!present.has(key)) { node.remove(); nodes.delete(key); }
+      for (const entry of entries) {
+        const node = nodes.get(entry.key) || makeNode(entry);
+        assign(node, entry.athena);
+        if (entry.kind === 'tool') {
+          const row = view.getToolElement(entry.toolId);
+          if (row && row.parentElement !== node) node.appendChild(row);
+        } else {
+          const body = node.querySelector('.ac-stream-text');
+          if (body.textContent !== entry.text) body.textContent = entry.text;
+          node.hidden = !entry.text && !entry.attachments?.length;
+          let attachmentList = node.querySelector('.ac-message-attachments');
+          if (entry.attachments?.length && !attachmentList) {
+            attachmentList = document.createElement('div'); attachmentList.className = 'ac-message-attachments';
+            for (const file of entry.attachments) { const label = document.createElement('span'); label.className = 'ac-message-attachment'; label.textContent = file.name; attachmentList.appendChild(label); }
+            node.appendChild(attachmentList);
+          }
+        }
+      }
+      layout();
+    }
+    function clear(keepActivities = false) {
+      generation++; entries = []; tools.clear(); pendingUser = null; liveOwner = null; liveKeys.clear(); lastObservedOrder = 0; error = null;
+      for (const node of nodes.values()) node.remove();
+      nodes.clear();
+      if (!keepActivities) { for (const item of activities.values()) item.node.remove(); activities.clear(); }
+      view.reset(); host.hidden = true;
+    }
+    function history(messages) {
+      clear(true);
+      for (const [index, message] of (messages || []).entries()) {
+        const owner = context(message.athena), at = timestamp(message.timestamp);
+        if (message.role === 'toolResult') {
+          const tool = tools.get(message.toolCallId);
+          if (tool) { tool.status = message.isError === true ? 'failed' : 'succeeded'; tool.active = false; tool.output = text(message.content); }
+          continue;
+        }
+        if (!['user', 'assistant'].includes(message.role)) continue;
+        if (message.role === 'user') {
+          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), athena: owner, at });
+          continue;
+        }
+        const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content || [];
+        for (const [part, block] of content.entries()) {
+          if (block?.type === 'text') entries.push({ key: 'history:' + index + ':' + part, kind: 'message', role: 'assistant', text: String(block.text || ''), athena: owner, at });
+          else if (block?.type === 'toolCall' && typeof block.id === 'string' && !tools.has(block.id)) {
+            tools.set(block.id, toolRecord(block, owner));
+            entries.push({ key: 'tool:' + block.id, kind: 'tool', toolId: block.id, athena: owner, at });
+          }
+        }
+      }
+      render();
+    }
+    function finish() { generation++; pendingUser = null; liveOwner = null; liveKeys.clear(); lastObservedOrder = 0; error = null; }
+    function beginUser(value, attachments = []) {
+      finish();
+      pendingUser = { key: 'user:' + generation + ':' + (++userCounter), kind: 'message', role: 'user', text: String(value), attachments: attachments.map(file => ({ name: file.name })), athena: null, at: null, order: 0, observed: false };
+      entries.push(pendingUser); liveKeys.add(pendingUser.key); render();
+    }
+    function observe(event) {
+      const owner = context(event);
+      if (owner) {
+        liveOwner = owner;
+        if (pendingUser && !pendingUser.athena) pendingUser.athena = owner;
+      }
+      if (event.type === 'message_start' && event.message?.role === 'user') {
+        if (!pendingUser || pendingUser.observed) {
+          pendingUser = { key: 'user:' + generation + ':' + (++userCounter), kind: 'message', role: 'user', text: '', athena: owner, at: null, order: lastObservedOrder + 0.5 };
+          entries.push(pendingUser); liveKeys.add(pendingUser.key);
+        }
+        pendingUser.observed = true;
+        pendingUser.text = text(event.message.content);
+        pendingUser.at = timestamp(event.message.timestamp);
+        pendingUser.athena = owner || pendingUser.athena;
+        render();
+      }
+    }
+    function live(snapshot) {
+      const added = [];
+      for (const message of snapshot.messages || []) {
+        const prefix = 'live:' + generation + ':' + message.id + ':';
+        const parts = message.parts?.length ? message.parts : [{ index: 0, text: message.text, order: message.order }];
+        const present = new Set(parts.map(part => prefix + part.index));
+        entries = entries.filter(entry => !entry.key.startsWith(prefix) || present.has(entry.key));
+        for (const part of parts) {
+          const key = prefix + part.index;
+          let entry = entries.find(item => item.key === key);
+          if (!entry) { entry = { key, kind: 'message', role: 'assistant', text: '', order: part.order ?? Infinity, athena: context(message.athena) || liveOwner, at: timestamp(message.timestamp) }; added.push(entry); liveKeys.add(key); }
+          entry.text = part.text;
+          entry.order = part.order ?? Infinity;
+          entry.athena ||= context(message.athena) || liveOwner;
+          entry.at ??= timestamp(message.timestamp);
+        }
+      }
+      for (const tool of snapshot.tools || []) {
+        tools.set(tool.id, { ...tool });
+        const key = 'tool:' + tool.id;
+        if (!entries.some(item => item.key === key)) {
+          added.push({ key, kind: 'tool', toolId: tool.id, order: tool.order ?? Infinity, athena: context(tool.athena) || liveOwner, at: timestamp(tool.startedAt) }); liveKeys.add(key);
+        }
+      }
+      entries.push(...added);
+      lastObservedOrder = Math.max(lastObservedOrder, ...entries.filter(entry => liveKeys.has(entry.key) && Number.isFinite(entry.order)).map(entry => entry.order));
+      const liveEntries = entries.filter(entry => liveKeys.has(entry.key)).sort((a, b) => a.order - b.order);
+      entries = entries.filter(entry => !liveKeys.has(entry.key)).concat(liveEntries);
+      error = snapshot.error || null;
+      render();
+    }
+    return Object.freeze({
+      history, beginUser, observe, render: live, reset: finish, clear, refresh: render,
+      revealTool: view.revealTool, hasTool: id => tools.has(id),
+      removeActivity(id) { const item = activities.get(id); item?.node.remove(); activities.delete(id); },
+      placeActivity(node, details) { const key = details.attemptId || details.key, previous = activities.get(key); if (previous && previous.node !== node) previous.node.remove(); const item = { node, ...details, at: timestamp(details.at) }; activities.set(key, item); layout(); return entries.some(entry => entry.athena?.runId === details.runId); },
+      destroy() { if (destroyed) return; clear(); view.destroy(); destroyed = true; }
+    });
+  }
+  window.AthenaConversationStream = Object.freeze({ mount });
 })();
 
 </script>
@@ -11928,6 +12208,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  let surfaces=null,layout=null,settings=null,workspaceStore=null,workspaceViews=null,workspaceChrome=null,knowledge=null,modelSettings=null,chatModelPicker=null,demoStore=null,connectionManager=null,records=null,recordToolbar=null,workspaceOff=null,connectionOff=null,recordsOff=null;
  let providerProfiles=null,modelProfilesAdapter=null;
  let piActivity=null,piView=null,piSubscription=null,piSession=null,piSessionUnsubscribe=null,piSessionEpoch=0,piRunId=null,piText='',piEngaged=false,piPreviewActive=false,appDestroyed=false;
+ let piHistoryAfterSettle=-1;
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
  const piManualTools=new Map(), sessionDrafts=new Map();
  const failedDrafts=[];
@@ -12113,7 +12394,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   const previousSession=root.dataset.sessionId;
   if(snapshot.mode==='runtime'&&previousSession&&snapshot.sessionId!==previousSession&&(snapshot.sessionId||snapshot.taskManagerConnected)&&!lifecyclePending){
    sessionDrafts.set(previousSession,composer.captureDraft());preservePendingSubmission('The workspace switched conversations.');resetPiActivity();
-   q('#ac-pi-transcript').replaceChildren();q('#ac-pi-transcript').hidden=true;q('#ac-live-user').hidden=true;piHistorySignature='';piManualTools.clear();piManualView?.reset();
+   piView?.clear?.();q('#ac-pi-transcript').hidden=true;q('#ac-live-user').hidden=true;piHistorySignature='';piManualTools.clear();piManualView?.reset();
    composer.restoreDraft(sessionDrafts.get(snapshot.sessionId||'preview')||{value:'',attachments:[],mentions:[]});
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
@@ -12164,7 +12445,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   preservePendingSubmission('The active conversation changed before the host accepted the message.');
   workspaceStore.confirmSession({...result,sessionId,title:result.title||result.session?.title||title||sessionId});
   if(result.connection)attachPiSession(result.connection,{label:result.connection.label});
-  resetPiActivity();q('#ac-pi-transcript').replaceChildren();piHistorySignature='';q('#ac-live-user').hidden=true;
+  resetPiActivity();piView?.clear?.();piHistorySignature='';q('#ac-live-user').hidden=true;
   q('#ac-thread-title').textContent=result.title||result.session?.title||title||sessionId;
   composer.restoreDraft(sessionDrafts.get(sessionId)||{value:'',attachments:[],mentions:[]});
   closeDialog();composer.focus();return result;
@@ -12258,15 +12539,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   piRuntime.validateMessage(message);
   return {message,...(images.length?{images}:{})};
  }
- function appendHistory(role,text){
-  if(!text)return;const host=q('#ac-pi-transcript'),article=document.createElement('article'),label=document.createElement('strong'),body=document.createElement('p');
-  article.className='ac-pi-history-message';article.dataset.role=role;label.textContent=role==='user'?'You':'Athena';body.textContent=text;article.append(label,body);host.appendChild(article);host.hidden=false;
-  while(host.children.length>80)host.firstElementChild.remove();
- }
  function archiveLiveTurn(){
   if(!piEngaged)return;
-  if(!q('#ac-live-user').hidden)appendHistory('user',q('#ac-live-user').textContent);
-  appendHistory('assistant',reply.getState().text);q('#ac-live-user').hidden=true;
+  piView?.reset();q('#ac-live-user').hidden=true;
  }
  function sameDraftContext(files,mentions){return files.length===composer.getAttachments().length&&files.every((file,i)=>file===composer.getAttachments()[i])&&JSON.stringify(mentions.map(m=>m.id))===JSON.stringify(composer.getSelections().map(m=>m.id))}
  function keepUnsent(draft,reason){
@@ -12311,7 +12586,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   }
   message.hidden=false;q('#ac-live-reply').hidden=false;if(composer.getValue()===value)composer.setValue('');if(!piSession&&sameDraftContext(attachments,mentions))composer.clearContext();composer.setBusy(true,'Waiting',{canStop:!piSession||typeof piSession.abort==='function'});icons();
   if(piSession){
-   piEngaged=true;reply.begin({phase:'waiting'});
+   piEngaged=true;piView.beginUser(value,attachments);q('#ac-live-user').hidden=true;reply.setConversationMode(true);reply.begin({phase:'waiting'});
    const activeSession=piSession,epoch=piSessionEpoch,turn=piTurnEpoch,conversation=conversationBinding();
    piSubmittedContext={session:activeSession,epoch,turn,value,attachments,mentions,sessionId:conversation.sessionId};
    Promise.resolve().then(()=>{if(appDestroyed||piSession!==activeSession||piSessionEpoch!==epoch||piTurnEpoch!==turn||!sameConversation(conversation))throw new Error('The active conversation changed before this message was sent.');return activeSession.prompt(prepared.message,{images:prepared.images,fileReferences:prepared.fileReferences});}).then(result=>{
@@ -12328,7 +12603,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    const scroller=q('.ac-conversation-inner');scroller.scrollTop=scroller.scrollHeight;return;
   }
   const response=attachments.length?'Added '+attachments.map(file=>file.name).join(', ')+' to this conversation. This preview shows how attachments work; it has not analyzed the files or run a calculation. A connected runtime can receive these files and the selected tools.':'To compare component tolerances, first define the resistor and capacitor ranges. For example, use ±1% for the resistor and ±5% for the capacitor. The next step would be to compare the cutoff frequencies with the baseline circuit. This is a sample response; no calculation has been submitted.';
-  reply.start({text:response,onPhase(phase,descriptor){if(state.busy&&descriptor.active)composer.setBusy(true,descriptor.label)},onDone(){state.busy=false;composer.setBusy(false);chatModelPicker?.sync();announce('Sample response complete.')}});
+  reply.setConversationMode(false);reply.start({text:response,onPhase(phase,descriptor){if(state.busy&&descriptor.active)composer.setBusy(true,descriptor.label)},onDone(){state.busy=false;composer.setBusy(false);chatModelPicker?.sync();announce('Sample response complete.')}});
   const scroller=q('.ac-conversation-inner');scroller.scrollTop=scroller.scrollHeight;
  }
  const reply=window.AthenaReply.mount(q('#ac-live-reply'));
@@ -12372,15 +12647,21 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    piRunId=snapshot.runId;piText='';piEngaged=true;
    reply.begin({phase:snapshot.phase,previewLabel:piPreviewActive?'Local event preview':''});
   }
-  piView.render(snapshot);workspaceStore?.observeActivity?.(snapshot);
+  reply.setConversationMode(true);piView.render(snapshot);workspaceStore?.observeActivity?.(snapshot);
   if(snapshot.text!==piText){
    if(snapshot.text.startsWith(piText))reply.append(snapshot.text.slice(piText.length));else reply.replaceText(snapshot.text);
    piText=snapshot.text;
   }
   reply.setPhase(snapshot.phase);
   if(snapshot.settled){
+   const justSettled=state.busy;
    reply.end({text:snapshot.text,status:snapshot.phase,detail:snapshot.error||''});
    state.busy=false;composer.setBusy(false);clearPiPreview();
+   if(justSettled&&piSession&&piRuntime.available('get_messages')){
+    // Only a history read accepted after settlement can replace this live turn.
+    // A prefix read accepted during streaming must not erase its later messages.
+    piHistoryAfterSettle=piRuntime.getState().historyRevision||0;
+   }
   }else{
    state.busy=true;composer.setBusy(true,snapshot.label,{canStop:piPreviewActive||typeof piSession?.abort==='function'});
   }
@@ -12398,7 +12679,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   root.dataset.piConnected=String(snapshot.connected);
   const currentId=snapshot.session.sessionId||snapshot.session.id||'';
   if(snapshot.connected&&currentId&&piSessionIdentity&&currentId!==piSessionIdentity){
-   piTurnEpoch++;preservePendingSubmission('The model connection changed conversations.');resetPiActivity();q('#ac-live-user').hidden=true;q('#ac-pi-transcript').replaceChildren();piHistorySignature='';piManualTools.clear();piManualView?.reset();
+   piTurnEpoch++;preservePendingSubmission('The model connection changed conversations.');resetPiActivity();q('#ac-live-user').hidden=true;piView?.clear?.();piHistorySignature='';piManualTools.clear();piManualView?.reset();
   }
   if(currentId)piSessionIdentity=currentId;
   if(snapshot.connected&&snapshot.session.sessionName&&workspaceStore?.getState().sessionBound!==false)q('#ac-thread-title').textContent=window.AthenaActivityLabels.text(snapshot.session.sessionName,'New conversation',[snapshot.session.sessionId,snapshot.session.id]);
@@ -12428,16 +12709,16 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    if(pending.binding===piSession&&pending.epoch===piSessionEpoch){nativeSessionTransition=null;activateSession({sessionId:currentId,title:snapshot.session.sessionName||pending.title},pending.title);toast('The new conversation is confirmed. Check its model and reasoning settings before sending.');}
   }
   if(workspaceStore?.getState().sessionBound===false){q('#ac-pi-transcript').hidden=true;q('#ac-pi-session-status').textContent='Connect the model to this conversation';return;}
-  if(snapshot.connected&&!piEngaged){
+  if(snapshot.connected&&(!piEngaged||!state.busy&&(snapshot.historyRevision||0)>piHistoryAfterSettle)){
    if(workspaceStore?.getState().sessionBound===false){q('#ac-pi-transcript').hidden=true;q('#ac-pi-session-status').textContent='Connect the model to this conversation';return;}
    const history=JSON.stringify(snapshot.messages);
-   if(history!==piHistorySignature){piHistorySignature=history;q('#ac-pi-transcript').replaceChildren();for(const m of snapshot.messages){if(!['user','assistant'].includes(m.role))continue;const content=typeof m.content==='string'?m.content:(m.content||[]).filter(b=>b.type==='text').map(b=>b.text||'').join('\n');appendHistory(m.role,content);}q('#ac-pi-transcript').hidden=!q('#ac-pi-transcript').children.length;}
+   if(history!==piHistorySignature){piHistorySignature=history;piView.history(snapshot.messages);workspaceChrome?.refresh();if(piEngaged){piEngaged=false;piRunId=null;q('#ac-live-reply').hidden=true;}}
   }
  }
  function receivePiEvent(event){
   if(appDestroyed)return;
   if(event.type==='host_session_changed'||event.type==='session_changed'){
-   piTurnEpoch++;preservePendingSubmission('The host changed conversations before acceptance.');resetPiActivity();piManualTools.clear();piManualView?.reset();q('#ac-live-user').hidden=true;q('#ac-pi-transcript').replaceChildren();piHistorySignature='';piSessionIdentity='';return;
+   piTurnEpoch++;preservePendingSubmission('The host changed conversations before acceptance.');resetPiActivity();piManualTools.clear();piManualView?.reset();q('#ac-live-user').hidden=true;piView?.clear?.();piHistorySignature='';piSessionIdentity='';return;
   }
   if(workspaceStore?.getState().sessionBound===false)return;
   if(event.type==='host_command_start'){
@@ -12457,9 +12738,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   const controlOnly=['compaction_start','compaction_end','auto_compaction_start','auto_compaction_end','extension_error'].includes(event.type)||String(event.type).startsWith('summarization_retry_');
   if(controlOnly&&!(piEngaged&&state.busy)&&!piRuntime?.getState().session.isStreaming)return;
   if(event.type==='agent_start'){acceptSubmittedContext();if(piActivity.getState().settled&&piActivity.getState().sequence)archiveLiveTurn();}
-  if(event.type==='message_start'&&event.message?.role==='user'){
-   const c=event.message.content;q('#ac-live-user').textContent=typeof c==='string'?c:(c||[]).filter(b=>b.type==='text').map(b=>b.text||'').join('\n');q('#ac-live-user').hidden=false;
-  }
+  piView.observe(event);
+  if(event.type==='message_start'&&event.message?.role==='user')q('#ac-live-user').hidden=true;
   piActivity.receive(event);
  }
  function detachPiSession(){
@@ -12472,7 +12752,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   if(appDestroyed)return false;
   if(!session||typeof session.subscribe!=='function')throw new TypeError('Pi session needs subscribe(listener).');
   detachPiSession();clearPiPreview();reply.stop();state.busy=false;composer.setBusy(false);piActivity.reset();piView.reset();
-  q('#ac-pi-transcript').replaceChildren();q('#ac-pi-transcript').hidden=true;piHistorySignature='';q('#ac-live-user').hidden=true;q('#ac-live-reply').hidden=true;piManualTools.clear();piManualView.reset();
+  piView?.clear?.();q('#ac-pi-transcript').hidden=true;piHistorySignature='';q('#ac-live-user').hidden=true;q('#ac-live-reply').hidden=true;piManualTools.clear();piManualView.reset();
   const epoch=++piSessionEpoch;
   const binding=piRuntime.attach(session,options);piSession=binding.session;piSessionUnsubscribe=binding.detach;
   const current=piSession;
@@ -12579,7 +12859,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  const resize=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{syncLeftUI();layout?.refresh();overlay();drawChart()}):null;resize?.observe(root);
  piActivity=window.AthenaPiActivity.create();
  piRuntime=window.AthenaPiRuntime.create();
- piView=window.AthenaPiSessionView.mount(reply.getActivityHost(),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
+ piView=window.AthenaConversationStream.mount(q('#ac-pi-transcript'),{icons,toast,getWorkspace:()=>workspaceStore?.getState(),getActivityFallback:()=>q('#aw-activity')});
  piManualView=window.AthenaPiSessionView.mount(q('#ac-pi-manual-activity'),{icons,toast,getWorkspace:()=>workspaceStore?.getState()});
  piSubscription=piActivity.subscribe(renderPiActivity);
  piEventSubscription=piRuntime.subscribeEvents(receivePiEvent);
@@ -12596,7 +12876,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();
   toast(item.title+' excerpt added to the draft.');
  },onOpenArtifact:id=>openWorkspace('artifacts',{artifactId:id})});
- workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
+ workspaceChrome=window.AthenaWorkspaceChrome.mount(root,{store:workspaceStore,placeActivity:(node,details)=>piView.placeActivity(node,details),removeActivity:id=>piView.removeActivity(id),hasConversationTool:id=>piView.hasTool(id),icons,toast,onPreviewReply:previewPiActivity,onNavigate:(view,selection)=>openWorkspace(view,selection),onModalChange(){overlay()}});
  syncLeftUI();
  layout=window.AthenaResize.mount(root,{onResize(){overlay();drawChart()}});
  settings=window.AthenaSettings.mount(root,{
