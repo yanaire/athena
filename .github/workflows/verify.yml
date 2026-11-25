@@ -9,12 +9,15 @@ permissions:
 jobs:
   diagnose:
     name: diagnose-windows-${{ matrix.suite }}
-    runs-on: windows-2025
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
-        suite: [files, profile-switch]
+        suite: [files, profile-switch, connections]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -26,11 +29,49 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install locked host dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Record synthetic runner path behavior
-        run: node --input-type=module -e "import {tmpdir} from 'node:os'; import {realpathSync} from 'node:fs'; console.log(JSON.stringify({platform:process.platform,tmp:tmpdir(),canonicalTmp:realpathSync(tmpdir())}));"
+      - name: Isolate private storage failures using synthetic directories
+        continue-on-error: true
+        run: |
+          node --input-type=module - <<'NODE'
+          import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { createPrivateDirectory, setWindowsPrivate, assertWindowsPrivate } from './runtime/private-storage.ts';
+          import { AnalysisFiles } from './runtime/analysis-files.ts';
+          function details(error, depth = 0) {
+            if (!error || depth > 4) return String(error);
+            return { name: error.name, message: error.message, code: error.code,
+              status: error.status, signal: error.signal, stack: error.stack,
+              stderr: error.stderr?.toString(), cause: error.cause ? details(error.cause, depth + 1) : undefined };
+          }
+          console.log(JSON.stringify({ platform: process.platform, tmp: tmpdir(), canonicalTmp: realpathSync(tmpdir()) }));
+          const probes = {
+            protect: async root => { const path = join(root, 'empty'); mkdirSync(path); setWindowsPrivate(path); },
+            check: async root => { const path = join(root, 'empty'); mkdirSync(path); setWindowsPrivate(path); assertWindowsPrivate(path); },
+            privateDirectory: async root => createPrivateDirectory(join(root, 'nested', 'child')),
+            analysisWrite: async root => {
+              const files = new AnalysisFiles(root);
+              const scope = { projectId: 'synthetic', sessionId: 'session', taskId: 'probe' };
+              await files.write(scope, 'probe.txt', 'Public synthetic diagnostic content');
+              console.log('readback', await files.read(scope, 'probe.txt'));
+            },
+          };
+          let failures = 0;
+          for (const [name, probe] of Object.entries(probes)) {
+            const root = mkdtempSync(join(realpathSync(tmpdir()), 'athena-public-diagnostic-'));
+            const started = performance.now();
+            try { await probe(root); console.log(JSON.stringify({ name, result: 'passed', ms: performance.now() - started })); }
+            catch (error) { failures++; console.log(JSON.stringify({ name, result: 'failed', ms: performance.now() - started, error: details(error) })); }
+            finally { rmSync(root, { recursive: true, force: true }); }
+          }
+          process.exitCode = failures ? 1 : 0;
+          NODE
       - name: Reproduce file and publication failures with immediate TAP diagnostics
         if: matrix.suite == 'files'
         run: node --test --test-reporter=tap tests/analysis-files.test.ts tests/analysis-publication.test.ts
       - name: Reproduce the profile switch with immediate TAP diagnostics
         if: matrix.suite == 'profile-switch'
         run: node --test --test-reporter=tap --test-name-pattern="switching ChatGPT profiles" tests/chatgpt-account.test.ts
+      - name: Isolate Windows connection cleanup
+        if: matrix.suite == 'connections'
+        run: node --test --test-reporter=tap --test-timeout=60000 tests/connections.test.ts
