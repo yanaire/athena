@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { WASI } from 'node:wasi';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { buildEnvironment } from './desktop-platform.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cache = join(root, '.analysis-runtime');
@@ -27,18 +27,13 @@ async function pinned(work, name, url, digest) {
 }
 
 // Compile only the pinned distribution's standard library during packaging.
-async function preparePythonBytecode(runtime) {
-  const wasi = new WASI({
-    version: 'preview1',
-    args: ['python', '-B', '-s', '-P', '-m', 'compileall', '-q',
-      '--invalidation-mode', 'checked-hash', '/runtime/lib/python3.15'],
-    env: { PYTHONHOME: '/runtime', PYTHONHASHSEED: '0' },
-    preopens: { '/runtime': join(runtime, 'python') },
-    returnOnExit: true,
-  });
-  const module = await WebAssembly.compile(await readFile(join(runtime, 'python.wasm')));
-  const instance = await WebAssembly.instantiate(module, wasi.getImportObject());
-  if (wasi.start(instance) !== 0) throw new Error('Could not prepare the offline Python standard library.');
+function preparePythonBytecode(runtime, preparer) {
+  // This separate build-only executable uses the same pinned Wasmtime engine
+  // on every platform. It is not copied into staged or distributed runtimes.
+  // Node's built-in uvwasi cannot iterate directories on Windows (ENOSYS).
+  const started = performance.now();
+  execFileSync(preparer, [runtime], { stdio: 'inherit', timeout: 600_000, windowsHide: true });
+  console.log(`Prepared bundled Python bytecode in ${((performance.now() - started) / 1000).toFixed(1)} seconds.`);
 }
 
 export async function prepareAnalysis(destination, binaryDestination) {
@@ -54,19 +49,25 @@ export async function prepareAnalysis(destination, binaryDestination) {
       pinned(work, 'qjs-0.18.0.wasm', upstream.javascript.url, upstream.javascript.sha256),
       pinned(work, 'quickjs-LICENSE.txt', jsLicense, '96f73f9d2a16c21a36b418f06073be26e7d6d5e7c1bc99756b21a4f2c74ef171'),
     ]);
-    const platform = process.platform === 'darwin' ? 'apple-darwin' : process.platform === 'linux' ? 'unknown-linux-gnu' : '';
+    const platform = process.platform === 'darwin' ? 'apple-darwin' : process.platform === 'linux' ? 'unknown-linux-gnu' : process.platform === 'win32' ? 'pc-windows-msvc' : '';
     const arch = process.arch === 'arm64' ? 'aarch64' : process.arch === 'x64' ? 'x86_64' : '';
-    if (!platform || !arch) throw new Error('Analysis requires a supported Unix build host.');
+    if (!platform || !arch || (process.platform === 'win32' && process.arch !== 'x64')) throw new Error('Analysis requires a supported native macOS, Linux or Windows x64 build host.');
     const target = `${arch}-${platform}`;
-    execFileSync('cargo', ['build', '--release', '--locked', '--target', target, '--manifest-path', join(root, 'sandbox/Cargo.toml')], { stdio: 'inherit' });
+    const exe = process.platform === 'win32' ? '.exe' : '';
+    execFileSync('cargo', ['build', '--release', '--locked', '--target', target, '--manifest-path', join(root, 'sandbox/Cargo.toml')], { stdio: 'inherit', env: buildEnvironment() });
     const out = join(work, 'runtime');
     await mkdir(join(out, 'python'), { recursive: true });
-    execFileSync('unzip', ['-q', python, '-d', join(out, 'python')]);
+    if (process.platform === 'win32') {
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error('Windows system directory is unavailable.');
+      // Git Bash's tar is GNU tar and cannot read ZIP; use Windows' bsdtar.
+      execFileSync(join(systemRoot, 'System32', 'tar.exe'), ['-xf', python, '-C', join(out, 'python')]);
+    } else execFileSync('unzip', ['-q', python, '-d', join(out, 'python')]);
     await rename(join(out, 'python/python.wasm'), join(out, 'python.wasm'));
-    await preparePythonBytecode(out);
+    preparePythonBytecode(out, join(root, 'sandbox', 'target', target, 'release', `athena-prepare-python${exe}`));
     await copyFile(javascript, join(out, 'qjs.wasm'));
-    const helper = join(root, 'sandbox', 'target', target, 'release', 'athena-sandbox');
-    const binary = binaryDestination ?? join(out, 'athena-sandbox');
+    const helper = join(root, 'sandbox', 'target', target, 'release', `athena-sandbox${exe}`);
+    const binary = binaryDestination ?? join(out, `athena-sandbox${exe}`);
     await copyFile(helper, binary);
     await chmod(binary, 0o755);
     await copyFile(license, join(out, 'quickjs-LICENSE.txt'));

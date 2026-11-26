@@ -3,19 +3,20 @@ import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { TaskManager } from '../runtime/manager.ts';
 import { Storage } from '../runtime/storage.ts';
+import { privateTestDirectory, assertKilled } from './platform-test-helpers.ts';
 
 type Message={role:string;content:unknown;tool_call_id?:string};
 type Wire={messages:Message[];tools:{function:{name:string}}[]};
 type Call={name:string;args:object};
 async function setup(t:TestContext,answer:(wire:Wire)=>Promise<string|Call>|string|Call){
-  const directory=await mkdtemp(join(tmpdir(),'athena-m2-manager-'));
+  const directory=privateTestDirectory(join(tmpdir(),'athena-m2-manager-'));
   const server=createServer(async(req,res)=>{
     const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
     const wire:Wire=JSON.parse(Buffer.concat(chunks).toString());
@@ -245,7 +246,7 @@ test('host death after CSV admission interrupts the waiting parent, worker and q
   const child=spawn(process.execPath,['--input-type=module','-e',script],{stdio:['ignore','ignore','pipe']});
   let errors='';child.stderr.on('data',b=>{errors+=String(b);});
   t.after(()=>{if(child.exitCode===null && child.signalCode===null)child.kill('SIGKILL');});
-  const [,signal]=await once(child,'exit');assert.equal(signal,'SIGKILL',errors);
+  const [code,signal]=await once(child,'exit');assertKilled(code,signal,'SIGKILL',errors);
   const before=requests;const manager=await launch();const s=manager.getSnapshot();
   assert.equal(s.run.status,'paused');assert.deepEqual(s.attempts.map(a=>a.status),['paused','paused','paused']);
   const [proc]=s.processes;assert.ok(proc);assert.equal(proc.status,'interrupted');assert.equal(proc.job.cancellation,'unknown');

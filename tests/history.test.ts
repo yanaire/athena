@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { privateTestDirectory } from './platform-test-helpers.ts';
 import { projectHistory, withoutAttachmentContext } from '../runtime/history.ts';
 import type { HistoryEvent } from '../runtime/history.ts';
 import { TaskManager } from '../runtime/manager.ts';
@@ -47,7 +48,7 @@ test('both public history endpoints link a reused provider ID to each persisted 
     process.env[key] = value;
     t.after(() => { if (prior === undefined) delete process.env[key]; else process.env[key] = prior; });
   }
-  const dataDir = await mkdtemp(join(tmpdir(), 'athena-history-'));
+  const dataDir = privateTestDirectory(join(tmpdir(), 'athena-history-'));
   let manager = new TaskManager({dataDir});
   t.after(async () => {
     await manager.close();

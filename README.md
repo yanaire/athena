@@ -9,7 +9,8 @@
   <p>Research with agents. Inspect their work. Keep the evidence.</p>
 
   <a href="https://github.com/yanaire/athena/actions/workflows/verify.yml"><img alt="Verify Athena" src="https://github.com/yanaire/athena/actions/workflows/verify.yml/badge.svg?branch=main"></a>
-  <img alt="Platform: macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-555555?style=flat">
+  <img alt="Platform: macOS Apple Silicon and Intel" src="https://img.shields.io/badge/macOS-arm64%20%2F%20x64-555555?style=flat">
+  <img alt="Platform: Windows x64" src="https://img.shields.io/badge/Windows-x64-555555?style=flat">
   <img alt="Development stage: source preview" src="https://img.shields.io/badge/stage-source%20preview-B39A62?style=flat">
 
   <p>
@@ -44,10 +45,10 @@ Local-first refers to the workspace and execution environment, not a guarantee t
 
 ## Capabilities
 
-The following describes the Apple Silicon source integration candidate. The
+The following describes the desktop source candidate. The
 [2026-11-25 integration review](docs/validation/2026-11-25-open-pr-integration-review.md)
-records the included pull requests, corrections and verification limits. Actual
-Mac and ChatGPT-account acceptance of this exact candidate remains pending.
+records the baseline integration. Use the candidate's CI for native installer
+verification. ChatGPT-account acceptance is a separate test.
 
 | Area | Current capability |
 | :--- | :--- |
@@ -56,7 +57,7 @@ Mac and ChatGPT-account acceptance of this exact candidate remains pending.
 | Research files | Scoped file reads, registered CSV statistics and RC calculations; host-validated downloadable artifacts with input versions and SHA-256 receipts |
 | Offline analysis | Opt-in Python (CPython/WASI) and JavaScript (QuickJS-ng) execution through Wasmtime, without Docker |
 | Model connections | Supported OpenAI and Anthropic API credentials, compatible endpoints, saved model profiles and connection verification |
-| Desktop | Apple Silicon macOS source build using Tauri and a bundled Node sidecar |
+| Desktop | Native macOS arm64/x64 and Windows x64 builds using Tauri and a bundled Node sidecar |
 | Execution visibility | Recorded Workflow DAG, task and agent history, and Artifacts views backed by actual host records |
 | Research records | Mission plans, exact input/result evidence, separately assigned reviewers, reusable observations and verified methods |
 | Extensions | Twelve version-pinned research skills and explicitly approved external MCP connections |
@@ -96,24 +97,24 @@ workflow inspired by Hyra 2.0, not an imported Hyra runtime.
 [Research workflow and Books](docs/research-workflow.md) ·
 [Candidate acceptance and Mac handoff](docs/ecosystem/ACCEPTANCE.md)
 
-### Workflow and desktop platform
+### Workflow and desktop platforms
 
-The source includes the recorded Workflow DAG and reviewed chat fixes. The
-current desktop target is Apple Silicon on macOS 13.5 or later; Windows and
-Intel Mac work remains outside this candidate in the separate platform review.
-Use `npm run desktop:build` for the Apple Silicon source build described in the
-[installation guide](docs/installation.md).
-The candidate's own CI result is the source of truth for automated verification.
-Signed releases and actual Mac/account acceptance remain separate. See the
-[UI capability audit](docs/ui-capability-audit.md) for Browser, Device, Files and
-Diff features that are still unavailable.
+The source includes the recorded Workflow DAG and reviewed chat fixes. Desktop
+builds support Apple Silicon and Intel on macOS 13.5 or later, and Windows x64
+with an NSIS installer. `npm run desktop:build` selects the native target. See
+the [installation guide](docs/installation.md) and [한국어 설치 안내](docs/installation.ko.md)
+for prerequisites and explicit target commands.
+
+The current commit's CI result records automated verification. Signed releases
+and real-account acceptance remain separate. See the [UI capability audit](docs/ui-capability-audit.md)
+for Browser, Device, Files and Diff features that are still unavailable.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
     U["Athena workspace<br/>Chat · Workflow · Agents · Artifacts"]
-    T["Tauri desktop · Apple Silicon macOS"]
+    T["Tauri desktop · macOS and Windows"]
     H["Local host<br/>Node.js · TypeScript"]
     M["TaskManager<br/>Scheduling · permissions · publication"]
     P["Pi SDK<br/>Parent session"]
@@ -143,7 +144,7 @@ The browser-development UI can also connect directly to the local Node host. Tas
 
 | Layer | Technology |
 | :--- | :--- |
-| Desktop | Rust · Tauri 2 · WKWebView on Apple Silicon macOS |
+| Desktop | Rust · Tauri 2 · WKWebView on macOS · WebView2 on Windows |
 | Agent host | Node.js 24 · TypeScript · Pi SDK 1.6.0 |
 | Persistence | SQLite metadata · JSONL session history · project files |
 | Analysis | Rust · Wasmtime · CPython/WASI · QuickJS-ng |
@@ -260,7 +261,7 @@ npm test
 python3 athena-backend-handoff/athena-codex-ui/build.py
 ```
 
-The [Verify Athena workflow](.github/workflows/verify.yml) requires `history-secrets`, `apple-silicon` and `browser-chat`. It checks reachable Git history with Gitleaks, validates types and UI contracts, runs host and controlled-provider tests, audits production npm dependencies and declared licenses, builds/verifies the Apple Silicon app, and exercises chat and workflow behavior in Chromium with synthetic inputs.
+The [Verify Athena workflow](.github/workflows/verify.yml) runs `history-secrets`, `apple-silicon`, `browser-chat`, `desktop-mac-intel` and `desktop-windows-x64`. It runs the host suites on native runners, boots desktop apps installed from both Mac DMGs and the Windows NSIS installer, and exercises chat and workflow in Chromium with synthetic inputs. The required branch checks are `history-secrets`, `apple-silicon` and `browser-chat`.
 
 For a separate live-model acceptance run, configure the endpoint and model above:
 

@@ -14,6 +14,7 @@ import { ModelProfiles } from '../runtime/model-profiles.ts';
 import { createPiSession } from '../runtime/pi.ts';
 import { ProviderManager } from '../runtime/provider-manager.ts';
 import { openLocalCredentials } from '../runtime/local-credentials.ts';
+import { assertKilled, restorePrivatePermissions, windows } from './platform-test-helpers.ts';
 
 type Wire = { model: string; messages: { role: string; content: unknown }[];
   tools: { function: { name: string } }[] };
@@ -21,6 +22,7 @@ type Call = { name: string; args: object };
 type Snapshot = ReturnType<TaskManager['getSnapshot']>;
 type Hit = { wire: Wire; route: string };
 type Handler = (wire: Wire, res: ServerResponse, req: IncomingMessage) => void | Promise<void>;
+type Cleanup = () => void | Promise<void>;
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -74,6 +76,9 @@ function terminal(manager: TaskManager) {
 // Control only the provider. Pi transcripts, TaskManager, SQLite, the scheduler and CSV MCP are real.
 async function fixture(t: TestContext, handler: Handler) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'athena-manager-recovery-')));
+  // This fresh fixture must model a private app workspace even when the native
+  // PowerShell token defaults new directories to the Administrators owner.
+  await restorePrivatePermissions(directory, 0o700);
   const hits: Hit[] = [];
   const server = createServer(async (req, res) => {
     if (req.url?.endsWith('/models')) {
@@ -93,15 +98,32 @@ async function fixture(t: TestContext, handler: Handler) {
     const old = process.env[key]; process.env[key] = value; return { key, old };
   });
   const managers: TaskManager[] = [];
+  const cleanups = new Set<Cleanup>();
   t.after(async () => {
-    try { for (const manager of managers) await manager.close(); }
-    finally {
-      server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
-      for (const { key, old } of previous) { if (old === undefined) delete process.env[key]; else process.env[key] = old; }
-      await rm(directory, { recursive: true, force: true });
+    const errors: unknown[] = [];
+    const attempt = async (cleanup: Cleanup) => {
+      try { await cleanup(); } catch (error) { errors.push(error); }
+    };
+    for (const manager of managers) await attempt(() => manager.close());
+    // Managers may still need their model stores while closing. Release owned
+    // handles before Windows tries to remove the SQLite files.
+    for (const close of [...cleanups].toReversed()) await attempt(close);
+    await attempt(() => new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+      server.closeAllConnections();
+    }));
+    for (const { key, old } of previous) {
+      if (old === undefined) delete process.env[key]; else process.env[key] = old;
     }
+    await attempt(() => rm(directory, { recursive: true, force: true }));
+    if (errors.length) throw new AggregateError(errors, 'Failed to clean up recovery fixture.');
   });
-  return { directory, origin, hits, async manager(options: Pick<TaskManagerOptions, 'models' | 'createPiSession'> = {}) {
+  return { directory, origin, hits, cleanup(action: Cleanup) {
+    const close = async () => { await action(); cleanups.delete(close); };
+    cleanups.add(close);
+    return close;
+  },
+    async manager(options: Pick<TaskManagerOptions, 'models' | 'createPiSession'> = {}) {
     const manager = new TaskManager({ dataDir: directory, ...options }); managers.push(manager); await manager.initialize(); return manager;
   } };
 }
@@ -407,11 +429,18 @@ test('host death after retry acceptance restores paused attempts and replays nei
     const accepted = await manager.retryTask(${JSON.stringify(child.id)}, ${JSON.stringify(request)});
     process.send(accepted);
   `;
+  t.signal.throwIfAborted();
   const host = spawn(process.execPath, ['--input-type=module', '-e', source], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  const closed = new Promise<void>(resolve => host.once('close', () => resolve()));
+  state.cleanup(async () => {
+    if (host.exitCode === null && host.signalCode === null) host.kill('SIGKILL');
+    await closed;
+  });
   let errors = ''; assert.ok(host.stderr); host.stderr.on('data', value => { errors += String(value); });
-  t.after(() => { if (host.exitCode === null && host.signalCode === null) host.kill('SIGKILL'); });
   const [[accepted]]: [[Awaited<ReturnType<TaskManager['retryTask']>>], void] = await Promise.all([once(host, 'message'), retryArrived.promise]) as [[Awaited<ReturnType<TaskManager['retryTask']>>], void];
-  const exit = once(host, 'exit'); host.kill('SIGKILL'); assert.deepEqual(await exit, [null, 'SIGKILL'], errors);
+  const exit = once(host, 'exit'); assert.equal(host.kill('SIGKILL'), true);
+  const [code, signal] = await exit; assertKilled(code, signal, 'SIGKILL', errors);
+  await closed;
   const calls = state.hits.length;
   manager = await state.manager(); const restored = manager.getSnapshot();
   assert.equal(restored.run.status, 'paused');
@@ -521,10 +550,11 @@ test('recovery pins the original model revision after profile edits and a host r
     if (recovering) completion(res, 'Original pinned model recovered.'); else failure(res);
   });
   const providers = await ProviderManager.create(new InMemoryCredentialStore());
+  state.cleanup(() => providers.close());
   await providers.registerCompatible({ id: 'recovery-a', name: 'A', endpoint: state.origin + '/a/v1' });
   await providers.registerCompatible({ id: 'recovery-b', name: 'B', endpoint: state.origin + '/b/v1' });
   const profiles = new ModelProfiles(state.directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
-  t.after(async () => { profiles.close(); await providers.close(); });
+  state.cleanup(() => profiles.close());
   const models = { resolve: (conversation: string | null | undefined, project: string | null | undefined) => profiles.resolve(conversation, project),
     pin: (model: Parameters<ProviderManager['pin']>[0]) => providers.pin(model), requireProfile: (id: string) => { profiles.get(id); } };
   let manager = await state.manager({ models });
@@ -546,7 +576,10 @@ test('recovery pins the original model revision after profile edits and a host r
   assert.ok(retried.every(h => h.route === '/a/v1/chat/completions' && h.wire.model === 'fixture-a'));
 });
 
-test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch', { timeout: 30_000 }, async t => {
+// This fixture restarts the full host repeatedly and performs fresh native ACL
+// checks at every credential boundary. Only its outer Windows budget is larger;
+// production request deadlines and the assertions below remain unchanged.
+test('API-key retries survive reopening the same credential but reject replacements before acceptance or dispatch', { timeout: windows ? 120_000 : 30_000 }, async t => {
   const keyA = 'recovery-binding-fixture-A', keyB = 'recovery-binding-fixture-B';
   const headers: (string | undefined)[] = [];
   const state = await fixture(t, (wire, res, req) => {
@@ -559,13 +592,15 @@ test('API-key retries survive reopening the same credential but reject replaceme
   const authDir = join(state.directory, 'auth');
   let credentials = await openLocalCredentials(authDir);
   let providers = await ProviderManager.create(credentials, state.directory);
+  let closeProviders = state.cleanup(() => providers.close());
   const compatible = await providers.registerCompatible({ id: 'bound-provider', name: 'Bound', endpoint: state.origin + '/a/v1' }, keyA);
   const profileStore = () => new ModelProfiles(state.directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
-  let profiles = profileStore(); profiles.saveEndpoint(compatible);
+  let profiles = profileStore();
+  let closeProfiles = state.cleanup(() => profiles.close());
+  profiles.saveEndpoint(compatible);
   const models = { resolve: (conversation: string | null | undefined, project: string | null | undefined) => profiles.resolve(conversation, project),
     pin: (model: Parameters<ProviderManager['pin']>[0]) => providers.pin(model), requireProfile: (id: string) => { profiles.get(id); } };
   let manager = await state.manager({ models });
-  t.after(async () => { profiles.close(); await providers.close(); });
   const profile = profiles.save({ name: 'Bound', provider: compatible.id, modelId: 'fixture-a' });
   const activation = await session(manager); manager.setProjectProfile(activation.projectId!, profile.id);
   await manager.pi(activation.sessionId, { type: 'prompt', id: 'bound-source', message: 'Delegate.' });
@@ -573,10 +608,13 @@ test('API-key retries survive reopening the same credential but reject replaceme
   const reference = attempt(before, original.attemptId).model!;
   assert.match(reference.authRef!, /^credential:v1:[a-f0-9]{64}$/u);
   const reopen = async () => {
-    await manager.close(); profiles.close(); await providers.close();
+    await manager.close(); await closeProfiles(); await closeProviders();
+    t.signal.throwIfAborted();
     credentials = await openLocalCredentials(authDir);
     providers = await ProviderManager.create(credentials, state.directory);
+    closeProviders = state.cleanup(() => providers.close());
     profiles = profileStore();
+    closeProfiles = state.cleanup(() => profiles.close());
     for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
     manager = await state.manager({ models });
   };
@@ -633,9 +671,10 @@ test('an in-flight API pin keeps its original key while a new run uses the repla
     } else completion(res, 'Original credential.');
   });
   const providers = await ProviderManager.create(new InMemoryCredentialStore());
+  state.cleanup(() => providers.close());
   await providers.registerCompatible({ id: 'pinned-api', name: 'Pinned', endpoint: state.origin + '/a/v1' }, keyA);
   const profiles = new ModelProfiles(state.directory, (provider, id) => providers.model(provider, id), provider => providers.endpoint(provider));
-  t.after(async () => { profiles.close(); await providers.close(); });
+  state.cleanup(() => profiles.close());
   const models = { resolve: (conversation: string | null | undefined, project: string | null | undefined) => profiles.resolve(conversation, project),
     pin: (model: Parameters<ProviderManager['pin']>[0]) => providers.pin(model), requireProfile: (id: string) => { profiles.get(id); } };
   const manager = await state.manager({ models });

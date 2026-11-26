@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { CSV_LIMITS, CsvJobRunner, type CsvJobEvent, type CsvJobRunnerOptions } from '../runtime/jobs.ts';
+import { assertKilled, posixSignalsOnly, windows } from './platform-test-helpers.ts';
 
 const scope = { projectId: 'project-1', sessionId: 'session-1' };
 const file = { ...scope, fileId: 'file-1', versionId: 'version-1', name: '../../display-only.csv' };
@@ -184,23 +187,33 @@ test('malformed CSV returns an MCP tool error even with a clean transport exit',
   assert.equal(events.flatMap(event => event.type === 'process_output' && event.stream === 'stderr' ? [event.text] : []).join(''), result.stderr);
 });
 
-test('concurrency, queue capacity and cancellation are enforced on a live process group', { timeout: 5_000 }, async t => {
+test('concurrency, queue capacity and cancellation are enforced on an owned live worker', { timeout: windows ? 15_000 : 5_000 }, async t => {
   const started = Promise.withResolvers<CsvJobEvent['attempt']>();
+  let queued: ReturnType<CsvJobRunner['start']>[] = [];
+  let closed: Promise<void> | undefined;
   const { runner } = await fixture(t, { onEvent(event) {
-    if (event.type === 'process_started' && event.attempt.attemptId === match.attemptId) started.resolve(event.attempt);
+    if (event.type === 'process_started' && event.attempt.attemptId === match.attemptId) {
+      assert.ok(event.attempt.pid);
+      assert.equal(process.kill(event.attempt.pid, 0), true);
+      // The event is synchronous and precedes MCP initialization. Fill the queue
+      // and request cancellation while the spawned worker is known to be live,
+      // without relying on SIGSTOP (which Windows does not implement).
+      queued = Array.from({ length: CSV_LIMITS.queue }, (_, i) => runner.start({ ...match, attemptId: `queued-${i}`, grantId: grant.id }));
+      assert.throws(() => runner.start({ ...match, attemptId: 'overflow', grantId: grant.id }), { code: 'QUEUE_FULL' });
+      closed = runner.close();
+      started.resolve(event.attempt);
+    }
   } });
   const grant = await runner.grant({ ...file, bytes: Buffer.from(`x\n${'5\n'.repeat(99_000)}`) });
   const first = runner.start({ ...match, grantId: grant.id });
   const { pid } = await started.promise;
   assert.ok(pid);
-  process.kill(pid, 'SIGSTOP');
-  const queued = Array.from({ length: CSV_LIMITS.queue }, (_, i) => runner.start({ ...match, attemptId: `queued-${i}`, grantId: grant.id }));
-  assert.throws(() => runner.start({ ...match, attemptId: 'overflow', grantId: grant.id }), { code: 'QUEUE_FULL' });
-  await runner.close();
-  assert.equal((await first.result).status, 'cancelled');
-  assert.equal((await first.result).signal, 'SIGKILL');
-  assert.equal((await first.result).cancellation, 'confirmed');
-  assert.throws(() => process.kill(-pid, 0), { code: 'ESRCH' });
+  await closed;
+  const stopped = await first.result;
+  assert.equal(stopped.status, 'cancelled');
+  assertKilled(stopped.exitCode, stopped.signal);
+  assert.equal(stopped.cancellation, 'confirmed');
+  assert.throws(() => process.kill(windows ? pid : -pid, 0), { code: 'ESRCH' });
   for (const pending of queued) {
     const result = await pending.result;
     assert.equal(result.status, 'cancelled');
@@ -209,7 +222,7 @@ test('concurrency, queue capacity and cancellation are enforced on a live proces
   }
 });
 
-test('a stopped child times out and releases its process slot after confirmed termination', { timeout: 5_000 }, async t => {
+test('a stopped child times out and releases its process slot after confirmed termination', { timeout: 5_000, skip: posixSignalsOnly }, async t => {
   const { runner } = await fixture(t, { timeoutMs: 500, onEvent(event) {
     if (event.type === 'process_started' && event.attempt.attemptId === match.attemptId && event.attempt.pid) {
       process.kill(event.attempt.pid, 'SIGSTOP');
@@ -229,7 +242,7 @@ test('a stopped child times out and releases its process slot after confirmed te
   assert.notEqual(timed.cwd, next.cwd);
 });
 
-test('a recovered running receipt reports interruption and does not redispatch or signal its PID', async t => {
+test('a recovered running receipt reports interruption and does not redispatch or signal its PID', { skip: posixSignalsOnly }, async t => {
   const running = Promise.withResolvers<CsvJobEvent['attempt']>();
   const { runner, dataDir } = await fixture(t, { onEvent(event) {
     if (event.type === 'process_started' && event.attempt.pid) {
@@ -256,6 +269,39 @@ test('a recovered running receipt reports interruption and does not redispatch o
   assert.equal(process.kill(-prior.pid, 0), true);
   handle.cancel();
   assert.equal((await handle.result).cancellation, 'confirmed');
+});
+
+test('a recovered stale PID cannot signal an unrelated live process on any platform', { timeout: 15_000 }, async t => {
+  const { runner, dataDir } = await fixture(t);
+  const grant = await runner.grant({ ...file, bytes: Buffer.from('x\n5\n') });
+  const completed = await runner.start({ ...match, grantId: grant.id }).result;
+  assert.equal(completed.status, 'succeeded', completed.error);
+  await runner.close();
+
+  const unrelated = spawn(process.execPath, ['-e', 'process.stdin.resume(); console.log("ready");'], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const exited = once(unrelated, 'exit');
+  t.after(async () => {
+    if (unrelated.exitCode === null && unrelated.signalCode === null) unrelated.kill('SIGKILL');
+    await exited;
+  });
+  await once(unrelated.stdout, 'data');
+  const pid = unrelated.pid;
+  assert.ok(pid);
+  const observed = Promise.withResolvers<CsvJobEvent['attempt']>();
+  const recovered = new CsvJobRunner({ dataDir,
+    recoveredAttempts: [{ ...completed, pid, status: 'running', endedAt: null, exitCode: null, signal: null }],
+    onEvent: event => observed.resolve(event.attempt),
+  });
+  const restored = await observed.promise;
+  assert.equal(restored.status, 'interrupted');
+  assert.equal(restored.cancellation, 'unknown');
+  assert.equal(restored.pid, pid);
+  assert.equal(restored.artifact, undefined);
+  assert.throws(() => recovered.start({ ...match, grantId: grant.id }), { code: 'DUPLICATE_ATTEMPT' });
+  await recovered.close();
+  assert.equal(process.kill(pid, 0), true, 'Reading or closing a recovered receipt must never signal its recorded PID.');
+  unrelated.stdin.end();
+  assert.deepEqual(await exited, [0, null]);
 });
 
 const rcAlias = 'calculate_rc_response';
@@ -304,9 +350,13 @@ test('RC input bounds, malformed data and unrepresentable results never produce 
 
 test('RC and CSV share one queue; a cancelled RC releases its slot and cannot reuse CSV grants', async t => {
   const started = Promise.withResolvers<void>();
+  let next: ReturnType<CsvJobRunner['start']> | undefined;
   const { runner } = await fixture(t, { concurrency: 1, onEvent(event) {
     if (event.type === 'process_started' && event.attempt.mcp?.alias === rcAlias) {
-      process.kill(event.attempt.pid!, 'SIGSTOP');
+      assert.ok(event.attempt.pid);
+      assert.equal(process.kill(event.attempt.pid, 0), true);
+      next = runner.start({ ...match, attemptId: 'second', grantId: csv.id });
+      first.cancel();
       started.resolve();
     }
   } });
@@ -314,12 +364,11 @@ test('RC and CSV share one queue; a cancelled RC releases its slot and cannot re
   const csv = await runner.grant({ ...file, bytes: Buffer.from('x\n4\n') });
   const first = runner.startMcp(rcAlias, { ...match, grantId: grant.id });
   await started.promise;
-  const next = runner.start({ ...match, attemptId: 'second', grantId: csv.id });
-  first.cancel();
   const canceled = await first.result;
   assert.equal(canceled.status, 'cancelled');
   assert.equal(canceled.cancellation, 'confirmed');
   assert.equal(canceled.artifact, undefined);
+  assert.ok(next);
   assert.equal((await next.result).status, 'succeeded');
   const denied = await runner.startMcp(rcAlias, { ...match, attemptId: 'wrong-tool', grantId: csv.id }).result;
   assert.equal(denied.status, 'failed');
