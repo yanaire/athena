@@ -1,0 +1,95 @@
+name: Verify personal Athena desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/personal-desktop-acceptance.yml
+  pull_request:
+    paths:
+      - .github/workflows/personal-desktop-acceptance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-desktop-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  personal-desktop:
+    name: personal-desktop-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mac-arm64
+            os: macos-15
+            platform: darwin
+            arch: arm64
+            target: aarch64-apple-darwin
+          - name: mac-intel
+            os: macos-15-intel
+            platform: darwin
+            arch: x64
+            target: x86_64-apple-darwin
+          - name: windows-x64
+            os: windows-2022
+            platform: win32
+            arch: x64
+            target: x86_64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
+    env:
+      ATHENA_EXPECT_PLATFORM: ${{ matrix.platform }}
+      ATHENA_EXPECT_ARCH: ${{ matrix.arch }}
+      ATHENA_DESKTOP_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Require the native platform and record the tested revision
+        run: |
+          node --input-type=module -e 'import assert from "node:assert/strict"; assert.equal(process.platform, process.env.ATHENA_EXPECT_PLATFORM); assert.equal(process.arch, process.env.ATHENA_EXPECT_ARCH); console.log(process.version, process.platform, process.arch);'
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Validate personal workflow syntax
+        if: matrix.name == 'mac-arm64'
+        run: |
+          curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_arm64.tar.gz -o "$RUNNER_TEMP/actionlint-personal.tar.gz"
+          printf '%s  %s\n' aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f "$RUNNER_TEMP/actionlint-personal.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/actionlint-personal.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck="" -pyflakes="" .github/workflows/personal-desktop-acceptance.yml
+      - name: Install locked Rust and npm dependencies
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target "$ATHENA_DESKTOP_TARGET"
+          rustup override set 1.99.1
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check types and the generated UI
+        run: |
+          npm run check
+          python3 athena-backend-handoff/athena-codex-ui/build.py
+          git diff --exit-code -- athena-backend-handoff/athena-codex-ui/athena-preview.html
+      - name: Build the personal app and verify controlled PKCE readiness
+        # The build prepares the native runtimes and runs the bundle verifier once.
+        # It checks browser readiness and cancellation with an isolated workspace;
+        # no real account sign-in, consent, or inference is performed.
+        run: npm run desktop:build:local-chatgpt
+      - name: Start and stop the built personal app in an isolated workspace
+        # Exercise the built app directly. The standard DMG/NSIS acceptance
+        # wrappers require the ChatGPT-disabled variant and are separate checks.
+        run: |
+          athena_personal_app="src-tauri/target/$ATHENA_DESKTOP_TARGET/release"
+          if [ "$ATHENA_EXPECT_PLATFORM" = darwin ]; then
+            athena_personal_app="$athena_personal_app/bundle/macos/Athena.app"
+          fi
+          node scripts/smoke-installed-desktop.mjs "$athena_personal_app"

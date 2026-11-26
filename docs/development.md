@@ -63,11 +63,12 @@ The local bundle check signs the WASI helper with Hardened Runtime and no entitl
 
 The bundled Pi TUI ARM64 `darwin-platform.node` prebuild has an ad-hoc signature. A JIT-only hardened Node test copy could start but could not load that module. For release, sign the native module with the app's Developer ID team before sealing the app, and verify it loads with library validation still enabled. This same-team path requires a Developer ID acceptance run. Check both WASI guests and the app after signing and before submitting for notarization. See the [release checklist](release-checklist.md).
 
-To test an existing trusted bundle without re-signing it or requiring the original build directory, run `node scripts/check-desktop-bundle.mjs --verify-only "/path/to/Athena.app"`. On a Mac without development tools, use the app's own Node and a copy of the script:
+To test an existing trusted bundle without re-signing it, run `node scripts/check-desktop-bundle.mjs --verify-only "/path/to/Athena.app"` from a reviewed source checkout matching the bundle's build revision. Keep the checker with `scripts/desktop-platform.mjs`, `scripts/analysis-provenance.mjs` and `sandbox/Cargo.lock`: the verifier imports those helpers and compares the bundled sandbox identity with that lock. The original build output directory is not required. If Node is not installed separately, use the app's own Node with the matching source checkout:
 
 ```sh
-app="/path/to/Athena.app"
-"$app/Contents/MacOS/athena-node" /path/to/check-desktop-bundle.mjs --verify-only "$app"
+athena_app="/path/to/Athena.app"
+athena_source="/path/to/reviewed-athena"
+"$athena_app/Contents/MacOS/athena-node" "$athena_source/scripts/check-desktop-bundle.mjs" --verify-only "$athena_app"
 ```
 
 Use only a bundle the Mac already permits you to run. The checker verifies the seal and bundled WASM digests and runs Python and QuickJS in a disposable workspace. After saving a profile with a generated credential, it closes the bundled Node host's startup pipe before delivering the vault key. It checks that startup fails without a readiness frame and that the vault bytes and `0600` mode survive. An authenticated restart then verifies the saved profile, streaming, and tool calls against a loopback fixture. The checker does not launch Finder or test the login Keychain.
