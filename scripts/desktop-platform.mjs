@@ -100,18 +100,33 @@ export function macOSEjectTarget(attachment, ownership) {
 
 export const MACOS_IMAGE_EJECT_ATTEMPTS = 4;
 
+// Packaging owns these CLI children. Stop a timed-out child even if it handles
+// SIGTERM; disk-image ownership and detachment still need separate verification.
+export function runPackagingCommand(command, args, { timeout, ...options } = {}) {
+  if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new TypeError('Packaging commands require a positive timeout.');
+  return execFileSync(command, args, { ...options, timeout, killSignal: 'SIGKILL' });
+}
+
 export async function detachMacOSImage(readAttachment, eject, attempts = MACOS_IMAGE_EJECT_ATTEMPTS,
-  waitForAttachment = () => delay(1_000)) {
+  waitForAttachment = milliseconds => delay(milliseconds), now = () => performance.now()) {
   const failures = [];
   let attachment = readAttachment();
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attachment.state === 'detached') break;
+    // Recheck ownership immediately before another eject command.
+    if (attempt > 0) attachment = readAttachment();
     if (!attachment.target) break;
     try { eject(attachment.target); }
     catch (error) { failures.push(error); }
+    const deadline = now() + 10_000;
     attachment = readAttachment();
-    // The disk registry and mount table can briefly disagree after ejection begins.
-    for (let probe = 0; attachment.state === 'ambiguous' && probe < 10; probe += 1) {
-      await waitForAttachment();
+    // Disk Arbitration can still be settling when the owned image is recognized
+    // as attached, as well as when the registry and mount table disagree.
+    for (let probe = 0; attachment.state !== 'detached' && probe < 10; probe += 1) {
+      const remaining = deadline - now();
+      if (remaining <= 0) break;
+      await waitForAttachment(Math.min(1_000, remaining));
+      if (now() >= deadline) break;
       attachment = readAttachment();
     }
   }

@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detachMacOSImage, macOSEjectTarget, macOSImageAttachment, MACOS_IMAGE_EJECT_ATTEMPTS, resolveDesktopPlatform } from './desktop-platform.mjs';
+import { detachMacOSImage, macOSEjectTarget, macOSImageAttachment, MACOS_IMAGE_EJECT_ATTEMPTS, resolveDesktopPlatform, runPackagingCommand } from './desktop-platform.mjs';
 
 const { platform, target } = resolveDesktopPlatform();
 assert.equal(platform, 'darwin', 'DMG verification requires a native Mac build.');
@@ -17,7 +16,7 @@ const bundles = join(root, 'src-tauri', 'target', target, 'release', 'bundle');
 const app = join(bundles, 'macos', 'Athena.app');
 const name = `Athena-${target}.dmg`;
 const artifact = join(bundles, 'dmg', name);
-const run = (executable, args, timeout = 300_000) => execFileSync(executable, args, { cwd: root, stdio: 'inherit', timeout });
+const run = (executable, args, timeout = 300_000) => runPackagingCommand(executable, args, { cwd: root, stdio: 'inherit', timeout });
 const image = (...args) => run('/usr/bin/hdiutil', args);
 
 // desktop:build seals the app after Tauri finishes. Package that sealed copy.
@@ -32,12 +31,14 @@ let attachedImage;
 let ownedPartition;
 let ejectAttemptsRemaining = 0;
 let mountDevice;
+let lastAttachmentState;
 const failures = [];
 
 function attach(path, readOnly = false) {
   // Arm cleanup before the command in case it fails after attaching the volume.
   attachedImage = path;
   ejectAttemptsRemaining = MACOS_IMAGE_EJECT_ATTEMPTS;
+  lastAttachmentState = undefined;
   image('attach', readOnly ? '-readonly' : '-readwrite', '-nobrowse', '-noautoopen', '-mountpoint', mount, path);
   const attachment = readAttachment();
   assert.equal(attachment.state, 'mounted', 'Could not identify the newly mounted private disk image.');
@@ -56,8 +57,8 @@ function attach(path, readOnly = false) {
 }
 
 function readPlist(command, args, timeout = 30_000) {
-  const input = execFileSync(command, args, { timeout });
-  return JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'],
+  const input = runPackagingCommand(command, args, { timeout });
+  return JSON.parse(runPackagingCommand('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '--', '-'],
     { input, encoding: 'utf8', timeout: 30_000 }));
 }
 
@@ -69,11 +70,21 @@ function readAttachment() {
 
 async function detach() {
   // Share the retry budget so a late ejection can still finish packaging.
-  await detachMacOSImage(() => macOSEjectTarget(readAttachment(), ownedPartition),
+  await detachMacOSImage(() => {
+    const attachment = macOSEjectTarget(readAttachment(), ownedPartition);
+    if (attachment.state !== lastAttachmentState) {
+      console.log(`Private disk image state: ${attachment.state}.`);
+      lastAttachmentState = attachment.state;
+    }
+    return attachment;
+  },
     target => {
-      if (ejectAttemptsRemaining < MACOS_IMAGE_EJECT_ATTEMPTS) console.log('Retrying ejection of the private disk image.');
+      const attempt = MACOS_IMAGE_EJECT_ATTEMPTS - ejectAttemptsRemaining + 1;
+      const started = performance.now();
+      console.log(`Private disk image eject command started (attempt ${attempt}/${MACOS_IMAGE_EJECT_ATTEMPTS}).`);
       ejectAttemptsRemaining -= 1;
-      run('/usr/sbin/diskutil', ['eject', target]);
+      try { run('/usr/sbin/diskutil', ['eject', target]); }
+      finally { console.log(`Private disk image eject command returned after ${((performance.now() - started) / 1000).toFixed(1)} seconds.`); }
     }, ejectAttemptsRemaining);
   attachedImage = undefined;
   ownedPartition = undefined;
@@ -82,7 +93,7 @@ async function detach() {
 try {
   await Promise.all([mkdir(mount), mkdir(installation)]);
   mountDevice = (await stat(mount)).dev;
-  const payloadKiB = Number.parseInt(execFileSync('/usr/bin/du', ['-sk', app], { encoding: 'utf8', timeout: 30_000 }), 10);
+  const payloadKiB = Number.parseInt(runPackagingCommand('/usr/bin/du', ['-sk', app], { encoding: 'utf8', timeout: 30_000 }), 10);
   assert.ok(Number.isSafeInteger(payloadKiB) && payloadKiB > 0, 'Could not size the app payload.');
   // Leave room for HFS+ metadata and allocation. The sparse image grows as needed.
   const volumeSize = `${Math.ceil(payloadKiB / 1024) + 128}m`;

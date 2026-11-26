@@ -2,16 +2,22 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { desktopBuildPlan } from '../scripts/build-desktop.mjs';
-import { detachMacOSImage, isolatedRuntimeEnvironment, macOSEjectTarget, macOSImageAttachment, resolveDesktopPlatform } from '../scripts/desktop-platform.mjs';
+import { detachMacOSImage, isolatedRuntimeEnvironment, macOSEjectTarget, macOSImageAttachment, resolveDesktopPlatform, runPackagingCommand } from '../scripts/desktop-platform.mjs';
+
+function settlingClock() {
+  let elapsed = 0;
+  return { now: () => elapsed, wait: async milliseconds => { elapsed += milliseconds; }, advance: milliseconds => { elapsed += milliseconds; } };
+}
 
 test('macOS packaging confirms detachment despite a late DiskArbitration response', async () => {
   const calls = [];
-  const probeImmediately = async () => {};
+  const clock = settlingClock();
+  const detach = (read, eject, attempts) => detachMacOSImage(read, eject, attempts, clock.wait, clock.now);
   const target = '10B24A7B-C507-413D-BB71-284231981351';
   const mounted = { state: 'mounted', target };
   const detached = { state: 'detached' };
   let attachment = mounted;
-  await detachMacOSImage(() => attachment, device => {
+  await detach(() => attachment, device => {
     calls.push(device);
     if (calls.length === 1) throw new Error('timeout for DiskArbitration expired');
     attachment = detached;
@@ -21,7 +27,7 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
 
   attachment = mounted;
   calls.length = 0;
-  await detachMacOSImage(() => attachment, device => {
+  await detach(() => attachment, device => {
     calls.push(device);
     attachment = detached;
     throw new Error('timeout for DiskArbitration expired');
@@ -30,7 +36,7 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
 
   attachment = mounted;
   calls.length = 0;
-  await detachMacOSImage(() => attachment, uuid => {
+  await detach(() => attachment, uuid => {
     calls.push(uuid);
     if (calls.length < 3) throw new Error('Disk Arbitration has not finished ejecting the image');
     attachment = detached;
@@ -39,26 +45,101 @@ test('macOS packaging confirms detachment despite a late DiskArbitration respons
 
   calls.length = 0;
   const transitions = [mounted, { state: 'ambiguous' }, mounted, detached];
-  await detachMacOSImage(() => transitions.shift(), uuid => calls.push(uuid), undefined, probeImmediately);
-  assert.deepEqual(calls, [target, target]);
-
-  attachment = mounted;
-  calls.length = 0;
-  await assert.rejects(() => detachMacOSImage(() => attachment, device => {
-    calls.push(device);
-    attachment = { state: 'ambiguous' };
-    throw new Error('drive not detached');
-  }, undefined, probeImmediately), /still attached/);
+  await detach(() => transitions.shift(), uuid => calls.push(uuid));
   assert.deepEqual(calls, [target]);
 
   attachment = mounted;
   calls.length = 0;
-  await assert.rejects(() => detachMacOSImage(() => attachment, device => calls.push(device)), /still attached/);
+  await assert.rejects(() => detach(() => attachment, device => {
+    calls.push(device);
+    attachment = { state: 'ambiguous' };
+    throw new Error('drive not detached');
+  }), /still attached/);
+  assert.deepEqual(calls, [target]);
+
+  attachment = mounted;
+  calls.length = 0;
+  await assert.rejects(() => detach(() => attachment, device => calls.push(device)), /still attached/);
   assert.deepEqual(calls, [target, target, target, target]);
-  await assert.rejects(() => detachMacOSImage(() => attachment, () => assert.fail('Ejection budget exhausted'), 0), /still attached/);
+  await assert.rejects(() => detach(() => attachment, () => assert.fail('Ejection budget exhausted'), 0), /still attached/);
+});
+
+test('owned attached images get time to settle without consuming another eject attempt', async () => {
+  for (const state of ['mounted', 'unmounted']) {
+    const clock = settlingClock();
+    let commands = 0;
+    let detached = false;
+    await detachMacOSImage(() => {
+      assert.equal(detached, false, 'Confirmed detachment must finish without another state read.');
+      detached = commands > 0 && clock.now() >= 3_000;
+      return detached ? { state: 'detached' } : { state, target: 'owned-image-uuid' };
+    }, () => {
+      commands += 1;
+      assert.equal(commands, 1, 'Do not retry while the preceding eject is still settling.');
+      throw new Error('Volume failed to eject');
+    }, undefined, clock.wait, clock.now);
+    assert.equal(commands, 1);
+    assert.equal(clock.now(), 3_000);
+  }
+});
+
+test('settling uses elapsed time and a probe cap and never ejects an unowned image', async () => {
+  const clock = settlingClock();
+  let commands = 0;
+  let reads = 0;
+  await assert.rejects(() => detachMacOSImage(() => {
+    reads += 1;
+    if (commands > 0) clock.advance(11_000);
+    return { state: 'mounted', target: 'owned-image-uuid' };
+  }, () => { commands += 1; }, 1, () => assert.fail('A slow read already consumed the settling window.'), clock.now), /still attached/);
+  assert.equal(commands, 1);
+  assert.equal(reads, 2);
+
+  for (const elapsed of [10_000, 11_000]) {
+    const clock = settlingClock();
+    reads = 0;
+    await assert.rejects(() => detachMacOSImage(() => {
+      reads += 1;
+      return { state: 'mounted', target: 'owned-image-uuid' };
+    }, () => {}, 1, async () => clock.advance(elapsed), clock.now), /still attached/);
+    assert.equal(reads, 2, 'Do not start another state query at or after the settling deadline.');
+  }
+
+  reads = 0;
+  await assert.rejects(() => detachMacOSImage(() => {
+    reads += 1;
+    return { state: 'unmounted', target: 'owned-image-uuid' };
+  }, () => {}, 1, async () => {}, () => 0), /still attached/);
+  assert.equal(reads, 12, 'A nonadvancing injected clock must still stop after ten settling probes.');
+
+  await assert.rejects(() => detachMacOSImage(() => ({ state: 'ambiguous' }),
+    () => assert.fail('Unknown ownership must not trigger an eject command.')), /still attached/);
+});
+
+test('packaging timeout terminates and reaps an owned child that handles SIGTERM', {
+  skip: process.platform === 'win32' ? 'Windows termination does not use a catchable POSIX SIGTERM.' : false,
+  timeout: 10_000,
+}, () => {
+  const began = performance.now();
+  let failure;
+  try {
+    runPackagingCommand(process.execPath, ['--input-type=module', '-e', `
+      import { writeSync } from 'node:fs';
+      process.on('SIGTERM', () => {});
+      writeSync(1, 'READY:' + process.pid + '\\n');
+      setTimeout(() => process.exit(0), 5_000);
+    `], { timeout: 1_000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) { failure = error; }
+  assert.equal(failure?.code, 'ETIMEDOUT');
+  assert.equal(failure.signal, 'SIGKILL');
+  const pid = /^READY:(\d+)\n$/.exec(failure.stdout)?.[1];
+  assert.ok(pid, 'The child must install its SIGTERM handler before the timeout.');
+  assert.ok(performance.now() - began < 4_500, 'The wrapper waited for the child’s natural exit.');
+  assert.throws(() => process.kill(Number(pid), 0), { code: 'ESRCH' });
 });
 
 test('macOS packaging finds the owned partition after unmount and retries with its media UUID', async () => {
+  const clock = settlingClock();
   const path = '/private/tmp/athena/Athena.sparseimage';
   const mount = '/private/tmp/athena/mount';
   const target = '10B24A7B-C507-413D-BB71-284231981351';
@@ -95,7 +176,7 @@ test('macOS packaging finds the owned partition after unmount and retries with i
       throw new Error('timeout for DiskArbitration expired');
     }
     images = [];
-  });
+  }, undefined, clock.wait, clock.now);
   assert.deepEqual(calls, [target, target]);
 });
 
