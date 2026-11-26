@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [build-dependencies]
-tauri-build = { version = "=2.6.3", features = [] }
-# Keep codegen and plugin build tooling on the same Tauri release series.
-tauri-codegen = "=2.6.3"
-tauri-plugin = "=2.6.3"
+tauri-build = { version = "=2.7.6", features = [] }
+# Windows codegen uses the application icon resource API in the matching Tauri release.
+tauri-codegen = "=2.7.6"
+tauri-plugin = "=2.7.4"
 
 [dependencies]
 anyhow = "1"
@@ -15,14 +15,13 @@ getrandom = "0.4"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "=2.11.6", features = [] }
-tauri-macros = "=2.6.3"
-# The 2.12 runtime changed RuntimeHandle::available_monitors to return Result.
-tauri-runtime = "=2.11.3"
-tauri-runtime-wry = "=2.11.4"
-tauri-utils = "=2.9.3"
+tauri = { version = "=2.12.7", features = [] }
+tauri-macros = "=2.7.6"
+tauri-runtime = "=2.12.4"
+tauri-runtime-wry = "=2.12.5"
+tauri-utils = "=2.10.4"
 tauri-plugin-dialog = "=2.7.3"
-# Dialog's caret dependency also permits fs releases requiring Tauri 2.12.
+# Keep the dialog and filesystem plugins pinned to the tested pair.
 tauri-plugin-fs = { version = "=2.5.2", default-features = false }
 tauri-plugin-single-instance = "=2.4.5"
 
