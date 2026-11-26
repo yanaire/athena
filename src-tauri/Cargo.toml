@@ -22,8 +22,8 @@ tauri-runtime-wry = "=2.12.5"
 tauri-utils = "=2.10.4"
 tauri-plugin-dialog = "=2.7.3"
 # Keep the dialog and filesystem plugins pinned to the tested pair.
-tauri-plugin-fs = { version = "=2.5.2", default-features = false }
-tauri-plugin-single-instance = "=2.4.5"
+tauri-plugin-fs = { version = "=2.7.1", default-features = false }
+tauri-plugin-single-instance = "=2.5.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"
