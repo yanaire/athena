@@ -92,7 +92,7 @@ export class TaskManager implements AthenaTaskManager {
   readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'retry_task', 'get_agent_history', 'extensions', 'research_workflow'];
   readonly inputContract = {
     maxMessageCharacters: 262144, lengthUnit: 'utf16-code-units',
-    supportsFileReferences: true, canStageFiles: true,
+    supportsFileReferences: true, canStageFiles: true, supportsStreamingPrompts: false,
   } as const;
   readonly #storage: Storage;
   readonly #directory: string;
