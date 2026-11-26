@@ -6,9 +6,9 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-wasmtime = { version = "=50.0.3", default-features = false, features = ["anyhow", "cranelift", "pulley", "runtime", "std"] }
-wasmtime-wasi = { version = "=50.0.3", default-features = false, features = ["p1"] }
-wiggle = { version = "=50.0.3", default-features = false }
+wasmtime = { version = "=51.0.0", default-features = false, features = ["anyhow", "cranelift", "pulley", "runtime", "std"] }
+wasmtime-wasi = { version = "=51.0.0", default-features = false, features = ["p1"] }
+wiggle = { version = "=51.0.0", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1", features = ["process"] }
