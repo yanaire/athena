@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { ANALYSIS_FILE_LIMITS, type AnalysisSnapshot } from './analysis-files.ts';
 
 export const ANALYSIS_LIMITS = Object.freeze({ guestLinearMemoryMiB: 192, hostMemoryMiB: 768, hostMemorySampleMs: 10, openFiles: 96,
@@ -22,17 +23,25 @@ const programs = Object.freeze({ node: { path: 'qjs.wasm', version: 'QuickJS-ng 
   python: { path: 'python.wasm', version: 'CPython 3.15.2' } });
 export type Language = keyof typeof programs;
 export type AnalysisAccess = { readonly available: false; readonly reason: string } |
-  { readonly available: true; readonly engine: 'Wasmtime 50.0.3'; readonly node: typeof programs.node; readonly python: typeof programs.python };
+  { readonly available: true; readonly engine: `Wasmtime ${string}`; readonly node: typeof programs.node; readonly python: typeof programs.python };
 export const analysisEnv = Object.freeze({});
+const execFileAsync = promisify(execFile);
 
 export async function analysisAccess(): Promise<AnalysisAccess> {
   try {
     await Promise.all([access(executable, constants.X_OK), access(join(runtime, 'qjs.wasm'), constants.R_OK),
       access(join(runtime, 'python.wasm'), constants.R_OK), access(join(runtime, 'python', 'lib', 'python3.15', 'encodings', '__init__.py'), constants.R_OK)]);
-    return { available: true, engine: 'Wasmtime 50.0.3', ...programs };
+    const { helper } = JSON.parse(await readFile(join(runtime, 'provenance.json'), 'utf8'));
+    const { stdout } = await execFileAsync(executable, ['--version'], {
+      env: analysisEnv, timeout: 5_000, maxBuffer: 1024, windowsHide: true,
+    });
+    const identity = stdout.trim();
+    const version = /^athena-sandbox\/1 wasmtime\/(\d+\.\d+\.\d+)$/.exec(identity)?.[1];
+    if (!version || helper?.identity !== identity) throw new Error('The WASI helper identity does not match its provenance.');
+    return { available: true, engine: `Wasmtime ${version}`, ...programs };
   } catch (error) {
     if (!(error instanceof Error)) throw error;
-    return { available: false, reason: 'The app-owned WASI runtime is missing or unreadable. Reinstall Athena, or prepare the local analysis runtime for development.' };
+    return { available: false, reason: 'The app-owned WASI runtime is missing, incompatible, or unreadable. Reinstall Athena, or prepare the local analysis runtime for development.' };
   }
 }
 

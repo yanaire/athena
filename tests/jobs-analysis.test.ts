@@ -8,6 +8,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import test, {type TestContext} from 'node:test';
 import {AnalysisFiles} from '../runtime/analysis-files.ts';
 import {CsvJobRunner, type CsvJobRunnerOptions, type CsvAttempt} from '../runtime/jobs.ts';
+import {lockedSandboxIdentity} from '../scripts/analysis-provenance.mjs';
 import {assertKilled, windows} from './platform-test-helpers.ts';
 
 const scope={projectId:'project',sessionId:'session',taskId:'task'};
@@ -34,6 +35,8 @@ test('Python works on frozen inputs, enforces isolation, and publishes reusable 
   // This fixture tests capabilities and publication, not the short-job deadline.
   const {runner,files,dir}=await fixture(t,{timeoutMs:30000});
   const access=await runner.analysisAccess(); assert.ok(access.available,JSON.stringify(access));
+  const {identity: sandboxIdentity}=await lockedSandboxIdentity();
+  assert.equal(access.engine, sandboxIdentity.replace('athena-sandbox/1 wasmtime/', 'Wasmtime '));
   assert.match(access.node.version,/^QuickJS-ng /); assert.match(access.python.version,/^CPython 3\./);
   const auth=join(dir,'auth'); await mkdir(auth,{mode:0o700});
   const canary=join(auth,'credentials.v2.json');
@@ -72,6 +75,7 @@ test('Python works on frozen inputs, enforces isolation, and publishes reusable 
   await files.write(scope,'main.py','newer workspace revision');
   const handle=runner.startAnalysis(request); inputs[0]?.bytes.fill(0); request.script.bytes.fill(0);
   const result=await handle.result; assert.equal(result.status,'succeeded',result.error+' '+result.stderr);
+  assert.equal(result.analysis?.engine,access.engine);
   assert.equal(result.stdout,'finished\n'); assert.ok(result.executionId && result.pid); assert.equal(alive(result.pid), false);
   const [script,answer,empty]=result.artifacts??[]; assert.ok(script && answer && empty);
   assert.deepEqual((result.artifacts??[]).map(a=>a.name),['main.py','answer.txt','empty.txt']);
