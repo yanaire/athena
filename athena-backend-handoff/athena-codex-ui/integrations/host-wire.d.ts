@@ -12,7 +12,7 @@ export interface HostBootstrap {
   /** Absent only on legacy M1 hosts and fixtures. */
   readonly cursor?: EventCursor;
   readonly connection: ConnectionSnapshot;
-  readonly capabilities: readonly AthenaTaskManager['capabilities'][number][];
+  readonly capabilities: readonly (AthenaTaskManager['capabilities'][number] | 'system_web_links' | 'native_oauth_browser')[];
   /** Includes stage_files only when the host can stage and resolve attachments. */
   readonly piCapabilities: readonly string[];
   readonly inputContract?: InputContract;
@@ -37,6 +37,7 @@ export interface PiResponse {
   readonly error?: string;
 }
 export type HostRpcRequest =
+  | { readonly method: 'openWebAddress'; readonly args: readonly [address: string] }
   | { readonly method: 'createProject'; readonly args: readonly [Parameters<NonNullable<AthenaTaskManager['createProject']>>[0]] }
   | { readonly method: 'createSession'; readonly args: readonly [Parameters<NonNullable<AthenaTaskManager['createSession']>>[0]] }
   | { readonly method: 'openSession'; readonly args: readonly [string] }

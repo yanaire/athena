@@ -24,6 +24,10 @@ export async function openAccountBrowser(raw: string): Promise<boolean> {
   } else return false;
   // OAuth hints travel over stdin, not this launcher's argv, renderer, logs,
   // or shell source. The system's browser handler controls its own process args.
+  return launch(command, args, input, environment);
+}
+
+function launch(command: string, args: string[], input: string, environment?: NodeJS.ProcessEnv): Promise<boolean> {
   return new Promise(resolve => {
     const browser = spawn(command, args, { timeout: 10_000, windowsHide: true, shell: false, stdio: ['pipe', 'ignore', 'ignore'], env: environment });
     browser.once('error', () => resolve(false));
@@ -31,4 +35,29 @@ export async function openAccountBrowser(raw: string): Promise<boolean> {
     browser.stdin.on('error', () => resolve(false));
     browser.stdin.end(input);
   });
+}
+
+/** User-entered Browser address. The account flow retains its own origin allowlist. */
+export async function openWebAddress(raw: string): Promise<boolean> {
+  if (raw.length > 8192 || !/^https?:\/\//i.test(raw) || !URL.canParse(raw)) return false;
+  const url = new URL(raw);
+  if (!url.hostname || url.username || url.password) return false;
+  if (process.platform === 'darwin') {
+    const script = `ObjC.import('AppKit');
+      const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
+      const address = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
+      if (!$.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(address))) throw Error('Browser unavailable');`;
+    return launch('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script], url.href);
+  }
+  if (process.platform === 'win32') {
+    const command = windowsPowerShell();
+    const script = `$ErrorActionPreference='Stop'
+      [Console]::InputEncoding=New-Object System.Text.UTF8Encoding($false)
+      $target=[Uri][Console]::In.ReadToEnd()
+      if (@('http','https') -notcontains $target.Scheme -or $target.UserInfo) { throw 'Invalid web address' }
+      Start-Process -FilePath $target.AbsoluteUri -ErrorAction Stop`;
+    const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
+    return launch(command, args, url.href, windowsPowerShellEnvironment(command));
+  }
+  return false;
 }

@@ -192,6 +192,7 @@
         app.attachConnectionManager(connections);
         modelProfiles = modelProfilesAdapter();
         if (modelProfiles) app.attachModelProfiles?.(modelProfiles);
+        app.attachWebAddressOpener?.(capabilities?.includes('system_web_links') ? address => rpc('openWebAddress', [address]) : null);
         app.attachExtensions?.(extensionsAdapter());
         if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
         await app.refreshPi();

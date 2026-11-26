@@ -236,6 +236,7 @@ async function withHost(step) {
     assert.ok(capabilities.includes('model_profiles'));
     assert.ok(capabilities.includes('extensions'));
     assert.ok(capabilities.includes('research_workflow'));
+    assert.ok(capabilities.includes('system_web_links'));
     assert.equal(capabilities.includes('native_oauth_browser'), expectChatGPT, 'Unexpected ChatGPT capability for this bundle.');
     const rpc = async (method, args = [], status = 200) => {
       const reply = await fetch(origin + '/api/rpc', {
@@ -249,6 +250,7 @@ async function withHost(step) {
       const body = JSON.parse(wire);
       return status === 200 ? body.result : body;
     };
+    await rpc('openWebAddress', ['file:///sample.txt'], 400);
     await step(rpc);
     child.stdin.end();
     assert.deepEqual(await exited, [0, null]);

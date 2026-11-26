@@ -41,7 +41,7 @@ test('runtime browser separates URL launching from agent browsing and never subs
   assert.equal(e.q('.acs-document-preview'), null);
   assert.equal(e.root.textContent.includes('RC low-pass filter'), false);
   assert.match(e.root.textContent, /Browser automation is not connected/);
-  assert.match(e.q('.acs-browser-note').textContent, /Athena desktop does not support opening links/);
+  assert.match(e.q('.acs-browser-note').textContent, /new tab when available/);
   assert.equal(e.q('[data-acs-address]').getAttribute('aria-describedby'), e.q('.acs-browser-note').id);
   e.api.setRuntimeMode(false);
   assert.ok(e.q('.acs-document-preview'), 'Authored preview examples remain available outside runtime mode.');
@@ -88,4 +88,21 @@ test('URL launch and copy share the http/https restriction without executing uns
   assert.equal(e.notices.length, 6);
   e.type('localhost:4317/results'); e.click('[data-acs-action="copy-address"]'); await new Promise(resolve => setImmediate(resolve));
   assert.equal(e.copied[0], 'https://localhost:4317/results');
+});
+
+test('desktop submission uses its advertised host opener and keeps copy available on failure', async t => {
+  const e = environment(); t.after(() => e.api.destroy());
+  const sent = [];
+  e.api.setRuntimeMode(true); e.api.open('browser', false);
+  e.api.setWebAddressOpener(async address => { sent.push(address); throw new Error('Launch failed'); });
+  assert.match(e.q('.acs-browser-note').textContent, /your system browser/);
+  e.type('example.org/circuit'); e.submit(); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(sent, ['https://example.org/circuit']);
+  assert.deepEqual(e.opened, []);
+  assert.match(e.notices.at(-1), /Copy the address/);
+  e.type('https://user@example.org'); e.submit();
+  assert.equal(sent.length, 1);
+  e.api.setWebAddressOpener(null);
+  e.type('example.org'); e.submit();
+  assert.equal(e.opened.length, 1);
 });
