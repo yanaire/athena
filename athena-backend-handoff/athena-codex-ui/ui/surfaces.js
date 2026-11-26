@@ -40,7 +40,7 @@
     const state = { surface: 'home', selectedFile: filenames[0] || null, fileQuery: '', address: '' };
     const objectUrls = new Set();
     const timers = new Set();
-    let destroyed = false, runtimeMode = false;
+    let destroyed = false, runtimeMode = false, webAddressOpener = null;
     const q = selector => host.querySelector(selector);
     const qa = selector => Array.from(host.querySelectorAll(selector));
     const notify = text => options.toast?.(text);
@@ -75,10 +75,13 @@
     }
 
     function browserHTML() {
+      const native = runtimeMode && webAddressOpener;
+      const action = native ? 'Open in system browser' : 'Open in a new tab';
+      const scope = native ? 'Opens HTTP and HTTPS links in your system browser.' : 'Opens HTTP and HTTPS links in a new tab when available. You can also copy the address.';
       const preview = runtimeMode
         ? '<div class="acs-empty-state">' + icon('globe') + '<h3>Browser automation is not connected</h3><p>Athena cannot read pages, control tabs, or perform browser actions from this panel. Opening a link does not give it to an agent.</p></div>'
         : '<div class="acs-document-preview"><div class="acs-document-kicker">Project document · sample</div><h2>RC low-pass filter</h2><p>Review the circuit conditions and notes beside your conversation.</p><div class="acs-formula">f<sub>c</sub> = 1 / (2πRC)</div><dl class="acs-properties"><div><dt>Resistance R</dt><dd>1 kΩ</dd></div><div><dt>Capacitance C</dt><dd>100 nF</dd></div><div><dt>Theoretical cutoff</dt><dd>Approx. 1.5915 kHz</dd></div></dl><h3>What to check</h3><ul><li>Error between theory and calculated results</li><li>Response changes within component tolerances</li><li>Additional conditions for physical measurements</li></ul><button type="button" class="acs-text-button cursor-interaction" data-acs-research="results">View linked research results' + icon('arrow-up-right') + '</button></div>';
-      return header('browser') + '<div class="acs-scroll"><form class="acs-address-bar" data-acs-address-form><label class="acs-address-label">' + icon('globe') + '<input type="text" inputmode="url" autocomplete="url" data-acs-address aria-label="Web address to open or copy" aria-describedby="acs-browser-scope" placeholder="Enter a web address" value="' + esc(state.address) + '"></label><button type="submit" class="acs-icon-button cursor-interaction" aria-label="Open this address in a new tab in web mode" title="Open in a new tab in web mode">' + icon('arrow-up-right') + '</button><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="copy-address" aria-label="Copy web address" title="Copy web address"' + (!state.address.trim() ? ' disabled' : '') + '>' + icon('copy') + '</button></form><p class="acs-browser-note" id="acs-browser-scope">Web mode can open links in a new tab. Athena desktop does not support opening links from this panel yet; copy the address into your browser. An embedded browser is not connected.</p>' + preview + '</div>';
+      return header('browser') + '<div class="acs-scroll"><form class="acs-address-bar" data-acs-address-form><label class="acs-address-label">' + icon('globe') + '<input type="text" inputmode="url" autocomplete="url" data-acs-address aria-label="Web address to open or copy" aria-describedby="acs-browser-scope" placeholder="Enter a web address" value="' + esc(state.address) + '"></label><button type="submit" class="acs-icon-button cursor-interaction" aria-label="' + action + '" title="' + action + '">' + icon('arrow-up-right') + '</button><button type="button" class="acs-icon-button cursor-interaction" data-acs-action="copy-address" aria-label="Copy web address" title="Copy web address"' + (!state.address.trim() ? ' disabled' : '') + '>' + icon('copy') + '</button></form><p class="acs-browser-note" id="acs-browser-scope">' + scope + '</p>' + preview + '</div>';
     }
 
     function diffHTML() {
@@ -198,20 +201,24 @@
       const address = state.address.trim();
       const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) && !/^[^/?#\s]+:\d+(?:[/?#]|$)/.test(address);
       const url = new URL(hasScheme ? address : 'https://' + address);
-      if (!['https:', 'http:'].includes(url.protocol) || !url.hostname) throw new Error('unsupported-address');
+      if (!['https:', 'http:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.href.length > 8192) throw new Error('unsupported-address');
       state.address = url.href;
       q('[data-acs-address]').value = state.address;
       return url.href;
     }
 
-    host.addEventListener('submit', event => {
+    host.addEventListener('submit', async event => {
       if (!event.target.matches('[data-acs-address-form]')) return;
       event.preventDefault();
       const address = state.address.trim();
       if (!address) { q('[data-acs-address]')?.focus(); return; }
+      let url;
+      try { url = normalizeAddress(); }
+      catch (_) { notify('Enter an HTTP or HTTPS web address without embedded credentials.'); return; }
       try {
-        window.open(normalizeAddress(), '_blank', 'noopener,noreferrer');
-      } catch (_) { notify('Enter a web address beginning with http or https.'); }
+        if (runtimeMode && webAddressOpener) await webAddressOpener(url);
+        else window.open(url, '_blank', 'noopener,noreferrer');
+      } catch (_) { if (!destroyed) notify('Could not open the link. Copy the address to open it manually.'); }
     }, { signal });
 
     host.addEventListener('keydown', event => {
@@ -241,6 +248,7 @@
     return {
       open,
       openFile,
+      setWebAddressOpener(opener) { webAddressOpener = opener; if (state.surface === 'browser') render(); },
       setRuntimeMode(value) { const next = Boolean(value); if (next === runtimeMode) return; runtimeMode = next; render(); },
       getState: () => ({ ...state }),
       destroy() {

@@ -21,7 +21,7 @@ import { ManagerError } from './orchestration.ts';
 import { ExtensionError } from './extensions.ts';
 import { ExternalMcpError } from './external-mcp-client.ts';
 import { createPrivateDirectory } from './private-storage.ts';
-import { nativeBrowserAvailable, openAccountBrowser } from './native-browser.ts';
+import { nativeBrowserAvailable, openAccountBrowser, openWebAddress } from './native-browser.ts';
 
 const desktopMode = process.argv.includes('--desktop', 2);
 async function initialize() {
@@ -195,6 +195,11 @@ async function rpc(method: string, args: unknown[]) {
       // The desktop controller projects browserReady without its private URL.
       return providers.oauth?.status(string(input)) ?? null;
     }
+    case 'openWebAddress': {
+      if (!desktop || !nativeBrowserAvailable()) throw new TypeError('Opening a system browser requires Athena desktop.');
+      if (args.length !== 1 || !await openWebAddress(string(input))) throw new TypeError('Could not open this web address in the system browser.');
+      return { opened: true };
+    }
     case 'openProviderOAuthBrowser':
     case 'openChatGPTUsage': {
       if (!desktop || !nativeBrowserAvailable() || !providers.oauth) {
@@ -314,7 +319,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
         case '/favicon.ico': res.writeHead(204).end(); return;
         case '/api/bootstrap': {
           const snapshot = manager.getSnapshot();
-          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && nativeBrowserAvailable() && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && nativeBrowserAvailable() ? ['system_web_links'] : []), ...(desktop && nativeBrowserAvailable() && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
         }
         case '/api/events': {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
