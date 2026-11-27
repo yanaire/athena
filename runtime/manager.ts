@@ -46,6 +46,7 @@ type ModelResolver = {
   pin(model: ModelReference): Promise<PiModelSelection>;
   requireProfile(id: string): void;
 };
+const freeCadAuthorization = Symbol('FreeCAD authorization');
 export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver;
   readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
 export type Run = {
@@ -419,7 +420,8 @@ export class TaskManager implements AthenaTaskManager {
     this.#freeCadSource(session, spec);
     const message = 'FreeCAD ' + (spec.sourceArtifactId ? 'edit' : 'create') + ' and verify ' + spec.name
       + ' (' + [spec.length, spec.width, spec.height].join(' × ') + ' mm, centered Ø' + spec.diameter + ' mm through-hole).';
-    return this.#prompt(session, runtime, { type: 'prompt', id: requestId, message }, spec);
+    const command = { type: 'prompt', id: requestId, message, [freeCadAuthorization]: spec };
+    return this.#prompt(session, runtime, command);
   }
 
   getSnapshot() {
@@ -689,8 +691,9 @@ export class TaskManager implements AthenaTaskManager {
     }
   }
 
-  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand, freecad?: FreeCadSpec): Promise<Response> {
+  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand): Promise<Response> {
     const requestId = text(command.id, 'Request ID');
+    const freecad = (command as PiCommand & { readonly [freeCadAuthorization]?: FreeCadSpec })[freeCadAuthorization];
     const fingerprint = hash(canonical(freecad ? { command, freecad } : command));
     const previous = this.#storage.receipt(session.id, requestId);
     if (previous) {
