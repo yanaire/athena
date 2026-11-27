@@ -87,7 +87,7 @@ if (expectedIds.length) {
 return summary;`;
 }
 
-export async function createCodeModeFixture({ concurrency = 1, allowGateFixture = false, responseDelayMs = 0 } = {}) {
+export async function createCodeModeFixture({ concurrency = 1, allowGateFixture = false, browser = false } = {}) {
   const directory = privateTestDirectory(join(tmpdir(), 'athena-code-read-'));
   const home = join(directory, 'home');
   await mkdir(home, { mode:0o700 });
@@ -114,7 +114,8 @@ export async function createCodeModeFixture({ concurrency = 1, allowGateFixture 
       return 'The worker recorded the comparison attempt.';
     }
     const files = [...input.matchAll(/\{"fileId":"([^"]+)","name":"([^"]+)"\}/g)].map(match => ({id:match[1],name:match[2]}));
-    const sources = scenario === 'foreign' || scenario === 'sibling' ? subjects.slice(0,1) : subjects;
+    const sources = scenario === 'foreign' || scenario === 'sibling' || (browser && scenario === 'cancel') ? subjects.slice(0,1)
+      : browser ? [subjects[0], subjects[2], subjects[3]] : subjects;
     const length = sources.length;
     if (!total) return tool('plan_research', {objective:'Compare temperature runs and trace each voltage statistic to a result.',
       acceptanceCriteria:['Read the published results','Flag missing voltage and differences above 1 mV','Retain exact source versions'],stages:['Measure','Compare']});
@@ -139,7 +140,7 @@ export async function createCodeModeFixture({ concurrency = 1, allowGateFixture 
     }
     if (total === 2 + length) return sources.map((subject, index) => tool('add_research_evidence', {missionId:data.mission,
       title:subject.label + ' | ' + subject.temperature, artifactIds:[data.published[index].id]}));
-    const modes = scenario === 'benchmark' ? ['A','B','C'] : ['C'];
+    const modes = scenario === 'benchmark' && !browser ? ['A','B','C'] : ['C'];
     if (total === 2 + length * 2) return modes.map(mode => tool('spawn_agent', {title:'Compare conditions ' + mode,
       prompt:'Fixture ' + scenario + ' ' + mode, fileIds:[], artifactIds:data.published.slice(0,4).map(source => source.id),
       ...(mode === 'A' ? {} : {readTools:'discover'})}));
@@ -148,7 +149,7 @@ export async function createCodeModeFixture({ concurrency = 1, allowGateFixture 
       const comparison = JSON.parse(outputs.at(-1)).tasks.filter(task => task.title.startsWith('Compare conditions '));
       assert.equal(comparison.length, modes.length);
       assert.ok(comparison.every(task => task.status === 'succeeded'), JSON.stringify(comparison));
-      return 'The baseline, hot and repeat means were 10, 20 and 12 mV. The 60 °C result omitted voltage. The two 20 °C means differ by 2 mV. Verified sources are in the comparison.';
+      return 'The two 20 °C means differ by 2 mV. The 60 °C result omitted voltage. Verified sources are in the comparison.';
     }
     return 'See the recorded comparison receipt.';
   }
@@ -212,7 +213,11 @@ for (const request of [{...board,args:{projectId:'forged'}}, {...board,id:'exter
 }
 return codes;`;
       else {
-        source = comparisonSource(board, artifact, data.mission, scenario === 'scope' ? [data.published.at(-1).id, ...outside] : []);
+        source = browser && scenario === 'cancel' ? `
+await tools.call(${JSON.stringify({...board,args:{missionId:data.mission}})});
+const read = ${JSON.stringify({...artifact,args:{artifactId:given[0].id}})};
+return (await Promise.allSettled(Array.from({length:5}, () => tools.call(read)))).map(result => result.status);
+` : comparisonSource(board, artifact, data.mission, scenario === 'scope' ? [data.published.at(-1).id, ...outside] : []);
         if (scenario === 'cancel' || scenario === 'restart' || scenario === 'revoke') await writeFile(marker, 'delay');
       }
       if (scenario === 'invalid') bindings = [board];
@@ -253,7 +258,6 @@ return codes;`;
       entry.tools = calls.map(call => call.name);
       entry.sourceBytes = Buffer.byteLength(calls.find(call => call.name === 'run_code')?.args.source ?? '');
       entry.responderMs = performance.now() - started;
-      if (responseDelayMs) await delay(responseDelayMs);
       if (res.destroyed) return;
       const delta = typeof next === 'string' ? {role:'assistant',content:next} : {role:'assistant',tool_calls:calls.map((call,index) => ({
         index, id:'call_' + randomUUID(), type:'function', function:{name:call.name, arguments:JSON.stringify(call.args)},

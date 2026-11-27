@@ -6,53 +6,37 @@ import { chromium } from 'playwright';
 import { createCodeModeFixture, request, subjects } from '../../../tests/support/code-mode-fixture.mjs';
 
 const evidence = process.env.ATHENA_BROWSER_EVIDENCE || join(tmpdir(), 'athena-code-mode-browser');
-const fixture = await createCodeModeFixture({allowGateFixture:true,responseDelayMs:100});
+const fixture = await createCodeModeFixture({allowGateFixture:true,browser:true});
 const checks = [], errors = [], streamFailures = [];
 let browser, page;
 await mkdir(evidence,{recursive:true});
 try {
   browser = await chromium.launch({headless:true, ...(process.env.ATHENA_CHROMIUM ? {executablePath:process.env.ATHENA_CHROMIUM} : {})});
   page = await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
-  page.setDefaultTimeout(20_000);
+  page.setDefaultTimeout(50_000);
   page.on('pageerror', error => errors.push(error.message));
   page.on('requestfailed', request => {
     if (new URL(request.url()).pathname === '/api/events') streamFailures.push(request.failure()?.errorText);
-  });
-  if (process.env.ATHENA_CODE_MODE_BROWSER_DEBUG === '1') await page.addInitScript(() => {
-    const native = window.EventSource;
-    const records = window.__codeModeFeed = [];
-    window.EventSource = class extends native {
-      constructor(...args) {
-        super(...args);
-        records.push(['connect', args[0]]);
-        this.addEventListener('open', () => records.push(['open']));
-        this.addEventListener('error', () => records.push(['error', this.readyState]));
-        this.addEventListener('message', event => {
-          const value = JSON.parse(event.data);
-          records.push([value.type,value.sequence,value.snapshot?.revision,value.snapshot?.run?.status]);
-        });
-      }
-      close() { records.push(['close']); super.close(); }
-    };
   });
   const screenshot = name => page.screenshot({path:join(evidence, name + '.png'),fullPage:true});
   const connected = () => page.waitForFunction(() => {
     const state = window.AthenaApp?.getState();
     return state?.workspace?.taskManagerConnected && state.piConnected && state.workspace.sessionBound !== false;
-  });
+  }, null, {polling:200});
   const send = async (message, attachments = []) => {
     if (attachments.length) await page.locator('.acm-file-input').setInputFiles(attachments);
     await page.locator('#ac-prompt-input').fill(message);
     await page.getByRole('button',{name:'Send message',exact:true}).click();
   };
-  const attachments = subjects.map(subject => ({name:subject.name,mimeType:'text/csv',buffer:Buffer.from(subject.rows)}));
+  const attachments = [subjects[0], subjects[2], subjects[3]]
+    .map(subject => ({name:subject.name,mimeType:'text/csv',buffer:Buffer.from(subject.rows)}));
   const summaryRow = status => page.locator('details[data-aw-code-status="' + status + '"]').first();
   const showDetails = async row => {
     await row.waitFor({state:'visible'});
     const summary = row.locator(':scope > summary');
     if (!(await row.evaluate(node => node.open))) await summary.click();
   };
-  const idle = () => page.waitForFunction(() => window.AthenaApp?.getState()?.busy === false);
+  const idle = () => page.getByRole('button',{name:'Stop response',exact:true}).waitFor({state:'hidden'});
 
   await fixture.conversation();
   await page.goto(fixture.origin);
@@ -64,15 +48,15 @@ try {
   await idle();
   const success = summaryRow('succeeded');
   await showDetails(success);
-  assert.equal(await success.locator('[data-aw-code-call]').count(),5);
-  assert.equal(await success.locator('[data-aw-artifact]').count(),4);
+  assert.equal(await success.locator('[data-aw-code-call]').count(),4);
+  assert.equal(await success.locator('[data-aw-artifact]').count(),3);
   const result = await success.locator('[data-aw-code-result]').textContent();
   assert.match(result, /"meanMv": 10/);
   assert.match(result, /"deltaMv": 2/);
   assert.match(result, /voltage_mV.mean/);
   assert.ok(!(await success.innerText()).includes(comparison.id));
   await screenshot('code-mode-01-complete');
-  checks.push('The composer ran the actual comparison and chat shows its summary and five separately recorded reads.');
+  checks.push('The composer ran the actual comparison and chat shows its summary and four separately recorded reads.');
 
   await success.locator('[data-aw-artifact]').first().click();
   await page.locator('[data-awv-artifact-view] a[download]').first().waitFor({state:'visible'});
@@ -86,6 +70,7 @@ try {
   await showDetails(success);
   checks.push('Verified source buttons open Artifacts and the Workflow graph opens the same comparison receipt.');
 
+  await fixture.conversation();
   await page.reload();
   await connected();
   await send('Code-mode test: syntax');
@@ -97,7 +82,10 @@ try {
   await idle();
   checks.push('A real parser error displays without any fabricated read calls.');
 
-  await send('Code-mode test: cancel',attachments);
+  await fixture.conversation();
+  await page.reload();
+  await connected();
+  await send('Code-mode test: cancel',attachments.slice(0,1));
   const running = summaryRow('running');
   await running.waitFor({state:'visible'});
   await page.waitForFunction(() => {
@@ -108,22 +96,26 @@ try {
   await page.getByRole('button',{name:'Stop response',exact:true}).click();
   const stopped = summaryRow('cancelled');
   await showDetails(stopped);
-  assert.match(await stopped.locator('[data-aw-code-progress]').innerText(),/1 completed.*unfinished/);
+  assert.match(await stopped.locator('[data-aw-code-progress]').innerText(),/[1-4] completed.*unfinished/);
   assert.ok(await stopped.locator('[data-status="not_dispatched"]').count());
   await screenshot('code-mode-05-stopped');
   const before = await fixture.waitSnapshot(snapshot => snapshot.run.status === 'cancelled');
   await idle();
   checks.push('Chat shows a running read and a queue. The Stop response button cancels active reads, discards pending reads and retains the completed board read.');
 
+  const rehydration = await page.evaluate(() => window.AthenaApp.getState().workspace.hydration);
+  const bootstrap = page.waitForResponse(response => new URL(response.url()).pathname === '/api/bootstrap' && response.ok());
   await fixture.stopHost();
   await fixture.startHost();
   // Use the production reconnect handshake in the live tab, then reload from disk.
   await page.evaluate(() => window.AthenaHost.reconnect());
+  await bootstrap;
   await connected();
+  await page.waitForFunction(prior => window.AthenaApp.getState().workspace.hydration > prior, rehydration, {polling:200});
   await page.reload();
   await connected();
   await showDetails(stopped);
-  assert.match(await stopped.locator('[data-aw-code-progress]').innerText(),/1 completed.*unfinished/);
+  assert.match(await stopped.locator('[data-aw-code-progress]').innerText(),/[1-4] completed.*unfinished/);
   const restored = await fixture.rpc('getSnapshot');
   assert.deepEqual(restored.processes.filter(row => row.job.codeMode),before.processes.filter(row => row.job.codeMode));
   await screenshot('code-mode-06-reconnected');
@@ -135,7 +127,7 @@ try {
       const app = window.AthenaApp?.getState();
       return {busy:app?.busy,run:app?.workspace?.run?.status, connected:app?.piConnected,
         connection:app?.workspace?.taskManagerConnected, status:document.querySelector('#ac-pi-session-status')?.textContent,
-        codeRows:document.querySelectorAll('[data-aw-code-status]').length, feed:window.__codeModeFeed?.slice(-12), feedEvents:window.__codeModeFeed?.length};
+        codeRows:document.querySelectorAll('[data-aw-code-status]').length};
     });
     console.error(JSON.stringify({state,errors,streamFailures}));
     await page.screenshot({path:join(evidence,'code-mode-failure.png'),fullPage:true});

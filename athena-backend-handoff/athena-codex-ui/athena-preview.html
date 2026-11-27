@@ -10276,7 +10276,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function revealTool(selection = {}) {
       if (destroyed) return false;
       if (typeof selection === 'string') selection = { taskId: selection };
-      const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
+      const process = snapshot.processes?.find(item => item.id === selection.processId || (item.job?.codeMode && item.toolId === selection.toolId))
+        || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
       if (process) {
         expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
         const row = [...all('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
@@ -10359,6 +10360,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         ? displayText(value, '[See technical details]') : value, 2);
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Execution ID', trace.id], ['Source SHA-256', trace.sourceSha256],
         ['Limits', JSON.stringify(trace.limits)], ['Worker CPU time', trace.cpuMs == null ? null : trace.cpuMs.toFixed(1) + ' ms'],
+        ['Peak active reads', trace.peakConcurrency],
         ['Error code', trace.error?.code], ['JavaScript', source],
         ['Full summary', summary.includes('[See technical details]') ? JSON.stringify(trace.result, null, 2) : '']], 'code:' + trace.id);
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '" data-aw-code-status="' + esc(process.status) + '"'
@@ -10456,7 +10458,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         if(signature!==renderSignature){
           renderSignature=signature;
           const previous=contains(document.activeElement)?captureKey(document.activeElement):null;
-          const tools=state.tools.filter(tool=>(tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id));
+          const codeOwners = new Set((state.processes || []).filter(process => process.job?.codeMode).map(process => process.toolId));
+          const tools=state.tools.filter(tool=>!codeOwners.has(tool.id)&&((tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id)));
           const pending=state.approvals.filter(request=>request.status==='pending');
           const recovery=state.tasks.filter(task=>task.parentTaskId&&(['failed','paused','cancelled'].includes(task.status)||state.retryOperations?.[task.id]?.pending||state.retryOperations?.[task.id]?.accepted));
           const runContext = (LABELS[state.run.status] || displayText(state.run.status, 'Ready', state)) + ' · ' + state.tasks.length + (state.tasks.length === 1 ? ' task' : ' tasks');

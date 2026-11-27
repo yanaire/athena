@@ -132,3 +132,13 @@ test('tool waiting has its own deadline and leaves the physical read slot occupi
   assert.ok(performance.now() - started >= CODE_LIMITS.toolMs * 2);
   assert.ok((result.cpuMs ?? Infinity) < CODE_LIMITS.toolMs);
 });
+
+test('successive live reads cannot extend the wall deadline', {timeout:10_000}, async () => {
+  const started = performance.now();
+  const result = await run('return await Promise.allSettled(Array.from({length:5}, () => tools.call({})))', {
+    read:async () => { await delay(1650); return {value:1}; },
+  });
+  assert.equal(result.error?.code, 'WALL_LIMIT');
+  assert.deepEqual(result.calls.map(call => call.status), ['succeeded','succeeded','succeeded','cancelled','not_dispatched']);
+  assert.ok(performance.now() - started >= CODE_LIMITS.wallMs - 25);
+});
