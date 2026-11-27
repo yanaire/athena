@@ -31,6 +31,7 @@
 #ac-freecad-scope,#ac-freecad-status{overflow-wrap:anywhere;white-space:pre-line}
 .ac-freecad-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;border:0;padding:0;margin:12px 0;min-width:0}
 .ac-freecad-fields label{display:grid;gap:4px;align-content:start;min-width:0}
-.ac-freecad-fields .ac-select{width:100%;min-width:0}
+#athena-codex .ac-freecad-fields .ac-select{width:100%;min-width:0;margin:0;padding:0 9px}
 .ac-freecad-sharing{display:flex;align-items:start;gap:7px;margin-top:8px}
+#athena-codex .ac-freecad-sharing input[type="checkbox"]{flex:none;width:auto;margin:4px 0 0}
 .ac-freecad-actions{flex-wrap:wrap}

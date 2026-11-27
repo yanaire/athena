@@ -8,7 +8,7 @@ The host discovers a standard FreeCAD installation. For another installed locati
 
 ## FreeCAD window control
 
-The optional **Allow FreeCAD window control and image sharing** setting applies to one run. When API authoring reports unsupported, Athena sends a synthetic test image to the selected model and checks its function call. A successful check allows Athena to open a new FreeCAD window with a private profile and operate the visible Part workbench, document tree, Save As dialog and STEP export dialog. The actual final window image is an image part in the Pi tool result. The conversation retains it locally. Later model turns omit it.
+The optional **Allow FreeCAD window control and image sharing** setting applies to one run. When API authoring reports unsupported, Athena sends a synthetic test image to the selected model and checks its function call. A successful check allows Athena to open a new FreeCAD window with a private profile and operate the visible Part workbench, document tree, Save As dialog and STEP export dialog. The Pi tool result includes an image of that window with FreeCAD's own 3D viewport rendering. The conversation retains it locally. Later model turns omit it.
 
 The window controls support creating a new block with a through-hole. API editing operates on Athena's parametric FCStd artifacts. Connections without declared image support show the reason in the panel. For an operator-configured compatible endpoint, `ATHENA_MODEL_IMAGE_INPUT=1` declares image input for the configured model. The live image and tool call check still runs before any FreeCAD pixels are sent.
 

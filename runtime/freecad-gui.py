@@ -24,10 +24,11 @@ BridgeError = desktop.BridgeError
 
 
 class FreeCADControls:
-    def __init__(self, main, workspace, spec):
+    def __init__(self, main, workspace, spec, directory):
         self.main = main
         self.workspace = workspace
         self.spec = spec
+        self.directory = directory
         self.native = workspace / (spec["name"] + ".FCStd")
         self.step = workspace / (spec["name"] + ".step")
         self.stage = "new_document"
@@ -40,6 +41,21 @@ class FreeCADControls:
             return None
         return json.dumps([doc.Name, doc.Label, doc.FileName, [obj.Name for obj in doc.Objects],
                            list(doc.getUndoNames()) if hasattr(doc, "getUndoNames") else []])
+
+    def capture_surface(self, widget, kind, width, height):
+        # FreeCAD's Coin3D viewport can use its own buffer. Render the current
+        # view into the scoped screenshot through FreeCAD's image API.
+        if kind != "Gui::View3DInventorViewer" or self.stage not in ("finish_export", "wait_for_files") or not self.step.is_file():
+            return widget.grabFramebuffer()
+        view = Gui.activeDocument()
+        if view is None:
+            raise BridgeError("stale_observation", "The FreeCAD model viewport is unavailable.")
+        path = self.directory / "viewport.png"
+        try:
+            view.activeView().saveImage(str(path), width, height, "Current")
+            return QtGui.QImage(str(path))
+        finally:
+            path.unlink(missing_ok=True)
 
     def _action(self, name):
         item = self.main.findChild(QAction, name)
@@ -228,8 +244,9 @@ def attach():
 def _attach_window(directory, request, writer_lock):
     QtWidgets.QApplication.setAttribute(Qt.AA_DontUseNativeDialogs)
     main = Gui.getMainWindow()
-    controls = FreeCADControls(main, pathlib.Path(request["workspace"]), request["spec"])
-    controls.bridge = desktop.WindowBridge(directory, "freecad", main, controls.document_identity, controls.actions, writer_lock.close)
+    controls = FreeCADControls(main, pathlib.Path(request["workspace"]), request["spec"], directory)
+    controls.bridge = desktop.WindowBridge(directory, "freecad", main, controls.document_identity,
+                                           controls.actions, writer_lock.close, controls.capture_surface)
     main._athena_controls = controls
     desktop._write_json(directory / "ready.json", {"pid": os.getpid(), "version": ".".join(App.Version()[:3])})
 

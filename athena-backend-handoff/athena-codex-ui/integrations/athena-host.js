@@ -87,7 +87,7 @@
           + '\nOutput · ' + permission.outputRoot + '\nModel · ' + (permission.model || 'No model selected')
           + '\nThe API route uses tool calls. Each write has its own output directory.';
         windowScope.textContent = permission.windowReason ||
-          'When API authoring is unsupported, Athena checks image input and tool calls with the selected model. It can then control a new FreeCAD window and send its final image to that model. The image is saved with this conversation.';
+          'When API authoring is unsupported, Athena checks image input and tool calls with the selected model. Athena can then control a new FreeCAD window and send an image of that window and its 3D view to the model. The image is saved with this conversation.';
       } catch (cause) { error = cause.message; }
       render(snapshot);
     });

@@ -8,8 +8,10 @@ import uuid
 
 try:
     from PySide6 import QtCore, QtGui, QtWidgets
+    from PySide6.QtOpenGLWidgets import QOpenGLWidget
 except ImportError:
     from PySide2 import QtCore, QtGui, QtWidgets
+    from PySide2.QtWidgets import QOpenGLWidget
 
 
 class BridgeError(Exception):
@@ -55,14 +57,43 @@ def _write_json(path, value):
         scratch.unlink(missing_ok=True)
 
 
+def _capture_window(window, capture_surface):
+    capture = window.grab()
+    if capture.isNull() or capture.width() > 4096 or capture.height() > 4096:
+        raise BridgeError("failed", "The approved app window could not be captured.")
+    # QWidget.grab omits the separately rendered OpenGL surface on some Qt
+    # backends. Read its app-local framebuffer and paint it into the same frame.
+    for widget in window.findChildren(QOpenGLWidget):
+        if widget.window() != window or not widget.isVisibleTo(window):
+            continue
+        position = widget.mapTo(window, QtCore.QPoint(0, 0))
+        size = widget.size()
+        bounds = QtCore.QRect(position, size)
+        clip = widget.visibleRegion().translated(position)
+        scale = widget.devicePixelRatioF()
+        parent = widget.parentWidget()
+        kind = parent.metaObject().className() if parent else ""
+        framebuffer = capture_surface(widget, kind, round(size.width() * scale), round(size.height() * scale))
+        if framebuffer.isNull():
+            raise BridgeError("stale_observation", "The app's 3D viewport is still rendering.")
+        painter = QtGui.QPainter(capture)
+        try:
+            painter.setClipRegion(clip)
+            painter.drawImage(bounds, framebuffer)
+        finally:
+            painter.end()
+    return capture
+
+
 class WindowBridge:
-    def __init__(self, directory, app_id, main_window, document_identity, actions, on_release):
+    def __init__(self, directory, app_id, main_window, document_identity, actions, on_release, capture_surface):
         self.directory = pathlib.Path(directory)
         self.app_id = app_id
         self.main = main_window
         self.document_identity = document_identity
         self.actions = actions
         self.on_release = on_release
+        self.capture_surface = capture_surface
         self.parent_alive = _parent_alive(int(os.environ["ATHENA_DESKTOP_PARENT"]))
         self.observed = None
         self.dispatch = None
@@ -136,9 +167,9 @@ class WindowBridge:
             if not self._live() or time.time() * 1000 >= request["deadline"]:
                 raise BridgeError("stopped", "The app input request expired or was revoked.")
             if request["kind"] == "observe":
-                capture = window.grab()
-                if capture.isNull() or capture.width() > 4096 or capture.height() > 4096:
-                    raise BridgeError("failed", "The approved app window could not be captured.")
+                capture = _capture_window(window, self.capture_surface)
+                if self._window()[1] != identity:
+                    raise BridgeError("stale_observation", "The app window changed during capture.")
                 if not capture.save(str(self.directory / (request_id + ".png")), "PNG"):
                     raise BridgeError("failed", "The approved window capture could not be encoded.")
                 self.observed = (identity, tuple(actions))

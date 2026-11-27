@@ -696,6 +696,17 @@ export class JobRunner {
     const names = freeCadNames(job.spec);
     const abort = new AbortController();
     pending.terminate = () => abort.abort(new DesktopError('stopped', 'The FreeCAD task was stopped.'));
+    const waitForWriter = async () => {
+      const until = Date.now() + 5_000;
+      for (;;) {
+        abort.signal.throwIfAborted();
+        try { return holdWriter(); }
+        catch (cause) {
+          if (!(cause instanceof DesktopError) || cause.code !== 'busy' || Date.now() >= until) throw cause;
+          await sleep(40, undefined, { signal: abort.signal });
+        }
+      }
+    };
     const log = (message: string) => this.#emit({ type: 'process_output', attempt: pending.attempt, stream: 'stdout', text: message });
     const phase = (value: FreeCadExecution['phase'], route = execution.route) => {
       execution = { ...execution, phase: value, route };
@@ -725,7 +736,7 @@ export class JobRunner {
       } else if (existsSync(marker)) {
         throw new DesktopError('indeterminate', 'An earlier FreeCAD write needs a result check before another write to this document.');
       }
-      releaseWriter = holdWriter();
+      releaseWriter = await waitForWriter();
       workspace = job.recovery ? await realpath(workspace) : await privateDirectory(workspace);
       if (pending.stop) pending.terminate();
       abort.signal.throwIfAborted();
@@ -764,16 +775,7 @@ export class JobRunner {
       abort.signal.throwIfAborted();
       // After a GUI return the app may still be releasing native control. Only
       // a settled writer can be followed by a read-only verifier.
-      if (!releaseWriter) {
-        const until = Date.now() + 3_000;
-        for (;;) {
-          try { releaseWriter = holdWriter(); break; }
-          catch (cause) {
-            if (!(cause instanceof DesktopError) || cause.code !== 'busy' || Date.now() >= until) throw cause;
-            await sleep(40, undefined, { signal: abort.signal });
-          }
-        }
-      }
+      releaseWriter ??= await waitForWriter();
       phase('verification');
       const entries = (await readdir(workspace)).sort();
       const before = await Promise.all(names.map(name => readBounded(workspace, name, freeCadFileBytes))).catch(cause => {
