@@ -117,6 +117,20 @@
           <button class="ac-button cursor-interaction" data-open="manuscript"><i data-lucide="file-pen-line" aria-hidden="true"></i>View linked manuscript</button>
         </section>
         <section class="ac-panel-body" id="ac-view-manuscript" role="tabpanel" aria-labelledby="ac-tab-manuscript" hidden>
+          <section id="ac-paper-project" class="ac-paper-project" aria-label="Manuscript workspace" hidden>
+            <h2>Manuscripts</h2><label>Project manuscripts<select data-paper="documents"></select></label>
+            <details><summary>New manuscript and sources</summary>
+              <label>Source file<input data-paper="file" type="file" accept=".txt,.md,.csv,.json"></label><button data-paper-action="add-file">Add text source</button>
+              <label>Published data<select data-paper="artifacts"></select></label><button data-paper-action="add-result">Add result as source</button>
+              <label>Title<input data-paper="title" maxlength="256"></label><label>Research objective<textarea data-paper="goal"></textarea></label>
+              <label>Source material<select data-paper="sources" multiple size="4"></select></label><button data-paper-action="create">Create manuscript</button>
+            </details>
+            <div data-paper="existing" hidden><p data-paper="goal-display"></p><label>Section headings, one per line<textarea data-paper="outline"></textarea></label>
+              <div><button data-paper="plan" data-paper-action="plan">Generate outline</button><button data-paper-action="save-outline">Save outline</button>
+              <button data-paper="write" data-paper-action="write">Write and review</button><button data-paper="cancel" data-paper-action="cancel">Cancel run</button></div>
+              <pre data-paper="progress" role="status"></pre><label>Stored revision<select data-paper="versions"></select></label>
+              <p data-paper="assessment" role="status"></p><button data-paper-action="preview">Preview revision</button><button data-paper-action="md">Export Markdown</button><button data-paper-action="json">Export review manifest</button>
+            </div><p data-paper="notice" role="status"></p></section>
           <div id="ac-document-revisions"></div>
           <div class="ac-document-toolbar"><span id="ac-document-status">Draft v1 · saved</span><button class="ac-text-button cursor-interaction" data-action="edit-manuscript" id="ac-edit-manuscript"><i data-lucide="pencil" aria-hidden="true"></i>Edit</button></div>
           <article class="ac-document" id="ac-document"><div class="ac-eyebrow">RESEARCH NOTE</div><h2>RC low-pass filter:<br>frequency response validation</h2><p class="ac-doc-meta">Biosignal circuits · Dongmin<br>Sample manuscript linked to baseline v1</p><h3>Purpose</h3><p>Verify the frequency response of an ideal RC circuit and compare its cutoff frequency with the analytical value.</p><h3>Method</h3><p>A 1 kΩ resistor and a 100 nF capacitor were used. The AC response was analyzed from 10 Hz to 100 kHz.</p><h3>Results</h3><button class="ac-cited-claim cursor-interaction" data-action="open-claim">The cutoff frequency was 1.592 kHz, with a relative error of approximately 0.03% against the theoretical value of 1.5915 kHz.<i data-lucide="link" aria-hidden="true"></i></button><p>This is within the predefined 1% tolerance.</p><h3>Scope and limitations</h3><p>This analysis excludes real component tolerances, non-ideal behavior, and measurement equipment effects.</p></article>

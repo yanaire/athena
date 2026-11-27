@@ -1,4 +1,4 @@
-/** Optional host-owned persistence/extraction contract. No backend or transport is implemented by the UI. */
+/** Host-backed manuscript revisions. PDF and knowledge extraction are optional independent capabilities. */
 export type ProjectId = string;
 export type DocumentId = string;
 export type VersionId = string;
@@ -27,6 +27,10 @@ export type ResearchRecordEvent =
   | { type: 'document.saved'; projectId: ProjectId; document: DocumentVersion }
   | { type: 'document.reviewed'; projectId: ProjectId; documentId: DocumentId; version: VersionId; review: Review }
   | { type: 'source.updated'; projectId: ProjectId; source: KnowledgeSource };
+export interface ManuscriptCatalog {
+  documents: Array<{ id: DocumentId; title: string; currentVersion: VersionId | null }>;
+  sources: Array<{ sourceId: string; title: string; version: VersionId; level: 'metadata' | 'abstract' | 'full_text' }>;
+}
 export interface ResearchRecordService {
   capabilities?: Array<'getDocument' | 'saveDocument' | 'exportPDF' | 'listSources' | 'storeSource' | 'extractSource'>;
   subscribe?(listener: (event: ResearchRecordEvent) => void): (() => void) | void;

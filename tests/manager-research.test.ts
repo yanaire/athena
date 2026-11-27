@@ -303,3 +303,80 @@ test('execution disabled preserves CSV evidence and observations after joining, 
   assert.deepEqual(manager.getResearch(f.project.id, f.sessionId), board);
   assert.equal(sha256((await manager.artifactDownload(f.sessionId, artifact.id)).bytes), sha256(bytes));
 });
+
+test('paper outlining, editorial revision, independent frozen reviews and exact exports survive restart', {timeout:90000}, async t=>{
+  const directory=privateTestDirectory(join(tmpdir(),'paper-integration-'));
+  const sourceText='The reported voltage is 19 mV.',title='Voltage study';
+  let sourceId='',round=0;const errors:string[]=[];
+  let held:ReturnType<typeof Promise.withResolvers<void>>|undefined, holdStage='';
+  const server=createServer(async(request,response)=>{
+    try {
+      const chunks:Buffer[]=[];for await(const c of request)chunks.push(Buffer.from(c));
+      const w:Wire=JSON.parse(Buffer.concat(chunks).toString()),prompt=text(users(w).at(-1)?.content),out=outputs(w);
+      if(held&&!parent(w)&&prompt.includes(holdStage)){
+        held.resolve();await new Promise<void>(resolve=>response.once('close',resolve));return;
+      }
+      let next:string|Call;
+      if(parent(w))next=out.length?'Manuscript stage settled.':{name:'compose_manuscript',args:prompt.includes('Manuscript outline request')?{outline:['Results']}:{}};
+      else if(prompt.includes('Return only a JSON array'))next=JSON.stringify([{heading:'Results',text:sourceText}]);
+      else if(prompt.includes('Use publish_manuscript')) {
+        if(!out.length){round++;next={name:'publish_manuscript',args:{text:'# Results\n\n'+sourceText+'\nRevision '+round,
+          links:[{kind:'claim',sourceId,quote:sourceText,excerpt:sourceText,locator:'line 1'}]}};}
+        else {assert.ok(JSON.parse(out[0]!).artifact);next='Published the manuscript.';}
+      } else {
+        const info=JSON.parse(prompt.split('Review assignment: ')[1]!.split('\nGranted input files:')[0]!) as Assignment;
+        const target=info.targets[out.length];
+        if(target)next={name:'read_file',args:target.kind==='file'?{fileId:target.id}:{artifactId:target.id}};
+        else if(out.length===info.targets.length)next={name:'submit_review',args:{reviewId:info.reviewId,verdict:round===1?'changes_required':'supported',
+          checks:['Claims: inspected underlying voltage.','Citations: compared exact source passage.','Figures: no figures claimed.'],findings:round===1?['Clarify units in the edited version.']:[]}};
+        else next='Review recorded.';
+      }
+      complete(response,next);
+    }catch(e){errors.push(String(e));response.writeHead(400);response.end('Controlled provider failed');}
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  const address=server.address();assert.ok(address&&typeof address!=='string');
+  const env={ATHENA_ENDPOINT:'http://127.0.0.1:'+address.port+'/v1',ATHENA_MODEL:'paper-fixture',ATHENA_MODEL_CONCURRENCY:'1',ATHENA_MAX_CHILDREN:'4'};
+  const restore=Object.entries(env).map(([k,v])=>{const old=process.env[k];process.env[k]=v;return ()=>{if(old===undefined)delete process.env[k];else process.env[k]=old;};});
+  let manager=new TaskManager({dataDir:directory});
+  t.after(async()=>{await manager.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));restore.forEach(fn=>fn());await rm(directory,{recursive:true,force:true});});
+  await manager.initialize();const {project}=await manager.createProject({name:title});const {sessionId}=await manager.createSession({projectId:project.id,title});
+  await manager.setProjectExecution(project.id,true);
+  const call=(method:string,args:Record<string,unknown>={})=>manager.paperRequest(method,{projectId:project.id,...args}) as Promise<any>;
+  const source=await call('addPaperSource',{title:'Observations',text:sourceText});sourceId=source.sourceId;
+  const paper=await call('createPaper',{title,goal:'Report the measured voltage.',evidence:[source]});const documentId=paper.id;
+  for(const mode of ['outline','write']){
+    const req={documentId,mode,sessionId,requestId:'paper-'+mode};
+    const receipt=await call('startPaper',req);const snap=await terminal(manager);
+    assert.equal((await call('startPaper',req)).runId,receipt.runId);
+    assert.deepEqual(errors,[]);assert.equal(snap.run.status,'succeeded');
+    const d=await call('paperDetails',{documentId});assert.deepEqual(d.outline,['Results'],JSON.stringify(snap.tools));
+    if(mode==='write'){assert.equal(d.runs.at(-1).stage,'supported',JSON.stringify([d.runs.at(-1),snap.tools.map(t=>[t.name,t.status,t.logs.at(-1)?.text.slice(0,300)])]));
+      assert.equal(snap.tasks.filter(t=>t.parentTaskId).length,4);assert.equal(snap.processes.length,2);}
+  }
+  const d=await call('paperDetails',{documentId}),r=d.runs.at(-1);assert.equal(r.reviews.length,2);
+  assert.notEqual(r.reviews[0].reviewer.agentSessionId,r.reviews[1].reviewer.agentSessionId);
+  const first=await call('getDocument',{documentId,version:d.versions[0]}),second=await call('getDocument',{documentId});
+  assert.equal(first.review.status,'changes_requested');assert.equal(second.review.status,'approved');
+  const md=await call('exportPaper',{documentId,version:first.version,format:'md'});
+  const manifest=await call('exportPaper',{documentId,version:first.version,format:'json'});
+  const saved=await manager.artifactDownload(sessionId,md.id);assert.equal(saved.bytes.toString(),first.text);
+  assert.equal(sha256(saved.bytes),first.artifact.sha256);
+  assert.deepEqual(saved.bytes,(await manager.artifactDownload(sessionId,first.artifact.id)).bytes);
+  const edit={...second,text:'Updated manually.',expectedCurrentVersion:second.version};
+  const writes=await Promise.allSettled([call('saveDocument',edit),call('saveDocument',edit)]);
+  assert.equal(writes.filter(x=>x.status==='fulfilled').length,1);assert.equal((await call('getDocument',{documentId})).review.status,'unreviewed');
+  await manager.close();manager=new TaskManager({dataDir:directory});await manager.initialize();
+  assert.deepEqual((await call('paperDetails',{documentId})).runs,d.runs);
+  assert.deepEqual((await manager.artifactDownload(sessionId,md.id)).bytes,saved.bytes);
+  assert.equal(JSON.parse((await manager.artifactDownload(sessionId,manifest.id)).bytes.toString()).assessment.verdict,'changes_required');
+  for(const stage of ['Return only a JSON array','Review assignment: ']){
+    holdStage=stage;held=Promise.withResolvers<void>();
+    const receipt=await call('startPaper',{documentId,sessionId,requestId:'cancel-'+stage,mode:'write'});
+    await held.promise;await manager.cancelRun(receipt.runId);await terminal(manager);held=undefined;
+    const last=(await call('paperDetails',{documentId})).runs.at(-1);
+    assert.equal(last.executionStatus,'cancelled');assert.equal(last.reviews.length,0);
+    assert.equal(last.sections.length,stage.startsWith('Review')?1:0);
+    if(stage.startsWith('Review'))assert.equal(last.versions.length,1);
+  }
+});

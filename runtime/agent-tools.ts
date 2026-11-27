@@ -79,6 +79,8 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       parameters:Type.Object({scope:Type.Union([Type.Literal('project'),Type.Literal('agent')]),text:message,requestId:Type.Optional(id)},closed)}),
   ];
   const parentResearch = [
+    ...(executionEnabled ? [delegated({name:'compose_manuscript',label:'Compose manuscript',description:'Execute the explicitly requested manuscript stage. Outlining takes headings; writing uses the saved outline.',
+      parameters:Type.Object({outline:Type.Optional(Type.Array(id,{minItems:1,maxItems:8}))},closed)})] : []),
     delegated({name:'plan_research',label:'Plan research',description:'Save a research objective, acceptance criteria and named stages. This does not execute work or approve a claim.',
       parameters:Type.Object({objective:message,acceptanceCriteria:list,stages:Type.Optional(list),requestId:Type.Optional(id)},closed)}),
     ...(executionEnabled ? [delegated({name:'request_review',label:'Request independent review',description:'Start a fresh child reviewer with exact evidence and the original question. The author conversation is not inherited.',
@@ -87,6 +89,8 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       parameters:Type.Object({missionId:id,title:id,method:message,rationale:message,applicability:list,evidenceIds:ids,reviewIds:Type.Optional(ids),requestId:Type.Optional(id)},closed)}),
   ];
   const childResearch = [
+    ...(executionEnabled ? [delegated({name:'publish_manuscript',label:'Publish manuscript revision',description:'Assigned editor only. Publish Markdown and exact claim/citation/figure evidence links.',
+      parameters:Type.Object({text:Type.String({minLength:1,maxLength:120000}),links:Type.Array(Type.Object({kind:Type.Union([Type.Literal('claim'),Type.Literal('citation'),Type.Literal('figure')]),quote:message,sourceId:id,excerpt:message,locator:id,variable:Type.Optional(id),unit:Type.Optional(id),transformation:Type.Optional(id),caption:Type.Optional(message)},closed),{maxItems:80})},closed)})] : []),
     delegated({name:'submit_review',label:'Submit evidence review',description:'Only the separately assigned reviewer can submit a verdict for the frozen evidence. Reference separately executed reproduction evidence when actually produced.',
       parameters:Type.Object({reviewId:id,verdict:Type.Union([Type.Literal('supported'),Type.Literal('changes_required'),Type.Literal('insufficient_evidence')]),checks:list,findings:Type.Array(Type.String({maxLength:4096}),{maxItems:32}),reproductionEvidenceIds:Type.Optional(ids)},closed)}),
     ...(extensions?.servers.length ? [delegated({name:'call_external_mcp',label:'Run external MCP tool',openWorld:true,description:'Call an explicitly approved external MCP server and tool with JSON arguments. No local path is read automatically. The response is saved as a verified result file; remote errors and uncertain cancellation are preserved.',

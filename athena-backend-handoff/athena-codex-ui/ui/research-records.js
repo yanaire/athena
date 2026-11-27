@@ -93,7 +93,10 @@
     async function saveDocument(id) {
       if (!available('saveDocument')) return operation(id, 'saveDocument', () => {});
       const version = commitDraft(id), documentId = id;
-      const storedVersion = record(id).versions.filter(item => item.persistence === 'host').at(-1)?.version || null;
+      const versions = record(id).versions;
+      let base = version;
+      while (base && base.persistence !== 'host') base = versions.find(item => item.version === base.baseVersion);
+      const storedVersion = base?.version || null;
       return operation(id, 'saveDocument', async (target, project) => {
         const result = await target.saveDocument({ projectId: project, documentId, ...copy(version), expectedCurrentVersion: storedVersion });
         // Validate the epoch before committing a delayed response into the store.

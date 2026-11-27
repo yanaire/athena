@@ -20,6 +20,7 @@ import { projectHistory, withoutAttachmentContext, withMessageOwner } from './hi
 import { ToolFailureBudget } from './tool-failure-budget.ts';
 import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensions.ts';
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
+import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 import type { AttachmentMessage, HistoryEvent } from './history.ts';
@@ -106,6 +107,8 @@ export class TaskManager implements AthenaTaskManager {
   readonly #jobs: JobRunner;
   readonly #files: AnalysisFiles;
   readonly #extensions: ExtensionStore;
+  readonly #papers: Papers;
+  readonly #paperStarting=new Set<string>();
   readonly #research: ResearchLedger;
   readonly #externalCredentials: TaskManagerOptions['externalCredentials'];
   readonly #runtimeExtensions = new WeakMap<ManagedPiSession, ExtensionPin>();
@@ -135,6 +138,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#models = options.models;
     this.#storage = new Storage(options.dataDir);
     this.#extensions = new ExtensionStore(this.#storage);
+    this.#papers=new Papers(this.#storage);
     this.#research = new ResearchLedger(this.#storage);
     this.#externalCredentials = options.externalCredentials;
     this.#journal = new Journal(this.#storage);
@@ -339,6 +343,164 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('MCP_CONNECTION_FAILED',safe);
     }
   }
+  paperCatalog(project:string) { this.#paperProject(project); return this.#papers.list(project); }
+  #paperProject(project:string) {
+    if(!this.#active||this.#session(this.#active).projectId!==project) throw new ManagerError('PROJECT_MISMATCH','Open the project conversation first.');
+    this.#assertReady();
+  }
+  async paperRequest(method:string,args:Record<string,unknown>) {
+    const project=text(args.projectId,'Project');this.#paperProject(project);
+    if(method==='listPapers')return this.paperCatalog(project);
+    if(method==='createPaper')return this.#papers.create(project,args);
+    if(method==='addPaperSource') {
+      if(args.artifactId!==undefined) {
+        const id=text(args.artifactId,'Artifact'),row=this.#storage.record<ArtifactRow>('artifact',id);
+        if(!row||row.projectId!==project||row.sessionId!==this.#active)throw new ManagerError('ARTIFACT_DENIED','Select a result from this conversation.');
+        const bytes=await this.#readArtifact(row);this.#paperProject(project);
+        const target:ResearchTarget={kind:'artifact',id,projectId:project,sessionId:row.sessionId,version:row.version,
+          sha256:hash(bytes),bytes:bytes.length,taskId:row.taskId,agentSessionId:row.agentSessionId,attemptId:row.attemptId,processId:row.processId};
+        return this.#papers.saveSource(project,row.title,new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes),'full_text',target);
+      }
+      return this.#papers.saveSource(project,bounded(args.title,'source title',512),bounded(args.text,'source text',240000));
+    }
+    const id=text(args.documentId,'Document');
+    if(method==='getDocument')return this.#papers.version(project,id,args.version===undefined?undefined:text(args.version,'Version'));
+    if(method==='saveDocument')return this.#papers.save(project,id,args);
+    if(method==='exportPaper')return this.#papers.export(project,this.#active!,id,text(args.version,'Version'),args.format);
+    if(method==='paperDetails') {
+      const d=this.#papers.paper(project,id);
+      return {...d,runs:d.runs.map(r=>({...r,executionStatus:this.#storage.record<Run>('run',r.id)?.status}))};
+    }
+    if(method==='setPaperOutline')return this.#papers.update(project,id,d=>{
+      if(d.runs.some(r=>pending(this.#storage.record<Run>('run',r.id)?.status??'paused')))throw new ManagerError('RUN_BUSY','Wait for the active manuscript run.');
+      d.outline=headings(args.outline);
+    });
+    if(method!=='startPaper')throw new ManagerError('INVALID_INPUT','Unknown manuscript operation.');
+    return this.#startPaper(project,id,args);
+  }
+  async #startPaper(project:string,id:string,args:Record<string,unknown>) {
+    const sessionId=text(args.sessionId,'Conversation'),{session,runtime}=this.#bound(sessionId);
+    if(session.projectId!==project)throw new ManagerError('PROJECT_MISMATCH','Wrong conversation for this manuscript.');
+    const mode=args.mode;
+    if(mode!=='outline'&&mode!=='write')throw new ManagerError('INVALID_INPUT','Select outlining or writing.');
+    const requestId=bounded(args.requestId,'request ID',128),d=this.#papers.paper(project,id);
+    const old=d.runs.find(r=>r.requestId===requestId);
+    if(old) {
+      if(old.mode!==mode||old.context.sessionId!==sessionId)throw new ManagerError('REQUEST_ID_CONFLICT','Start request changed.');
+      return {runId:old.id};
+    }
+    if(this.#paperStarting.has(sessionId))throw new ManagerError('RUN_BUSY','Manuscript start is in progress.');
+    this.#assertIdle();
+    if(!this.#executionEnabled(project))throw new ManagerError('EXECUTION_DISABLED','Enable offline analysis for this project before starting a manuscript.');
+    if(mode==='write'&&(!d.outline.length||this.#maxChildren<3||!this.#depth))throw new ManagerError('PAPER_LIMIT','Writing needs an outline and capacity for three direct children.');
+    if(d.runs.length>=32)throw new ManagerError('PAPER_LIMIT','Manuscript run limit reached.');
+    this.#paperStarting.add(sessionId);
+    try {
+      const sources=d.evidence.map(ref=>this.#papers.source(project,ref.sourceId));
+      for(const source of sources) {
+        if(source.origin&&'kind' in source.origin) {
+          const row=this.#storage.record<ArtifactRow>('artifact',source.origin.id);
+          if(!row||row.projectId!==project||row.version!==source.origin.version||hash(await this.#readArtifact(row))!==source.sha256)
+            throw new ManagerError('ARTIFACT_DENIED','The selected result changed.');
+        }
+      }
+      const {fileReferences}=await this.stageFiles(sessionId,sources.map((s,i)=>({name:'source-'+(i+1)+'.txt',mimeType:'text/plain',data:Buffer.from(s.content).toString('base64')})));
+      const message='Manuscript '+mode+' request. Objective: '+d.goal+'\n'+(mode==='outline'?'Inspect the selected sources and call compose_manuscript with an outline of 1–8 headings.':'Call compose_manuscript with {} to execute the approved outline: '+JSON.stringify(d.outline))+
+        '\nReport the returned manuscript status. Source titles and coverage: '+JSON.stringify(sources.map(s=>[s.title,s.level]));
+      const response=await this.#prompt(session,runtime,{type:'prompt',id:'paper:'+id+':'+requestId,message,fileReferences},a=>{
+        const current=this.#papers.paper(project,id);
+        if(JSON.stringify([current.evidence,current.outline,current.versions])!==JSON.stringify([d.evidence,d.outline,d.versions]))throw new ManagerError('VERSION_CONFLICT','Manuscript changed during start.');
+        current.runs.push({id:a.runId,requestId,mode,baseVersion:d.versions.at(-1)??null,context:context(a),stage:'requested',outline:[...d.outline],sections:[],
+          attempts:[],versions:[],reviews:[],uploads:fileReferences.map((f,i)=>({fileId:f.id,sourceId:sources[i]!.sourceId}))});
+        this.#papers.put(current);this.#storage.set('paper.run:'+a.runId,id);
+      });
+      return response.data;
+    } finally {this.#paperStarting.delete(sessionId);}
+  }
+  async #composePaper(a:Attempt,id:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    const current=()=>this.#papers.paper(a.projectId,id);
+    const run=()=>current().runs.find(r=>r.id===a.runId)!;
+    const update=(change:(r:PaperRun,d:Paper)=>void)=>this.#papers.update(a.projectId,id,d=>change(d.runs.find(r=>r.id===a.runId)!,d));
+    this.#requireCoordinatorWrites(a);this.#requireEnabled(a);
+    if(a.id!==run().context.attemptId||run().stage!=='requested')throw new ManagerError('PAPER_ALREADY_STARTED','This manuscript run has already been dispatched.');
+    if(run().mode==='outline') {
+      const outline=headings(args.outline);update((r,d)=>{r.outline=outline;d.outline=outline;r.stage='outlined';});
+      return {outline};
+    }
+    const doc=current(),sources=doc.evidence.map(ref=>this.#papers.source(a.projectId,ref.sourceId));
+    const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:a.fileIds[i],title:s.title,coverage:s.level})));
+    const child=async(role:string,prompt:string,previous?:string)=>{
+      signal.throwIfAborted();const requestId='paper:'+a.runId+':'+role;
+      update(r=>{r.stage=role;});
+      const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId}:{title:role,prompt,requestId},signal,next=>{
+        // Called inside the existing child admission transaction.
+        const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
+      });
+      const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
+      const row=joined.tasks[0];if(!row||row.status!=='succeeded')throw new ManagerError('PAPER_CHILD_FAILED',role+' did not succeed.');
+      return row;
+    };
+    update(r=>{r.stage='planning';});
+    try {
+      const mission=this.#research.plan(a,{objective:doc.goal,acceptanceCriteria:['Check claims, citations and figure data against exact sources.'],stages:doc.outline});
+      const writer=await child('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
+        '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline));
+      const sections=sectionDrafts(JSON.parse(writer.result??'null'),doc.outline);
+      update(r=>{r.sections=sections;});
+      let editor:string|undefined,findings:string[]=[];
+      for(let cycle=0;cycle<=1;cycle++) {
+        const result=await child(cycle?'Revise manuscript':'Edit manuscript',
+          'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+
+          '\nUse publish_manuscript exactly once. Supply claim/citation/figure links with exact manuscript and source quotes. Include data units for figures. Unavailable evidence must be disclosed.'+
+          (cycle?'\nIndependent review findings: '+JSON.stringify(findings).slice(0,4000):''),editor);
+        editor=result.taskId;
+        const r=run();if(r.versions.length!==cycle+1)throw new ManagerError('PAPER_NO_ARTIFACT','Editor did not publish a manuscript.');
+        const version=this.#papers.version(a.projectId,id,r.versions[cycle]);
+        if(!version.artifact||current().versions.at(-1)!==version.version)throw new ManagerError('VERSION_CONFLICT','The manuscript changed before review.');
+        const artifactIds=result.artifacts.filter(f=>f.id===version.artifact!.id||f.name==='links.json'&&this.#storage.record<ArtifactRow>('artifact',f.id)?.attemptId===result.attemptId).map(f=>f.id);
+        if(artifactIds.length!==2)throw new ManagerError('PAPER_NO_ARTIFACT','Missing verified evidence map.');
+        const resolver=(ctx:Context,t:{kind:'file'|'artifact';id:string})=>{signal.throwIfAborted();return this.#researchTarget(ctx,t);};
+        const evidence=await this.#research.addEvidence(a,{missionId:mission.id,title:'Manuscript '+(cycle+1),artifactIds,fileIds:a.fileIds},resolver);
+        const review=await this.#research.prepareReview(a,{missionId:mission.id,evidenceIds:[evidence.id],question:
+          'Use read_file with each exact artifactId and fileId to read manuscript.md, links.json and all granted sources. Check exact quotes, cited scope, and data variables, units, transformations and captions. Include a separate substantive check beginning Claims:, Citations:, and Figures:. Report unsupported statements, missing citations or unit errors. Do not claim reproduction.'},resolver);
+        update(r=>{r.stage='Independent review';});
+        const name='Review manuscript '+(cycle+1);
+        const task=await this.#dispatch(a,'spawn_agent',review.id,{title:name,prompt:this.#reviewPrompt(review),artifactIds,fileIds:a.fileIds,requestId:review.id},signal,next=>{
+          this.#research.registerReviewer(a,review.id,next);
+          const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role:name,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
+        });
+        const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
+        const checked=this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId}).reviews.find(row=>row.id===review.id);
+        if(joined.tasks[0]?.status!=='succeeded'||checked?.state!=='completed'||!checked.verdict)throw new ManagerError('PAPER_NO_REVIEW','Reviewer did not submit a structured verdict.');
+        update((r,d)=>{if(d.versions.at(-1)!==version.version)throw new ManagerError('VERSION_CONFLICT','Manuscript changed during review.');r.reviews.push(checked);r.stage=checked.verdict!;});
+        if(checked.verdict!=='changes_required'||cycle===1||this.#maxChildren<4)break;
+        findings=[...(checked.findings??[]),...version.issues];
+      }
+      return {documentId:id,versions:run().versions,verdict:run().stage};
+    } catch(error) {
+      update(r=>{r.stage=signal.aborted?'cancelled':'failed';r.error=error instanceof Error?error.message.slice(0,512):'Manuscript workflow failed.';});throw error;
+    }
+  }
+  async #publishPaper(a:Attempt,id:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    const d=this.#papers.paper(a.projectId,id),r=d.runs.find(r=>r.id===a.runId)!;
+    const expectedRole=r.versions.length?'Revise manuscript':'Edit manuscript';
+    if(r.versions.length>=2||r.stage!==expectedRole||!r.attempts.some(t=>t.role===expectedRole&&t.attemptId===a.id))
+      throw new ManagerError('EDITOR_DENIED','Only the assigned editor may publish this revision once.');
+    const expected=r.versions.at(-1)??r.baseVersion;
+    if((d.versions.at(-1)??null)!==expected)throw new ManagerError('VERSION_CONFLICT','Manuscript changed since assignment.');
+    const body=bounded(args.text,'manuscript',120000),sources=r.uploads.map(u=>this.#papers.source(a.projectId,u.sourceId));
+    const {links,issues}=inspectLinks(args.links,body,sources);
+    const map=JSON.stringify({sources:r.uploads.map((u,i)=>({...u,title:sources[i]!.title,version:sources[i]!.version,level:sources[i]!.level})),links,issues});
+    await this.#files.write(a,'draft.txt',body);await this.#files.write(a,'map.txt',map);
+    const script="import * as std from 'qjs:std';\nfor (const [input,output] of [['draft.txt','manuscript.md'],['map.txt','links.json']]) {const file=std.open('/outputs/'+output,'w');file.puts(std.loadFile('/workspace/'+input));file.close();}";
+    await this.#files.write(a,'publish.mjs',script);
+    const result=await this.#analysis(a,raw,{language:'node',script:'publish.mjs',inputs:['draft.txt','map.txt'],outputs:['manuscript.md','links.json']},signal);
+    const f=result.artifacts.find(x=>x.name==='manuscript.md');if(!f)throw new ManagerError('PAPER_NO_ARTIFACT','Manuscript publication failed.');
+    const artifact=await this.#researchTarget(a,{kind:'artifact',id:f.id});signal.throwIfAborted();
+    const version=this.#papers.save(a.projectId,id,{title:d.title,text:body,evidence:d.evidence,expectedCurrentVersion:expected},{artifact,links,runId:a.runId});
+    return {version:version.version,artifact:f,issues};
+  }
+
   getResearch(projectId:string,sessionId?:string) {
     this.#extensionProject(projectId);
     return this.#research.snapshot({projectId,sessionId});
@@ -645,7 +807,7 @@ export class TaskManager implements AthenaTaskManager {
     }
   }
 
-  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand): Promise<Response> {
+  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand, onAccept?:(a:Attempt)=>void): Promise<Response> {
     const requestId = text(command.id, 'Request ID');
     const fingerprint = hash(canonical(command));
     const previous = this.#storage.receipt(session.id, requestId);
@@ -705,7 +867,7 @@ export class TaskManager implements AthenaTaskManager {
     const response=reply(command,{accepted:true,...context(a)});
     this.#commit(()=>{
       this.#storage.putRecord('run',{...run,agentSessionId:a.agentSessionId,attemptId:a.id});
-      this.#journal.accept(a,run.title);
+      this.#journal.accept(a,run.title);onAccept?.(a);
       this.#storage.putReceipt({sessionId:session.id,requestId,fingerprint,state:'accepted',response});
     });
     if (pin) this.#pins.set(run.id, pin);
@@ -917,6 +1079,25 @@ export class TaskManager implements AthenaTaskManager {
     if(!turn || this.#executing.get(a.agentSessionId)!==a || this.#closed)throw new ManagerError('ATTEMPT_INACTIVE','This attempt is no longer active.');
     const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
     signal.throwIfAborted();
+    const paperId=this.#storage.get<string>('paper.run:'+a.runId);
+    if(name==='compose_manuscript'||name==='publish_manuscript'){
+      if(!paperId||a.kind==='reconciliation')throw new ManagerError('PAPER_DENIED','Start a manuscript from the project workspace.');
+      return name==='compose_manuscript'?this.#composePaper(a,paperId,args,signal):this.#publishPaper(a,paperId,raw,args,signal);
+    }
+    if(paperId){
+      if(!['read_file','read','submit_review'].includes(name))throw new ManagerError('PAPER_DENIED','Use the assigned manuscript stage.');
+      if(name==='submit_review'){
+        const d=this.#papers.paper(a.projectId,paperId),r=d.runs.find(r=>r.id===a.runId)!;
+        const current=r.versions.at(-1);
+        if(!current||d.versions.at(-1)!==current)throw new ManagerError('VERSION_CONFLICT','The reviewed version is stale.');
+        const reads=this.#storage.records<Tool>('tool',a.sessionId).filter(t=>t.attemptId===a.id&&t.name==='read_file'&&t.status==='succeeded').map(t=>t.args).filter(object);
+        if(a.fileIds.some(id=>!reads.some(t=>t.fileId===id))||a.artifactGrants?.some(id=>!reads.some(t=>t.artifactId===id)))
+          throw new ManagerError('EVIDENCE_UNREAD','Read every assigned source and result with read_file before submitting.');
+        if(!Array.isArray(args.checks)||!['Claims:','Citations:','Figures:'].every(category=>(args.checks as unknown[]).some(s=>typeof s==='string'&&s.startsWith(category)&&s.slice(category.length).trim())))
+          throw new ManagerError('PAPER_CHECKS','Record claims, citations and figure-data checks.');
+        if(args.verdict==='supported'&&this.#papers.version(a.projectId,paperId,current).issues.length)throw new ManagerError('EVIDENCE_MISSING','Resolve the missing evidence before supporting this version.');
+      }
+    }
     if (['list_skills','load_skill','get_research_board','plan_research','add_research_evidence','request_review','submit_review','remember_research','propose_knowledge'].includes(name)) return this.#researchOperation(a,name,raw,args,signal);
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
     if (['spawn_agent', 'send_to_agent', 'cancel_task'].includes(name)) this.#requireCoordinatorWrites(a);
@@ -1214,11 +1395,13 @@ export class TaskManager implements AthenaTaskManager {
   async artifactDownload(conversationId:string,artifactId:string){
     this.#assertReady();
     const file=this.#storage.record<ArtifactRow>('artifact',artifactId);
-    if(!file || file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
+    if(!file)return this.#papers.download(conversationId,artifactId);
+    if(file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
     return {bytes:await this.#readArtifact(file),name:file.file.name,mimeType:file.file.mimeType};
   }
   #retryTarget(taskId: string, expectedAttemptId?: string) {
     const task = this.#storage.record<TaskRow>('task', taskId);
+    if (task && this.#storage.get('paper.run:'+task.runId))throw new ManagerError('TASK_NOT_RETRYABLE','Manuscript runs retain partial results; start a new explicit run.');
     if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
     const runs = this.#runs(task.sessionId);
     if (runs.some(run => run.id !== task.runId && pending(run.status))) throw new ManagerError('RUN_BUSY', 'Another run is still active in this conversation.');
@@ -1266,6 +1449,7 @@ export class TaskManager implements AthenaTaskManager {
     const requestId = text(options.requestId, 'Request ID');
     const expectedAttemptId = text(options.expectedAttemptId, 'Expected attempt ID');
     const task = this.#storage.record<TaskRow>('task', taskId);
+    if (task && this.#storage.get('paper.run:'+task.runId))throw new ManagerError('TASK_NOT_RETRYABLE','Manuscript runs retain partial results; start a new explicit run.');
     if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
     const id = hash(canonical([task.sessionId, 'retry', requestId]));
     const fingerprint = hash(canonical({ taskId, expectedAttemptId }));

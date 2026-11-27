@@ -13,6 +13,7 @@
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
  const piManualTools=new Map(), sessionDrafts=new Map();
  const failedDrafts=[];
+ let paperPanel;
  let projectSignature='', activeProjectId='project-rc', activeDocumentId='research-note', requestedDocumentVersion=null, lifecyclePending=false, nativeSessionTransition=null;
  const activityHome=q('#aw-activity').parentElement,activityBefore=q('#aw-activity').nextElementSibling;
  const piPreviewTimers=new Set();
@@ -173,15 +174,18 @@
  function drawChart(){const el=q('#ac-response-chart');if(!el||q('#ac-research-panel').hidden||q('#ac-research-slot').hidden||q('#ac-view-results').hidden||q('#ac-result-response').hidden)return;const W=Math.max(230,Math.round(el.clientWidth||360)),H=220,L=42,R=22,T=25,B=42,pw=W-L-R,ph=H-T-B;const X=f=>L+(Math.log10(f)-1)/4*pw,Y=g=>T-g/40*ph;let line='',theory='';const fc=1/(2*Math.PI*1000*100e-9);for(let i=0;i<=120;i++){const f=10**(1+i/30),prefix=i?'L':'M';line+=prefix+X(f).toFixed(2)+' '+Y(-10*Math.log10(1+(f/1592)**2)).toFixed(2)+' ';theory+=prefix+X(f).toFixed(2)+' '+Y(-10*Math.log10(1+(f/fc)**2)).toFixed(2)+' ';}let svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Example RC frequency response: approximately minus 3 decibels at 1.592 kilohertz"><title>RC frequency response · example</title>';for(const g of [0,-10,-20,-30,-40])svg+='<line x1="'+L+'" y1="'+Y(g)+'" x2="'+(W-R)+'" y2="'+Y(g)+'" stroke="#e8e6dc" stroke-width=".7"/><text x="'+(L-9)+'" y="'+(Y(g)+4)+'" text-anchor="end" font-size="11" fill="#8d806c" font-family="Arial">'+g+'</text>';for(const [f,l] of (W<330?[[10,'10'],[1000,'1k'],[100000,'100k']]:[[10,'10'],[100,'100'],[1000,'1k'],[10000,'10k'],[100000,'100k']]))svg+='<text x="'+X(f)+'" y="'+(H-B+19)+'" text-anchor="middle" font-size="11" fill="#8d806c" font-family="Arial">'+l+'</text>';svg+='<text x="8" y="12" font-size="11" fill="#8d806c" font-family="Arial">Gain (dB)</text><text x="'+(W-R)+'" y="'+(H-3)+'" font-size="11" fill="#8d806c" text-anchor="end" font-family="Arial">Frequency (Hz)</text><path d="'+theory+'" fill="none" stroke="#a3a18f" stroke-width="4" opacity=".4"/><path d="'+line+'" fill="none" stroke="#c96442" stroke-width="2"/><line x1="'+X(1592)+'" x2="'+X(1592)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#c8bfaa" stroke-dasharray="3 4"/><circle cx="'+X(1592)+'" cy="'+Y(-3.0103)+'" r="3.7" fill="#c96442" stroke="#fff" stroke-width="1.5"/>';const ax=Math.min(X(1592)+7,W-94);svg+='<rect x="'+ax+'" y="'+(Y(-3.0103)+12)+'" width="76" height="29" rx="4" fill="#f3e9dd"/><text x="'+(ax+8)+'" y="'+(Y(-3.0103)+31)+'" font-size="11" fill="#8e624a" font-family="Arial">1.592 kHz</text></svg>';el.innerHTML=svg;}
  function mountDocumentToolbar(){
   recordToolbar?.destroy();
-  recordToolbar=window.AthenaResearchRecords.mountToolbar(q('#ac-document-revisions'),{store:records,documentId:activeDocumentId,icons,toast,onVersion(){requestedDocumentVersion=null;renderDocumentRecord();},onExport:downloadDocumentExport});
+  recordToolbar=window.AthenaResearchRecords.mountToolbar(q('#ac-document-revisions'),{store:records,documentId:activeDocumentId,icons,toast,onVersion(){requestedDocumentVersion=null;renderDocumentRecord();paperPanel?.reload();},onExport:downloadDocumentExport});
  }
  async function openDocument(selection={}){
   state.documentEditing=false;q('#ac-document-editor').hidden=true;q('#ac-editor-label').hidden=true;q('#ac-document').hidden=false;q('#ac-edit-manuscript').innerHTML='<i data-lucide="pencil" aria-hidden="true"></i>Edit';
   if(selection.documentId)activeDocumentId=selection.documentId;
   requestedDocumentVersion=selection.version||selection.documentVersion||null;mountDocumentToolbar();
   try{
-   const doc=records.getDocument(activeDocumentId);
+   const id=activeDocumentId, version=requestedDocumentVersion, project=activeProjectId;
+   const doc=records.getDocument(id);
+   if(!doc && !selection.documentId)return;
    if(!doc||requestedDocumentVersion&&!doc.versions.some(item=>item.version===requestedDocumentVersion))await records.loadDocument(activeDocumentId,requestedDocumentVersion||undefined);
+   if(id!==activeDocumentId||version!==requestedDocumentVersion||project!==activeProjectId)return;
    if(requestedDocumentVersion)records.selectVersion(activeDocumentId,requestedDocumentVersion);
   }catch(error){toast(String(error.message||error));}
   renderDocumentRecord();
@@ -219,6 +223,8 @@
    composer.restoreDraft(sessionDrafts.get(snapshot.sessionId||'preview')||{value:'',attachments:[],mentions:[]});
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
+  paperPanel?.scope(snapshot);
+  if(live){q('#ac-doc-evidence').hidden=true;q('[data-action="export-manuscript"]').hidden=true;}
   surfaces?.setRuntimeMode?.(live);
   knowledge?.setRuntimeMode?.(live);
   for(const [key,value] of [['projectId',snapshot.projectId],['sessionId',snapshot.sessionId],['runId',snapshot.run?.id]])root.dataset[key]=value||'';
@@ -226,7 +232,7 @@
   if(live&&activity.parentElement!==q('#ac-connected-activity'))q('#ac-connected-activity').appendChild(activity);
   if(!live&&activity.parentElement!==activityHome)activityHome.insertBefore(activity,activityBefore);
   const projectId=snapshot.projectId||(live?'unassigned-project':'project-rc');
-  if(projectId!==activeProjectId){activeProjectId=projectId;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
+  if(projectId!==activeProjectId){activeProjectId=projectId;activeDocumentId='research-note';requestedDocumentVersion=null;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
   modelSettings?.setExecution(snapshot.execution || null);
   const m3Scopes=modelProfilesAdapter?providerProfiles?.resolveScopes(snapshot):null;
   modelSettings?.setModelScopes(m3Scopes||snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
@@ -725,6 +731,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  chatModelPicker=window.AthenaChatModelPicker.mount(q('#ac-model-picker-slot'),{runtime:piRuntime,preferences:modelConfig,icons,announce,isBusy:()=>state.busy||piSubmitting||lifecyclePending||Boolean(nativeSessionTransition),isSessionBound:()=>workspaceStore.getState().sessionBound!==false,isUnavailable:()=>q('#ac-conversation').inert,beforeOpen(){composer.closeMenu?.();command?.close?.(false)},onOpenSettings(){piSession?openPi('model'):openSettings('models')}});
  workspaceStore.configure?.({parallelLimit:modelConfig.parallelLimit});
  piWorkbench=window.AthenaPiWorkbench.mount(q('#ast-pi-workbench-slot'),{runtime:piRuntime,icons,toast,onDraft:usePiDraft,onSectionChange:section=>settings?.routeRuntime(section),onModalChange(){overlay()}});
+ paperPanel=window.AthenaManuscripts?.mount(q('#ac-paper-project'),{open:(documentId,version)=>openDocument({documentId,version}),cancel:id=>workspaceStore.cancel(id)});
  mountDocumentToolbar();
  recordsOff=records.subscribe(renderDocumentRecord);
  workspaceOff=workspaceStore.subscribe(renderWorkspace);
@@ -741,6 +748,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   enterHostedMode:()=>workspaceStore.enterHostedMode(),
   reportHostError:message=>toast(String(message)),
   attachConnectionManager:adapter=>connectionManager.attach(adapter),detachConnectionManager:()=>connectionManager.detach(),
+  attachPaperService:service=>{paperPanel?.attach(service);paperPanel?.scope(workspaceStore.getState());},
   attachResearchService:adapter=>{records.attach(adapter.documents||adapter);knowledge.attachRecords(adapter.knowledge||adapter);return true;},detachResearchService:()=>{records.detach();knowledge.detachRecords();},
   loadDocument:(id,version)=>openDocument({documentId:id,version}),ensureDocument:document=>records.ensureDocument(document),
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
@@ -750,7 +758,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   attachExtensions:adapter=>{extensionService=adapter||null;extensions?.setService(extensionService);extensions?.setWorkspace();workspaceViews?.setResearchService(extensionService);},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
   getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),extensions:extensions?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();paperPanel?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();
