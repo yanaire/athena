@@ -6,12 +6,26 @@ Athena mounts the FreeCAD tool only for a run authorized from this panel. The to
 
 The host discovers a standard FreeCAD installation. For another installed location, set `ATHENA_FREECAD_APP` to its absolute GUI executable path. A matching Python host and FreeCAD module directory can be supplied together through `ATHENA_FREECAD_PYTHON` and `ATHENA_FREECAD_MODULES`. The Debian FreeCAD Python package is detected automatically. Other desktop installations can run the fixed API worker in a separate FreeCAD process with private configuration.
 
+## FreeCAD window control
+
+The optional **Allow FreeCAD window control and image sharing** setting applies to one run. When API authoring reports unsupported, Athena sends a synthetic test image to the selected model and checks its function call. A successful check allows Athena to open a new FreeCAD window with a private profile and operate the visible Part workbench, document tree, Save As dialog and STEP export dialog. The Pi tool result includes an image of that window with FreeCAD's own 3D viewport rendering. The conversation retains it locally. Later model turns omit it.
+
+The window controls support creating a new block with a through-hole. API editing operates on Athena's parametric FCStd artifacts. Connections without declared image support show the reason in the panel. For an operator-configured compatible endpoint, `ATHENA_MODEL_IMAGE_INPUT=1` declares image input for the configured model. The live image and tool call check still runs before any FreeCAD pixels are sent.
+
+**Stop** revokes input. **Take over FreeCAD** also records the handoff and leaves the owned window available for manual work. Each app action needs a current app, window, document and screen observation. The input lease coordinates Athena hosts, and a separate writer lock coordinates API and UI access to the same project document. A denied or unconfirmed write cannot trigger GUI fallback. Restarting preserves the pending output directory and discards old input.
+
+Use **Check existing files** after an interrupted write. It opens the two existing outputs for a read-only geometry check and can publish them if they pass. A confirmed missing or invalid output preserves the staged files and allows a new attempt in a separate directory. A verification failure with an uncertain cause retains the recovery requirement.
+
 ## Verification
 
-On Linux with FreeCAD 1.0.0, a controlled loopback provider caused the real Pi tool call to run the real FreeCAD API. The run produced and reopened `test_part.FCStd` and `test_part.step`. Both contained one closed, valid 40 × 20 × 10 mm solid with a centered 6 mm through-hole and a volume of 7717.256661 mm³. An edit increased the width to 24 mm and preserved the original artifact bytes after a host restart.
+Linux FreeCAD 1.0.0 ran both authoring paths. Each produced `test_part.FCStd` and `test_part.step`. The independent verification process opened both files and found one closed, valid 40 × 20 × 10 mm solid with a centered 6 mm through-hole and a volume of 7717.256661 mm³. The host compared the scoped directory entries, file identities, timestamps and bytes across verification. The API edit increased the width to 24 mm and preserved the original artifact bytes after a host restart.
+
+The GUI acceptance test sets the authoring adapter to unsupported before admission. The real FreeCAD window creates and saves the files on a Linux X11 display. The controlled provider receives the PNG captured from that window as actual image content. The tests also exercise stopping after a real GUI write, taking over during input, refusing another write before recovery, and checking the staged outputs after reinitializing the host.
 
 ```sh
 ATHENA_TEST_FREECAD=api node --test tests/freecad-acceptance.test.ts
+# Run on an interactive Linux display with FreeCAD installed.
+ATHENA_TEST_FREECAD=gui node --test tests/freecad-acceptance.test.ts
 ```
 
-The provider in that test is a controlled response fixture. Native macOS and Windows desktop automation are **NOT RUN** in the Linux workspace. Native package builds have their own CI checks.
+The loopback provider responses are fixtures. The cloud's configured model endpoint returned HTTP 404, so live model and account acceptance is **NOT RUN**. Native macOS and Windows GUI automation are **NOT RUN** in the Linux workspace. The generated UI and native package checks measure assembly, separately from the actual FreeCAD execution above.

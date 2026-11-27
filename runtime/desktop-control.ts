@@ -7,7 +7,7 @@ import { createPrivateDirectory, hasPrivatePermissions, writeNewPrivateFileSync 
 
 export type DesktopErrorCode =
   | 'unsupported' | 'denied' | 'indeterminate' | 'failed'
-  | 'busy' | 'stale_observation' | 'stopped';
+  | 'busy' | 'stale_observation' | 'stopped' | 'invalid_result';
 
 export class DesktopError extends Error {
   readonly code: DesktopErrorCode;
@@ -53,7 +53,9 @@ export function checkDesktopPng(bytes: Uint8Array): Buffer {
 }
 
 /** Same-user Athena hosts share one input lease, including across data directories. */
-export function acquireDesktopInput(directory = join(homedir(), '.athena', 'desktop-control')): () => void {
+export function acquireDesktopInput(directory = process.platform === 'linux'
+  ? join('/tmp', 'athena-desktop-control-' + process.getuid!())
+  : join(homedir(), '.athena', 'desktop-control')): () => void {
   return acquireLocalLock(directory, 'input.sqlite', 'Another Athena task has desktop input control.');
 }
 

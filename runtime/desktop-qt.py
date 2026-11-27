@@ -8,14 +8,33 @@ import uuid
 
 try:
     from PySide6 import QtCore, QtGui, QtWidgets
+    from PySide6.QtOpenGLWidgets import QOpenGLWidget
 except ImportError:
     from PySide2 import QtCore, QtGui, QtWidgets
+    from PySide2.QtWidgets import QOpenGLWidget
 
 
 class BridgeError(Exception):
     def __init__(self, status, message):
         super().__init__(message)
         self.status = status
+
+
+class _QueuedAction(QtCore.QObject):
+    """Guard a Qt slot that must enter a modal event loop from native code."""
+    def __init__(self, widget, allowed):
+        super().__init__(widget)
+        self.allowed = allowed
+        widget.installEventFilter(self)
+
+    def eventFilter(self, widget, event):
+        if event.type() != QtCore.QEvent.MetaCall:
+            return False
+        widget.removeEventFilter(self)
+        try:
+            return not self.allowed()
+        finally:
+            self.deleteLater()
 
 
 def _parent_alive(pid):
@@ -38,15 +57,46 @@ def _write_json(path, value):
         scratch.unlink(missing_ok=True)
 
 
+def _capture_window(window, capture_surface):
+    capture = window.grab()
+    if capture.isNull() or capture.width() > 4096 or capture.height() > 4096:
+        raise BridgeError("failed", "The approved app window could not be captured.")
+    # QWidget.grab omits the separately rendered OpenGL surface on some Qt
+    # backends. Read its app-local framebuffer and paint it into the same frame.
+    for widget in window.findChildren(QOpenGLWidget):
+        if widget.window() != window or not widget.isVisibleTo(window):
+            continue
+        position = widget.mapTo(window, QtCore.QPoint(0, 0))
+        size = widget.size()
+        bounds = QtCore.QRect(position, size)
+        clip = widget.visibleRegion().translated(position)
+        scale = widget.devicePixelRatioF()
+        parent = widget.parentWidget()
+        kind = parent.metaObject().className() if parent else ""
+        framebuffer = capture_surface(widget, kind, round(size.width() * scale), round(size.height() * scale))
+        if framebuffer.isNull():
+            raise BridgeError("stale_observation", "The app's 3D viewport is still rendering.")
+        painter = QtGui.QPainter(capture)
+        try:
+            painter.setClipRegion(clip)
+            painter.drawImage(bounds, framebuffer)
+        finally:
+            painter.end()
+    return capture
+
+
 class WindowBridge:
-    def __init__(self, directory, app_id, main_window, document_identity, actions):
+    def __init__(self, directory, app_id, main_window, document_identity, actions, on_release, capture_surface):
         self.directory = pathlib.Path(directory)
         self.app_id = app_id
         self.main = main_window
         self.document_identity = document_identity
         self.actions = actions
+        self.on_release = on_release
+        self.capture_surface = capture_surface
         self.parent_alive = _parent_alive(int(os.environ["ATHENA_DESKTOP_PARENT"]))
         self.observed = None
+        self.dispatch = None
         self.timer = QtCore.QTimer(self.main)
         self.timer.timeout.connect(self._poll)
         self.timer.start(40)
@@ -78,10 +128,28 @@ class WindowBridge:
         }
         return window, identity
 
+    def queue_native_slot(self, widget, slot):
+        deadline, identity = self.dispatch
+
+        def allowed():
+            try:
+                return self._live() and time.time() * 1000 < deadline and self._window()[1] == identity
+            except BridgeError:
+                return False
+
+        guard = _QueuedAction(widget, allowed)
+        # Retain the wrapper until Qt has checked and consumed the queued event.
+        widget._athena_action_guard = guard
+        if not QtCore.QMetaObject.invokeMethod(widget, slot, QtCore.Qt.QueuedConnection):
+            widget.removeEventFilter(guard)
+            guard.deleteLater()
+            raise BridgeError("failed", "The observed Qt slot is unavailable.")
+
     def _poll(self):
         if not self._live():
             self.observed = None
             self.timer.stop()
+            self.on_release()
             return
         path = self.directory / "request.json"
         try:
@@ -99,9 +167,9 @@ class WindowBridge:
             if not self._live() or time.time() * 1000 >= request["deadline"]:
                 raise BridgeError("stopped", "The app input request expired or was revoked.")
             if request["kind"] == "observe":
-                capture = window.grab()
-                if capture.isNull() or capture.width() > 4096 or capture.height() > 4096:
-                    raise BridgeError("failed", "The approved app window could not be captured.")
+                capture = _capture_window(window, self.capture_surface)
+                if self._window()[1] != identity:
+                    raise BridgeError("stale_observation", "The app window changed during capture.")
                 if not capture.save(str(self.directory / (request_id + ".png")), "PNG"):
                     raise BridgeError("failed", "The approved window capture could not be encoded.")
                 self.observed = (identity, tuple(actions))
@@ -113,16 +181,21 @@ class WindowBridge:
                 if not self._live():
                     raise BridgeError("stopped", "The user took over the app.")
                 dispatched = True
+                self.dispatch = (request["deadline"], identity)
                 actions[request["target"]]()
             else:
                 raise BridgeError("unsupported", "Unknown app bridge operation.")
         except BridgeError as error:
-            status.update(status=error.status, message=str(error))
+            code = "indeterminate" if dispatched and error.status == "stale_observation" else error.status
+            status.update(status=code, message=str(error))
         except PermissionError:
             status.update(status="indeterminate" if dispatched else "denied", message="The app bridge could not access its scoped files.")
         except Exception:
             status.update(status="indeterminate" if dispatched else "failed", message="The app bridge could not complete the operation.")
         finally:
+            self.dispatch = None
             if self._live():
                 _write_json(self.directory / "reply.json", status)
                 self.timer.start(40)
+            else:
+                self.on_release()

@@ -6,9 +6,10 @@ export { ANALYSIS_LIMITS } from './analysis-sandbox.ts';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, existsSync, rmSync } from 'node:fs';
-import { lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { callExternalMcp, EXTERNAL_MCP_LIMITS, validateExternalVerification, matchesExternalSchema, extensionDigest } from './external-mcp-client.ts';
 import type { PinnedExternalServer } from './extensions.ts';
@@ -16,6 +17,7 @@ import { createPrivateDirectory, writeNewPrivateFileSync } from './private-stora
 import { acquireLocalLock, DesktopError, type DesktopErrorCode } from './desktop-control.ts';
 import { freeCadFileBytes, freeCadMime, freeCadNames, freeCadSpec, freeCadVerificationName, freeCadWorkerTimeout,
   type FreeCadAdapter, type FreeCadSpec } from './freecad.ts';
+import { runFreeCadWindow } from './freecad-window.ts';
 
 type Scope = { readonly projectId: string; readonly sessionId: string };
 type FileVersion = Scope & { readonly fileId: string; readonly versionId: string; readonly name: string };
@@ -37,11 +39,16 @@ export type FreeCadArtifact = Scope & {
 export type FreeCadJob = Identity & {
   readonly adapter: FreeCadAdapter; readonly spec: FreeCadSpec;
   readonly source?: { readonly id: string; readonly versionId: string; readonly bytes: Uint8Array };
+  readonly window?: { readonly checkModel: (signal: AbortSignal) => Promise<void>; readonly receiveImage: (png: Uint8Array) => void };
+  readonly recovery?: { readonly attemptId: string; readonly route: 'api' | 'gui' };
 };
 type FreeCadExecution = {
-  readonly spec: FreeCadSpec; readonly outputDirectory: string; readonly route: 'api';
+  readonly spec: FreeCadSpec; readonly outputDirectory: string; readonly route: 'api' | 'gui' | 'recovery';
+  readonly phase?: 'authoring' | 'window' | 'verification';
+  readonly recoveryRequired?: boolean;
   readonly source?: { readonly id: string; readonly versionId: string };
-  readonly outcome?: 'verified' | DesktopErrorCode;
+  readonly recovery?: FreeCadJob['recovery'];
+  readonly outcome?: 'verified' | 'invalid_result' | DesktopErrorCode;
 };
 type JobErrorCode = 'INVALID_INPUT' | 'CLOSED' | 'QUEUE_FULL' | 'DUPLICATE_ATTEMPT'
   | 'GRANT_DENIED' | 'ARTIFACT_DENIED' | 'INVALID_FILE' | 'UNSUPPORTED_PLATFORM';
@@ -350,13 +357,16 @@ export class JobRunner {
     this.#assertOpen();
     const spec = freeCadSpec(input.spec);
     const { projectId, sessionId, taskId, attemptId, toolId, requestId, source } = input;
-    if (!UUID.test(attemptId) || Boolean(spec.sourceArtifactId) !== Boolean(source) ||
+    const recovery = input.recovery;
+    if (!UUID.test(attemptId) || (recovery && (!UUID.test(recovery.attemptId) || source || input.window)) ||
+      (!recovery && Boolean(spec.sourceArtifactId) !== Boolean(source)) ||
       (source && (source.id !== spec.sourceArtifactId || source.bytes.byteLength < 1 || source.bytes.byteLength > freeCadFileBytes))) {
       throw new CsvJobError('INVALID_INPUT', 'Invalid FreeCAD job or source artifact.');
     }
     const freecad: FreeCadExecution = { spec,
-      outputDirectory: join(this.freeCadOutputRoot(projectId), spec.name.toLowerCase(), attemptId),
-      route: 'api', ...(source ? { source: { id: source.id, versionId: source.versionId } } : {}) };
+      outputDirectory: join(this.freeCadOutputRoot(projectId), spec.name.toLowerCase(), recovery?.attemptId ?? attemptId),
+      route: recovery ? 'recovery' : 'api', ...(recovery ? { recovery } : {}),
+      ...(source ? { source: { id: source.id, versionId: source.versionId } } : {}) };
     return this.#admit({ projectId, sessionId, taskId, attemptId, toolId, requestId, freecad },
       undefined, undefined, undefined, { ...input, spec });
   }
@@ -677,45 +687,129 @@ export class JobRunner {
   }
 
   async #runFreeCad(pending: Pending, job: FreeCadJob, receipts: string) {
-    const execution = pending.attempt.freecad!;
-    const workspace = execution.outputDirectory;
+    let execution = pending.attempt.freecad!;
+    let workspace = execution.outputDirectory;
     const documentDir = join(workspace, '..');
     const marker = join(documentDir, 'pending.json');
+    const writer = { lock: join(documentDir, 'writer.sqlite'), marker, attemptId: job.attemptId };
+    const holdWriter = () => acquireLocalLock(documentDir, 'writer.sqlite', 'The previous FreeCAD writer is still active.');
     const names = freeCadNames(job.spec);
     const abort = new AbortController();
     pending.terminate = () => abort.abort(new DesktopError('stopped', 'The FreeCAD task was stopped.'));
+    const waitForWriter = async () => {
+      const until = Date.now() + 5_000;
+      for (;;) {
+        abort.signal.throwIfAborted();
+        try { return holdWriter(); }
+        catch (cause) {
+          if (!(cause instanceof DesktopError) || cause.code !== 'busy' || Date.now() >= until) throw cause;
+          await sleep(40, undefined, { signal: abort.signal });
+        }
+      }
+    };
     const log = (message: string) => this.#emit({ type: 'process_output', attempt: pending.attempt, stream: 'stdout', text: message });
+    const phase = (value: FreeCadExecution['phase'], route = execution.route) => {
+      execution = { ...execution, phase: value, route };
+      pending.attempt = Object.freeze({ ...pending.attempt, freecad: execution });
+    };
     const started = (pid: number) => {
       pending.attempt = Object.freeze({ ...pending.attempt, pid });
       this.#emit({ type: 'process_started', attempt: pending.attempt });
     };
     let release: (() => void) | undefined;
+    let releaseWriter: (() => void) | undefined;
     let marked = false;
     let writeStarted = false;
     try {
       release = acquireLocalLock(documentDir, 'document.sqlite', 'This FreeCAD document already has a writer.');
-      if (existsSync(marker)) {
+      if (job.recovery) {
+        const bytes = await readBounded(await realpath(documentDir), 'pending.json', 8192).catch(cause => {
+          if (errorCode(cause) === 'ENOENT') throw new DesktopError('failed', 'This FreeCAD attempt no longer needs a recovery check.');
+          throw cause;
+        });
+        const saved: unknown = JSON.parse(bytes.toString('utf8'));
+        if (!object(saved) || saved.attemptId !== job.recovery.attemptId || saved.projectId !== job.projectId ||
+          saved.sessionId !== job.sessionId || JSON.stringify(saved.spec) !== JSON.stringify(job.spec)) {
+          throw new DesktopError('denied', 'The pending FreeCAD result belongs to a different attempt.');
+        }
+        execution = { ...execution, recoveryRequired: true };
+      } else if (existsSync(marker)) {
         throw new DesktopError('indeterminate', 'An earlier FreeCAD write needs a result check before another write to this document.');
       }
-      await privateDirectory(workspace);
+      releaseWriter = await waitForWriter();
+      workspace = job.recovery ? await realpath(workspace) : await privateDirectory(workspace);
       if (pending.stop) pending.terminate();
       abort.signal.throwIfAborted();
       pending.attempt = Object.freeze({ ...pending.attempt, status: 'running', cwd: workspace, startedAt: Date.now() });
       this.#emit({ type: 'process_started', attempt: pending.attempt });
-      if (job.source) writeNewPrivateFileSync(join(workspace, 'source.FCStd'), job.source.bytes);
-      writeNewPrivateFileSync(marker, JSON.stringify({ projectId: job.projectId, sessionId: job.sessionId, attemptId: job.attemptId, spec: job.spec }), { flush: true });
-      marked = true;
-      log(job.source ? 'Editing the verified source through the FreeCAD API.' : 'Creating the part through the FreeCAD API.');
-      const author = await job.adapter.author(workspace, job.spec, abort.signal, pid => { writeStarted = true; started(pid); });
+      let authorVersion: string | undefined;
+      let image: Uint8Array | undefined;
+      if (!job.recovery) {
+        if (job.source) writeNewPrivateFileSync(join(workspace, '.athena-source.FCStd'), job.source.bytes);
+        execution = { ...execution, recoveryRequired: true };
+        phase('authoring');
+        log(job.source ? 'Editing the verified source through the FreeCAD API.' : 'Creating the part through the FreeCAD API.');
+        abort.signal.throwIfAborted();
+        writeNewPrivateFileSync(marker, JSON.stringify({ projectId: job.projectId, sessionId: job.sessionId, attemptId: job.attemptId, spec: job.spec }), { flush: true });
+        marked = true;
+        releaseWriter();
+        releaseWriter = undefined;
+        const writing = (pid: number) => { writeStarted = true; started(pid); };
+        try {
+          authorVersion = (await job.adapter.author(workspace, job.spec, abort.signal, writing, writer)).version;
+        } catch (cause) {
+          if (!(cause instanceof DesktopError) || cause.code !== 'unsupported' || !job.window ||
+            names.some(name => existsSync(join(workspace, name)))) throw cause;
+          writeStarted = false;
+          const { app } = job.adapter.installation();
+          if (!app) throw new DesktopError('unsupported', 'The FreeCAD GUI executable is unavailable.');
+          log('The API authoring operation is unsupported. Checking model image input and tool calls.');
+          await job.window.checkModel(abort.signal);
+          abort.signal.throwIfAborted();
+          phase('window', 'gui');
+          const result = await runFreeCadWindow({ app, workspace, spec: job.spec, signal: abort.signal, writer, started: writing, log });
+          authorVersion = result.version;
+          image = result.png;
+        }
+      }
       abort.signal.throwIfAborted();
-      const before = await Promise.all(names.map(name => readBounded(workspace, name, freeCadFileBytes)));
+      // After a GUI return the app may still be releasing native control. Only
+      // a settled writer can be followed by a read-only verifier.
+      releaseWriter ??= await waitForWriter();
+      phase('verification');
+      const entries = (await readdir(workspace)).sort();
+      const before = await Promise.all(names.map(name => readBounded(workspace, name, freeCadFileBytes))).catch(cause => {
+        if (job.recovery && errorCode(cause) === 'ENOENT') {
+          abort.signal.throwIfAborted();
+          rmSync(marker);
+          throw new DesktopError('invalid_result', 'A required output is missing. The existing files were preserved. A new attempt can use a separate output directory.');
+        }
+        throw cause;
+      });
+      const beforeInfo = await Promise.all(names.map(name => lstat(join(workspace, name), { bigint: true })));
       log('Reopening the FCStd and STEP with a read-only FreeCAD verifier.');
-      const verified = await job.adapter.verify(workspace, job.spec, abort.signal, started);
+      let invalidResult: DesktopError | undefined;
+      const verified = await job.adapter.verify(workspace, job.spec, abort.signal, started, receipts).catch(cause => {
+        if (cause instanceof DesktopError && cause.code === 'invalid_result') { invalidResult = cause; return; }
+        throw cause;
+      });
       const after = await Promise.all(names.map(name => readBounded(workspace, name, freeCadFileBytes)));
-      if (!verified.files || before.some((file, index) => !file.equals(after[index]!))) {
+      const afterInfo = await Promise.all(names.map(name => lstat(join(workspace, name), { bigint: true })));
+      if (JSON.stringify(entries) !== JSON.stringify((await readdir(workspace)).sort()) ||
+        before.some((file, index) => !file.equals(after[index]!) || beforeInfo[index]!.ino !== afterInfo[index]!.ino
+          || beforeInfo[index]!.mtimeNs !== afterInfo[index]!.mtimeNs || beforeInfo[index]!.ctimeNs !== afterInfo[index]!.ctimeNs)) {
         throw new DesktopError('indeterminate', 'The scoped outputs changed during verification.');
       }
-      const report = { app: 'FreeCAD', route: 'api', authorVersion: author.version, verifierVersion: verified.version,
+      if (invalidResult) {
+        abort.signal.throwIfAborted();
+        if (job.recovery) rmSync(marker);
+        throw invalidResult;
+      }
+      if (!verified?.files || Object.keys(verified.files).length !== names.length ||
+        !names.every(name => Object.hasOwn(verified.files!, name))) {
+        throw new DesktopError('failed', 'FreeCAD did not return both verification receipts.');
+      }
+      const report = { app: 'FreeCAD', route: execution.route, recovery: job.recovery, authorVersion, verifierVersion: verified.version,
         spec: job.spec, source: execution.source, files: verified.files, readOnlyReopen: true,
         sha256: Object.fromEntries(names.map((name, index) => [name, sha256(before[index]!)])) };
       const files = [...names.map((name, index) => ({ name, bytes: before[index]! })),
@@ -729,18 +823,24 @@ export class JobRunner {
         return artifact;
       });
       rmSync(marker);
+      if (image) job.window?.receiveImage(image);
       log('Both files passed read-only geometry and unit verification.');
-      this.#finish(pending, { status: 'succeeded', artifacts, exitCode: 0, freecad: { ...execution, outcome: 'verified' } });
+      this.#finish(pending, { status: 'succeeded', artifacts, exitCode: 0, freecad: { ...execution, outcome: 'verified', recoveryRequired: false } });
     } catch (cause) {
       const error = cause instanceof DesktopError ? cause
         : new DesktopError(errorCode(cause) === 'EACCES' || errorCode(cause) === 'EPERM' ? 'denied'
           : writeStarted ? 'indeterminate' : 'failed', 'The scoped FreeCAD operation did not complete.', { cause });
       if (marked && (!writeStarted || ((error.code === 'unsupported' || error.code === 'denied') &&
-        !names.some(name => existsSync(join(workspace, name)))))) rmSync(marker, { force: true });
+        !names.some(name => existsSync(join(workspace, name)))))) {
+        try { rmSync(marker, { force: true }); }
+        catch { log('The document recovery marker remains on disk.'); }
+      }
       this.#finish(pending, { status: pending.stop ? 'cancelled' : 'failed', error: error.message,
         cancellation: pending.stop ? writeStarted ? 'unknown' : 'confirmed' : 'not_requested',
-        freecad: { ...execution, outcome: pending.stop && writeStarted ? 'indeterminate' : error.code } });
+        freecad: { ...execution, outcome: pending.stop && writeStarted ? 'indeterminate' : error.code,
+          recoveryRequired: Boolean((marked || execution.recoveryRequired && job.recovery) && existsSync(marker)) } });
     } finally {
+      releaseWriter?.();
       release?.();
     }
   }

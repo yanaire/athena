@@ -217,7 +217,7 @@ export async function createPiSession(options: PiSessionOptions) {
   });
   if (config) {
     await addCompatibleModels(modelRuntime, config.provider, 'Athena configured endpoint',
-      { url: config.endpoint, loopback: config.loopback }, [config.model], secret);
+      { url: config.endpoint, loopback: config.loopback }, [config.model], secret, process.env.ATHENA_MODEL_IMAGE_INPUT === '1');
   } else if (provider && secret) {
     await modelRuntime.setRuntimeApiKey(provider, secret);
   }
@@ -282,6 +282,7 @@ export async function createPiSession(options: PiSessionOptions) {
   const api = {
     sessionId: session.sessionId,
     sessionFile,
+    desktopModel: model ? { modelRuntime, model, thinkingLevel } : undefined,
     getState() {
       ensureOpen();
       return {
