@@ -95,6 +95,7 @@ export async function createCodeModeFixture({ concurrency = 1, allowGateFixture 
   const failures = [], requests = [], states = new Map(), outside = [];
   let child, origin, port = 0, log = '';
   let fixtureGate = false;
+  const codeStart = Promise.withResolvers();
 
   function state(scenario) {
     if (!states.has(scenario)) states.set(scenario, {mission:null, published:[], report:{}});
@@ -258,6 +259,7 @@ return (await Promise.allSettled(Array.from({length:5}, () => tools.call(read)))
       entry.tools = calls.map(call => call.name);
       entry.sourceBytes = Buffer.byteLength(calls.find(call => call.name === 'run_code')?.args.source ?? '');
       entry.responderMs = performance.now() - started;
+      if (browser && scenario === 'cancel' && entry.tools.includes('run_code')) await codeStart.promise;
       if (res.destroyed) return;
       const delta = typeof next === 'string' ? {role:'assistant',content:next} : {role:'assistant',tool_calls:calls.map((call,index) => ({
         index, id:'call_' + randomUUID(), type:'function', function:{name:call.name, arguments:JSON.stringify(call.args)},
@@ -333,6 +335,7 @@ return (await Promise.allSettled(Array.from({length:5}, () => tools.call(read)))
     assert.fail('Host condition did not arrive: ' + JSON.stringify({run:snapshot?.run,tasks:snapshot?.tasks,requests}));
   }
   async function close() {
+    codeStart.resolve();
     try { await stopHost(); }
     finally {
       provider.closeAllConnections();
@@ -344,7 +347,7 @@ return (await Promise.allSettled(Array.from({length:5}, () => tools.call(read)))
   return {
     get origin() { return origin; },
     get fixtureGate() { return fixtureGate; },
-    requests, state, rpc, waitSnapshot, stopHost, startHost, close,
+    requests, state, rpc, waitSnapshot, stopHost, startHost, close, releaseCode:codeStart.resolve,
     async conversation({projectId, enabled = true} = {}) {
       const project = projectId ? {id:projectId} : (await rpc('createProject',[{name:'Code-mode acceptance',defaultModel:null}])).project;
       const conversation = await rpc('createSession',[{projectId:project.id,title:'Compare measurement runs',model:null}]);

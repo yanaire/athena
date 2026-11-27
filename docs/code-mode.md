@@ -19,7 +19,7 @@ Discovery returns an ID, a contract version and a SHA-256 fingerprint of the def
 
 `source` is a JavaScript async function body. Use `return` for a compact JSON result. Top-level `await`, loops and branches work. Use small batches with `Promise.allSettled` to retain successful reads when one fails. File contents are data. The read tool returns verified text and a source reference. The final receipt derives its source list from completed host reads.
 
-In Chat, open **Research comparison** to see completed, active and unfinished reads. The Workflow graph links the same receipt from the worker's task. A successful file read opens the exact result in Artifacts. **Technical details** contains the submitted JavaScript, IDs and hashes. Each comparison stays inside its existing worker task. It creates a receipt and a summary.
+In Chat, open **Research comparison** to see completed, active and unfinished reads. The Workflow graph links the same receipt from the worker's task. A successful file read opens the exact result in Artifacts. **Technical details** contains the submitted JavaScript, IDs and hashes. Each comparison stays inside its existing worker task. It creates a receipt and a summary. The app receives batched workspace refreshes during an active run, while each admitted read and terminal state is recorded in the journal.
 
 ## Isolation and limits
 

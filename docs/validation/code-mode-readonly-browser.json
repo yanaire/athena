@@ -1,0 +1,18 @@
+{
+  "browser": "156.0.8078.79",
+  "platform": "linux",
+  "arch": "x64",
+  "controlledProvider": true,
+  "realQuickJsAndArtifactReads": true,
+  "fixtureAnalysisGate": false,
+  "pointerStop": true,
+  "liveProgress": "1 completed · 1 reading · 4 waiting",
+  "checks": [
+    "The composer ran the actual comparison and chat shows its summary and four separately recorded reads.",
+    "Verified source buttons open Artifacts and the Workflow graph opens the same comparison receipt.",
+    "A real parser error displays without any fabricated read calls.",
+    "Chat shows a running read and a queue. The Stop response button stops active reads, discards pending reads and retains the completed board read.",
+    "Browser reconnection and reload after host restart restore byte-for-byte comparison receipts."
+  ],
+  "errors": []
+}

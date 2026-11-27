@@ -1,0 +1,421 @@
+{
+  "checkoutRevision": "b9cc8e882156b95946d434b48ab5c5d865a38ab3",
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.22.3",
+  "model": "Controlled local OpenAI-compatible SSE responder through the real Pi SDK",
+  "realModelAcceptance": "NOT RUN",
+  "tokenAndBillingMetrics": "NOT RUN. The responder supplies no token usage or billing.",
+  "modelConcurrency": 1,
+  "jobRunnerConcurrency": 1,
+  "readConcurrency": 1,
+  "result": {
+    "values": [
+      {
+        "condition": "Baseline",
+        "temperatureC": 20,
+        "meanMv": 10,
+        "count": 2
+      },
+      {
+        "condition": "Hot",
+        "temperatureC": 40,
+        "meanMv": 20,
+        "count": 2
+      },
+      {
+        "condition": "Repeat",
+        "temperatureC": 20,
+        "meanMv": 12,
+        "count": 2
+      }
+    ],
+    "missing": [
+      {
+        "condition": "Missing voltage",
+        "field": "voltage_mV.mean"
+      }
+    ],
+    "differences": [
+      {
+        "temperatureC": 20,
+        "conditions": [
+          "Baseline",
+          "Repeat"
+        ],
+        "deltaMv": 2
+      }
+    ],
+    "readFailures": []
+  },
+  "medians": {
+    "A": {
+      "modelRoundTrips": 2,
+      "measuredRequestBytes": 41596,
+      "initialRequestBytes": 16012,
+      "workerElapsedMs": 262,
+      "queryTools": 0,
+      "ordinaryReadCalls": 5,
+      "codeExecutions": 0,
+      "nestedReadCalls": 0,
+      "ordinaryReadBatchMs": 128,
+      "discoveryBatchMs": 0,
+      "controlledResponderMs": 0.31,
+      "codeSourceBytes": 0,
+      "codeRevisions": 0,
+      "retries": 0,
+      "verifiedSources": 4
+    },
+    "B": {
+      "modelRoundTrips": 3,
+      "measuredRequestBytes": 69063,
+      "initialRequestBytes": 17891,
+      "workerElapsedMs": 279,
+      "queryTools": 2,
+      "ordinaryReadCalls": 5,
+      "codeExecutions": 0,
+      "nestedReadCalls": 0,
+      "ordinaryReadBatchMs": 93,
+      "discoveryBatchMs": 16,
+      "controlledResponderMs": 0.36,
+      "codeSourceBytes": 0,
+      "codeRevisions": 0,
+      "retries": 0,
+      "verifiedSources": 4
+    },
+    "C": {
+      "modelRoundTrips": 3,
+      "measuredRequestBytes": 66625,
+      "initialRequestBytes": 17891,
+      "workerElapsedMs": 542,
+      "queryTools": 2,
+      "ordinaryReadCalls": 0,
+      "codeExecutions": 1,
+      "nestedReadCalls": 5,
+      "ordinaryReadBatchMs": 0,
+      "discoveryBatchMs": 18,
+      "codeElapsedMs": 329,
+      "nestedReadTotalMs": 79,
+      "workerCpuMs": 104.2,
+      "controlledResponderMs": 0.31,
+      "codeSourceBytes": 2266,
+      "codeRevisions": 0,
+      "retries": 0,
+      "verifiedSources": 4
+    }
+  },
+  "samples": [
+    {
+      "trial": 1,
+      "fixtureAnalysisGate": false,
+      "sharedRunElapsedMs": 4384,
+      "identicalSources": [
+        {
+          "id": "783e402f-ffba-4d5f-b8f6-423a52404af9",
+          "version": "a4ea763dea333146de87cd537e0bcc853f7d9ad5d3502c7b63fdbc3472f517b4",
+          "sha256": "a4ea763dea333146de87cd537e0bcc853f7d9ad5d3502c7b63fdbc3472f517b4"
+        },
+        {
+          "id": "7e126f22-9ff4-49bc-b1a7-25afd805e2c5",
+          "version": "34d6519fcf224ad3449826125cf6a9a80493767c94a21d0101733013947beb84",
+          "sha256": "34d6519fcf224ad3449826125cf6a9a80493767c94a21d0101733013947beb84"
+        },
+        {
+          "id": "e7da8acf-6412-44ce-9f37-2c8e5b02238d",
+          "version": "ecdece1cef2da14782844e29138ea136b8cd5f687e381347ebb6ef5805f51313",
+          "sha256": "ecdece1cef2da14782844e29138ea136b8cd5f687e381347ebb6ef5805f51313"
+        },
+        {
+          "id": "4fe8a5d9-2aa6-4e36-9128-cfca7aff6453",
+          "version": "0aeddb19695eb6087fcafef93c22969e817374569ade4a849007643457efa505",
+          "sha256": "0aeddb19695eb6087fcafef93c22969e817374569ade4a849007643457efa505"
+        }
+      ],
+      "modes": {
+        "A": {
+          "modelRoundTrips": 2,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 41596,
+          "initialRequestBytes": 16012,
+          "workerElapsedMs": 223,
+          "queryTools": 0,
+          "ordinaryReadCalls": 5,
+          "codeExecutions": 0,
+          "nestedReadCalls": 0,
+          "ordinaryReadBatchMs": 107,
+          "discoveryBatchMs": 0,
+          "codeElapsedMs": null,
+          "nestedReadTotalMs": null,
+          "workerCpuMs": null,
+          "controlledResponderMs": 0.89,
+          "codeSourceBytes": 0,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        },
+        "B": {
+          "modelRoundTrips": 3,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 69063,
+          "initialRequestBytes": 17891,
+          "workerElapsedMs": 255,
+          "queryTools": 2,
+          "ordinaryReadCalls": 5,
+          "codeExecutions": 0,
+          "nestedReadCalls": 0,
+          "ordinaryReadBatchMs": 74,
+          "discoveryBatchMs": 16,
+          "codeElapsedMs": null,
+          "nestedReadTotalMs": null,
+          "workerCpuMs": null,
+          "controlledResponderMs": 1.33,
+          "codeSourceBytes": 0,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        },
+        "C": {
+          "modelRoundTrips": 3,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 66625,
+          "initialRequestBytes": 17891,
+          "workerElapsedMs": 632,
+          "queryTools": 2,
+          "ordinaryReadCalls": 0,
+          "codeExecutions": 1,
+          "nestedReadCalls": 5,
+          "ordinaryReadBatchMs": 0,
+          "discoveryBatchMs": 14,
+          "codeElapsedMs": 454,
+          "nestedReadTotalMs": 109,
+          "workerCpuMs": 104.205,
+          "controlledResponderMs": 0.46,
+          "codeSourceBytes": 2266,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        }
+      }
+    },
+    {
+      "trial": 2,
+      "fixtureAnalysisGate": false,
+      "sharedRunElapsedMs": 3771,
+      "identicalSources": [
+        {
+          "id": "3221e723-5330-47d3-b692-34747977ef38",
+          "version": "a4ea763dea333146de87cd537e0bcc853f7d9ad5d3502c7b63fdbc3472f517b4",
+          "sha256": "a4ea763dea333146de87cd537e0bcc853f7d9ad5d3502c7b63fdbc3472f517b4"
+        },
+        {
+          "id": "1163e6fe-7520-4893-a49d-5d489ac9c168",
+          "version": "34d6519fcf224ad3449826125cf6a9a80493767c94a21d0101733013947beb84",
+          "sha256": "34d6519fcf224ad3449826125cf6a9a80493767c94a21d0101733013947beb84"
+        },
+        {
+          "id": "d2cb15f4-a969-4e0c-b256-2f4c9ba96935",
+          "version": "ecdece1cef2da14782844e29138ea136b8cd5f687e381347ebb6ef5805f51313",
+          "sha256": "ecdece1cef2da14782844e29138ea136b8cd5f687e381347ebb6ef5805f51313"
+        },
+        {
+          "id": "d3333840-7075-4be5-8e19-0909d55dba9f",
+          "version": "0aeddb19695eb6087fcafef93c22969e817374569ade4a849007643457efa505",
+          "sha256": "0aeddb19695eb6087fcafef93c22969e817374569ade4a849007643457efa505"
+        }
+      ],
+      "modes": {
+        "A": {
+          "modelRoundTrips": 2,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 41596,
+          "initialRequestBytes": 16012,
+          "workerElapsedMs": 262,
+          "queryTools": 0,
+          "ordinaryReadCalls": 5,
+          "codeExecutions": 0,
+          "nestedReadCalls": 0,
+          "ordinaryReadBatchMs": 128,
+          "discoveryBatchMs": 0,
+          "codeElapsedMs": null,
+          "nestedReadTotalMs": null,
+          "workerCpuMs": null,
+          "controlledResponderMs": 0.31,
+          "codeSourceBytes": 0,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        },
+        "B": {
+          "modelRoundTrips": 3,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 69063,
+          "initialRequestBytes": 17891,
+          "workerElapsedMs": 279,
+          "queryTools": 2,
+          "ordinaryReadCalls": 5,
+          "codeExecutions": 0,
+          "nestedReadCalls": 0,
+          "ordinaryReadBatchMs": 93,
+          "discoveryBatchMs": 15,
+          "codeElapsedMs": null,
+          "nestedReadTotalMs": null,
+          "workerCpuMs": null,
+          "controlledResponderMs": 0.31,
+          "codeSourceBytes": 0,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        },
+        "C": {
+          "modelRoundTrips": 3,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 66625,
+          "initialRequestBytes": 17891,
+          "workerElapsedMs": 501,
+          "queryTools": 2,
+          "ordinaryReadCalls": 0,
+          "codeExecutions": 1,
+          "nestedReadCalls": 5,
+          "ordinaryReadBatchMs": 0,
+          "discoveryBatchMs": 18,
+          "codeElapsedMs": 329,
+          "nestedReadTotalMs": 79,
+          "workerCpuMs": 105.384,
+          "controlledResponderMs": 0.31,
+          "codeSourceBytes": 2266,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        }
+      }
+    },
+    {
+      "trial": 3,
+      "fixtureAnalysisGate": false,
+      "sharedRunElapsedMs": 4063,
+      "identicalSources": [
+        {
+          "id": "0ae8adaf-888b-4950-96f1-1e2fe73dde3c",
+          "version": "a4ea763dea333146de87cd537e0bcc853f7d9ad5d3502c7b63fdbc3472f517b4",
+          "sha256": "a4ea763dea333146de87cd537e0bcc853f7d9ad5d3502c7b63fdbc3472f517b4"
+        },
+        {
+          "id": "a27de9d1-71bd-4886-b6fb-01fb67ea9ee6",
+          "version": "34d6519fcf224ad3449826125cf6a9a80493767c94a21d0101733013947beb84",
+          "sha256": "34d6519fcf224ad3449826125cf6a9a80493767c94a21d0101733013947beb84"
+        },
+        {
+          "id": "6c4256b0-e7d3-47a6-9440-bfaef957d3af",
+          "version": "ecdece1cef2da14782844e29138ea136b8cd5f687e381347ebb6ef5805f51313",
+          "sha256": "ecdece1cef2da14782844e29138ea136b8cd5f687e381347ebb6ef5805f51313"
+        },
+        {
+          "id": "1f0e8859-48df-4196-92b1-321850804a02",
+          "version": "0aeddb19695eb6087fcafef93c22969e817374569ade4a849007643457efa505",
+          "sha256": "0aeddb19695eb6087fcafef93c22969e817374569ade4a849007643457efa505"
+        }
+      ],
+      "modes": {
+        "A": {
+          "modelRoundTrips": 2,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 41596,
+          "initialRequestBytes": 16012,
+          "workerElapsedMs": 263,
+          "queryTools": 0,
+          "ordinaryReadCalls": 5,
+          "codeExecutions": 0,
+          "nestedReadCalls": 0,
+          "ordinaryReadBatchMs": 143,
+          "discoveryBatchMs": 0,
+          "codeElapsedMs": null,
+          "nestedReadTotalMs": null,
+          "workerCpuMs": null,
+          "controlledResponderMs": 0.25,
+          "codeSourceBytes": 0,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        },
+        "B": {
+          "modelRoundTrips": 3,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 69063,
+          "initialRequestBytes": 17891,
+          "workerElapsedMs": 294,
+          "queryTools": 2,
+          "ordinaryReadCalls": 5,
+          "codeExecutions": 0,
+          "nestedReadCalls": 0,
+          "ordinaryReadBatchMs": 97,
+          "discoveryBatchMs": 16,
+          "codeElapsedMs": null,
+          "nestedReadTotalMs": null,
+          "workerCpuMs": null,
+          "controlledResponderMs": 0.36,
+          "codeSourceBytes": 0,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        },
+        "C": {
+          "modelRoundTrips": 3,
+          "inputTokens": null,
+          "outputTokens": null,
+          "cachedInputTokens": null,
+          "billedCost": null,
+          "measuredRequestBytes": 66625,
+          "initialRequestBytes": 17891,
+          "workerElapsedMs": 542,
+          "queryTools": 2,
+          "ordinaryReadCalls": 0,
+          "codeExecutions": 1,
+          "nestedReadCalls": 5,
+          "ordinaryReadBatchMs": 0,
+          "discoveryBatchMs": 25,
+          "codeElapsedMs": 327,
+          "nestedReadTotalMs": 74,
+          "workerCpuMs": 72.963,
+          "controlledResponderMs": 0.25,
+          "codeSourceBytes": 2266,
+          "codeRevisions": 0,
+          "retries": 0,
+          "correct": true,
+          "verifiedSources": 4
+        }
+      }
+    }
+  ]
+}

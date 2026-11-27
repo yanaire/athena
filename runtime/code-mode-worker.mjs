@@ -58,7 +58,7 @@ try {
     if (kind === 'timeout') terminal = { code: 'CPU_LIMIT', message: 'JavaScript exceeded the active computation budget.' };
     else if (/out of memory|stack overflow|script output exceeded|memory access out of bounds/i.test(message))
       terminal = { code: 'RESOURCE_LIMIT', message: 'JavaScript exceeded its memory, stack, or temporary output limit.' };
-    else if (kind === 'script' && name === 'SyntaxError' && !stack?.includes('at <anonymous>'))
+    else if (kind === 'script' && sequence === 0 && name === 'SyntaxError' && !stack?.includes('at <anonymous>'))
       terminal = { code: 'SYNTAX_ERROR', message: 'JavaScript could not be parsed. Supply an async JavaScript function body.' };
     else if (kind === 'script') terminal = { code: 'SCRIPT_ERROR', message: 'JavaScript threw an error. Check the completed and unfinished read calls.' };
     else terminal = { code: 'WORKER_FAILED', message: 'The JavaScript sandbox could not complete.' };

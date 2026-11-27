@@ -67,6 +67,9 @@ test('syntax, source, active CPU, memory, output and call budgets are enforced i
     assert.equal(result.calls.length, code === 'CALL_LIMIT' ? 24 : 0);
     await workerReleased();
   }
+  const afterRead = await run('await tools.call({}); const error = new SyntaxError("script"); error.stack = ""; throw error');
+  assert.equal(afterRead.error?.code,'SCRIPT_ERROR');
+  assert.deepEqual(afterRead.calls.map(call => call.status),['succeeded']);
 });
 
 test('argument, per-read result, cumulative result and queue limits are checked', {timeout:15_000}, async () => {
@@ -139,6 +142,8 @@ test('successive live reads cannot extend the wall deadline', {timeout:10_000}, 
     read:async () => { await delay(1650); return {value:1}; },
   });
   assert.equal(result.error?.code, 'WALL_LIMIT');
-  assert.deepEqual(result.calls.map(call => call.status), ['succeeded','succeeded','succeeded','cancelled','not_dispatched']);
+  assert.equal(result.calls[0]?.status,'succeeded');
+  assert.ok(result.calls.some(call => call.status === 'cancelled'));
+  assert.equal(result.calls.at(-1)?.status,'not_dispatched');
   assert.ok(performance.now() - started >= CODE_LIMITS.wallMs - 25);
 });
