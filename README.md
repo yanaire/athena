@@ -31,9 +31,7 @@
 
 ## Overview
 
-Athena is a research-oriented AI agent harness and desktop workspace. Rather than treating an AI answer as the entire outcome, it connects conversations, delegated tasks, file inspection, analysis and traceable result artifacts in one local workspace.
-
-Athena는 연구자의 질문을 독립적인 에이전트 작업과 실제 데이터 분석으로 연결하는 로컬 연구 워크스페이스입니다. 단순한 AI 채팅을 넘어, 어떤 작업이 실행되었고 어떤 파일과 결과가 사용되었는지 확인하는 데 초점을 둡니다.
+Athena is a local-first workspace for research with AI agents. It connects conversations, delegated tasks, file inspection and analysis, while keeping a traceable record of the work and its results.
 
 **Three design principles**
 
@@ -102,7 +100,7 @@ workflow inspired by Hyra 2.0, not an imported Hyra runtime.
 The source includes the recorded Workflow DAG and reviewed chat fixes. Desktop
 builds support Apple Silicon and Intel on macOS 13.5 or later, and Windows x64
 with an NSIS installer. `npm run desktop:build` selects the native target. See
-the [installation guide](docs/installation.md) and [한국어 설치 안내](docs/installation.ko.md)
+the [installation guide](docs/installation.md) and [Korean installation guide](docs/installation.ko.md)
 for prerequisites and explicit target commands.
 
 The current commit's CI result records automated verification. Signed releases
@@ -155,11 +153,11 @@ The browser-development UI can also connect directly to the local Node host. Tas
 
 ## Quick start
 
-These instructions are for an **authorized local source checkout**. There is no official installer in this preview.
+Run these commands from the root of an **authorized local source checkout**. The source preview has no official installers or public release downloads.
 
 ### 1. Browser development
 
-**Requirements:** Node.js 24 (verified toolchain: 24.22.3), npm and an OpenAI-compatible model server supporting streaming and tool calls. Use the actual endpoint and model identifier of your server.
+The browser workspace runs on Linux, macOS and Windows x64. Linux supports browser development and analysis tests. A native Linux desktop build is unavailable. Use Node.js 24.22.3, npm and an OpenAI-compatible model server that supports streaming and tool calls. Substitute your server's endpoint and model identifier. Use this setup on Linux and macOS.
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
@@ -171,29 +169,37 @@ export ATHENA_MODEL=athena-local
 npm start
 ```
 
+On Windows, install .NET Framework 4.8 or later so `npm start` can prepare the Windows permission helper. Set the same values in PowerShell before starting the host.
+
+```powershell
+npm ci --ignore-scripts --no-audit --no-fund
+$env:ATHENA_ENDPOINT = 'http://127.0.0.1:8080/v1'
+$env:ATHENA_MODEL = 'athena-local'
+npm start
+```
+
 Open **http://127.0.0.1:4317**. In **Settings → Models**, verify and save the connection. Create a project with **Add project**, then create a conversation with **New research**.
 
 The generated `athena-preview.html` opened directly as a file is a standalone demo, not a connected research runtime. No OmO installation, login or session is required.
 
 ### 2. macOS desktop source build
 
-Target: **Apple Silicon · macOS 13.5+**. Install the pinned toolchain and prerequisites described in the [development guide](docs/development.md).
+Build on an Apple Silicon or Intel Mac running macOS 13.5 or later. Install native Node.js 24.22.3, Rust 1.99.1, Python 3, Xcode Command Line Tools, `curl`, `tar` and `unzip`. Use the `aarch64-apple-darwin` Rust target on Apple Silicon or `x86_64-apple-darwin` on Intel. See the [development guide](docs/development.md) for details.
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
+python3 athena-backend-handoff/athena-codex-ui/build.py
 npm run analysis:prepare
-npm run desktop:build
 ```
 
-Output:
+Run the native build command for your Mac.
 
-```text
-src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Athena.app
-```
+| Target | Final build command | App output |
+| --- | --- | --- |
+| Apple Silicon | `npm run desktop:build` | `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Athena.app` |
+| Intel | `npm run desktop:build:mac-intel` | `src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Athena.app` |
 
-The app bundles the Node runtime, Pi SDK and two analysis interpreters, not model weights or credentials. This development build is not Developer ID signed or notarized. Do not bypass Gatekeeper to claim installation acceptance.
-
-See [installation details](docs/installation.md) and [model providers](docs/model-providers.md).
+Copy the complete `Athena.app` to Applications and open it. The developer build bundles the Node runtime, Pi SDK and two analysis interpreters. Set up your model and credentials separately. The app is ad hoc signed. Developer ID signing and notarization are release steps. Do not bypass Gatekeeper to claim installation acceptance.
 
 <details>
 <summary><strong>Personal local ChatGPT build</strong></summary>
@@ -209,6 +215,21 @@ This uses the same bundle output path with a different app identifier. Copy the 
 [Connection instructions](docs/installation.md#personal-local-build-with-chatgpt) · [Verification record](docs/m42/siwc.md)
 
 </details>
+
+### 3. Windows x64 desktop source build
+
+Build on Windows 10 or 11 x64. Install native x64 Node.js 24.22.3, Rust 1.99.1 with the `x86_64-pc-windows-msvc` target, Python 3, Visual Studio Build Tools with **Desktop development with C++**, the Windows SDK, .NET Framework 4.8 or later, WebView2, Windows PowerShell, `curl.exe` and `tar.exe`. See the [development guide](docs/development.md) for details. Windows ARM64 and 32-bit Windows are unsupported. Run the commands in Developer PowerShell for Visual Studio.
+
+```powershell
+npm ci --ignore-scripts --no-audit --no-fund
+python athena-backend-handoff/athena-codex-ui/build.py
+npm run analysis:prepare
+npm run desktop:build:windows
+```
+
+Open the generated `*-setup.exe` in `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/` and follow the installer. It installs Athena for the current user and checks for .NET Framework 4.8 or later. If WebView2 is missing or below 101.0.1210.39, the installer needs internet access to install or update it. The developer installer is unsigned.
+
+See [installation details](docs/installation.md) and [model providers](docs/model-providers.md).
 
 ## Research example
 
@@ -261,7 +282,7 @@ npm test
 python3 athena-backend-handoff/athena-codex-ui/build.py
 ```
 
-The [Verify Athena workflow](.github/workflows/verify.yml) runs `history-secrets`, `apple-silicon`, `browser-chat`, `desktop-mac-intel` and `desktop-windows-x64`. It runs the host suites on native runners, boots desktop apps installed from both Mac DMGs and the Windows NSIS installer, and exercises chat and workflow in Chromium with synthetic inputs. The required branch checks are `history-secrets`, `apple-silicon` and `browser-chat`.
+The [Verify Athena workflow](.github/workflows/verify.yml) runs `history-secrets`, `apple-silicon`, `browser-chat`, `desktop-mac-intel` and `desktop-windows-x64`. It runs the host suites on native runners, boots desktop apps installed from both Mac DMGs and the Windows NSIS installer, and exercises chat and workflow in Chromium with synthetic inputs. All five checks are required on `main`.
 
 For a separate live-model acceptance run, configure the endpoint and model above:
 
