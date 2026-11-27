@@ -52,7 +52,7 @@ window.AthenaManuscripts = {mount(root, options) {
     if(epoch!==generation||id!==selected||q('versions').value!==version)return;
     q('assessment').textContent=[v.assessment?.verdict||'Unreviewed',...(v.issues||[]),...(v.assessment?.findings||[])].join(' · ');
   }
-  async function details(){
+  async function details(preferredVersion){
     clearTimeout(timer);if(!selected)return;
     const token=++detailGeneration,epoch=generation,d=await call('paperDetails',{documentId:selected});
     if(epoch!==generation||token!==detailGeneration||d.id!==selected)return;
@@ -64,6 +64,7 @@ window.AthenaManuscripts = {mount(root, options) {
       choices(q('versions'),versions,'Select a revision');q('versions').value=previous&&d.versions.includes(previous)?previous:d.versions.at(-1)||'';
       q('versions').dataset.signature=JSON.stringify(versions);
     }
+    if(preferredVersion!==undefined)q('versions').value=d.versions.includes(preferredVersion)?preferredVersion:'';
     const r=d.runs.at(-1);
     q('progress').textContent=r?[r.stage+' · '+r.executionStatus,...r.sections.map(s=>'Draft saved · '+s.heading),
       ...r.reviews.flatMap(v=>[v.verdict,...v.checks,...v.findings]),r.error].filter(Boolean).join('\n'):'Ready';
@@ -133,7 +134,7 @@ window.AthenaManuscripts = {mount(root, options) {
     } catch(error){if(epoch===generation)notice(error);}
     finally{button.disabled=false;if(epoch===generation&&selected)details().catch(notice);}
   },listeners);
-  return {attach(value){service=value;reset();},refresh,reload(){details().catch(notice);},scope(s){
+  return {attach(value){service=value;reset();},refresh,reload(version){details(version).catch(notice);},scope(s){
     snapshot=s;
     if(project!==s.projectId||session!==s.sessionId){project=s.projectId;session=s.sessionId;reset();}
     const items=(snapshot.artifacts||[]).filter(a=>a.status==='ready').map(a=>[a.id,a.title]);

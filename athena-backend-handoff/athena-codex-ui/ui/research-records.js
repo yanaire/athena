@@ -70,7 +70,7 @@
       if (existing && (existing.text !== revision.text || JSON.stringify(existing.evidence) !== JSON.stringify(revision.evidence))) throw new Error('A stored version cannot replace different text or evidence.');
       if (existing) { existing.persistence = 'host'; existing.originalLocation = revision.originalLocation; existing.review = revision.review; }
       else doc.versions.push(revision);
-      if (!doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
+      if ((!input.currentVersion || input.currentVersion === revision.version) && !doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
         doc.currentVersion = revision.version; doc.selectedVersion = revision.version; doc.title = revision.title;
         doc.draft = { text: revision.text, baseVersion: revision.version, dirty: false };
       }
@@ -106,6 +106,11 @@
     async function loadDocument(id, version) {
       const result = await operation(id, 'getDocument', (target, project) => target.getDocument({ projectId: project, documentId: id, ...(version == null ? {} : { version: String(version) }) }));
       if (result?.documentId !== id || version != null && String(result?.version) !== String(version)) throw new Error('The document service returned a different document or revision.');
+      if (result.currentVersion && result.currentVersion !== result.version && !getDocument(id)?.versions.some(v => v.version === result.currentVersion)) {
+        const current = await operation(id, 'getDocument', (target, project) => target.getDocument({projectId:project,documentId:id}));
+        if (current.documentId !== id || current.projectId !== result.projectId) throw new Error('The current manuscript changed scope.');
+        acceptDocument(current);
+      }
       return acceptDocument(result);
     }
     async function exportPDF(id, value) {
