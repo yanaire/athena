@@ -9,7 +9,7 @@ export function compatibleEndpoint(input: string): { readonly url: string; reado
 
 /** A credential and its destination are captured together. Redirects are never followed. */
 export function addCompatibleModels(runtime: ModelRuntime, provider: string, name: string,
-  endpoint: ReturnType<typeof compatibleEndpoint>, ids: readonly string[], key?: string): Promise<void> {
+  endpoint: ReturnType<typeof compatibleEndpoint>, ids: readonly string[], key?: string, imageInput = false): Promise<void> {
   runtime.registerProvider(provider, {
     name, baseUrl: endpoint.url, api: 'openai-completions', authHeader: Boolean(key),
     streamSimple: (model, context, options) => streamSimple({ ...model, api: 'openai-completions', baseUrl: endpoint.url }, context, {
@@ -19,7 +19,7 @@ export function addCompatibleModels(runtime: ModelRuntime, provider: string, nam
         return fetch(input, { ...init, redirect: 'error' });
       }, ...(!key && endpoint.loopback ? { headers: { ...options?.headers, Authorization: null } } : {}),
     }),
-    models: ids.map(id => ({ id, name: id, reasoning: false, input: ['text'], contextWindow: 32768, maxTokens: 4096,
+    models: ids.map(id => ({ id, name: id, reasoning: false, input: imageInput ? ['text', 'image'] : ['text'], contextWindow: 32768, maxTokens: 4096,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       compat: { supportsDeveloperRole: false, supportsStore: false, supportsUsageInStreaming: true } })),
   });

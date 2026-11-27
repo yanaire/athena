@@ -14,7 +14,7 @@ export class DesktopImageResult {
 }
 
 const swatches = {
-  red: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAATElEQVR42u3PQQ0AAAgEoNP+nTWCbzdoQE1+6wgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHBZShQF/CY4YrwAAAABJRU5ErkJggg==',
+  red: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAATElEQVR42u3PQQ0AAAgEoNP+nTWCbzdoQE1+6wgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHBZShQF/CY4YrwAAAABJRU5ErkJggg==',
   blue: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAATUlEQVR42u3PQQ0AAAgEoNP+nTWFDzdoQCWTzzrPCQgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICNxbUIcBf7p/yPgAAAAASUVORK5CYII=',
   green: 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAATUlEQVR42u3PQQ0AAAgEoNPkRreBfzdoQGXyWicCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICArcFYVwBAL949tEAAAAASUVORK5CYII=',
 } as const;
@@ -44,19 +44,23 @@ export async function verifyDesktopModel(selection: PiModelSelection | undefined
       content: [{ type: 'image', mimeType: 'image/png', data: swatches[color] }], isError: false, timestamp },
   ] };
   let reply: Awaited<ReturnType<ReturnType<typeof modelRuntime.streamSimple>['result']>>;
+  let status: number | undefined;
   try {
     const result = modelRuntime.streamSimple(model, probe, {
       signal: AbortSignal.any([signal, AbortSignal.timeout(25_000)]),
       maxRetries: 0, maxTokens: Math.min(768, model.maxTokens),
+      onResponse: response => { status = response.status; },
     });
     reply = await result.result();
   } catch (cause) {
     signal.throwIfAborted();
-    throw new DesktopError('failed', 'The selected model connection could not be checked for image input and tool calls.', { cause });
+    throw new DesktopError(status === 401 || status === 403 ? 'denied' : 'failed',
+      'The selected model connection could not be checked for image input and tool calls.', { cause });
   }
   signal.throwIfAborted();
   if (reply.stopReason === 'error' || reply.stopReason === 'aborted') {
-    throw new DesktopError('failed', 'The model connection failed during the image and tool call check. No FreeCAD image was sent.');
+    throw new DesktopError(status === 401 || status === 403 ? 'denied' : status === 400 || status === 415 ? 'unsupported' : 'failed',
+      'The model connection failed during the image and tool call check. No FreeCAD image was sent.');
   }
   if (reply.stopReason !== 'toolUse' || !reply.content.some(part =>
     part.type === 'toolCall' && part.name === toolName && part.arguments.color === color)) {

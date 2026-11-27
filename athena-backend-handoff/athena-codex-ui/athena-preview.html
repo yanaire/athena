@@ -45,6 +45,8 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 .ac-freecad-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;border:0;padding:0;margin:12px 0;min-width:0}
 .ac-freecad-fields label{display:grid;gap:4px;align-content:start;min-width:0}
 .ac-freecad-fields .ac-select{width:100%;min-width:0}
+.ac-freecad-sharing{display:flex;align-items:start;gap:7px;margin-top:8px}
+.ac-freecad-actions{flex-wrap:wrap}
 
 /* Athena composer. Motion references are recorded in composer.js.
    All selectors and tokens stay inside the application root. */
@@ -2802,8 +2804,16 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
         <label>Height (mm)<input class="ac-select" type="number" name="height" value="10" min="0.1" max="1000" step="0.01" required></label>
         <label>Centered through-hole diameter (mm)<input class="ac-select" type="number" name="diameter" value="6" min="0.1" max="1000" step="0.01" required></label>
       </fieldset>
+      <label class="ac-freecad-sharing"><input type="checkbox" name="allowWindow" aria-describedby="ac-freecad-window-scope" disabled> Allow FreeCAD window control and image sharing</label>
+      <p id="ac-freecad-window-scope" class="ac-panel-description"></p>
       <p id="ac-freecad-status" class="ac-panel-description" role="status" aria-live="polite"></p>
-      <div class="ac-dialog-actions"><button type="button" class="ac-button cursor-interaction" id="ac-freecad-artifacts" hidden>View artifacts</button><button type="submit" class="ac-button ac-button-primary cursor-interaction" id="ac-freecad-submit" disabled>Run and verify</button></div>
+      <div class="ac-dialog-actions ac-freecad-actions">
+        <button type="button" class="ac-button cursor-interaction" id="ac-freecad-stop" hidden>Stop</button>
+        <button type="button" class="ac-button cursor-interaction" id="ac-freecad-takeover" hidden>Take over FreeCAD</button>
+        <button type="button" class="ac-button cursor-interaction" id="ac-freecad-recover" hidden>Check existing files</button>
+        <button type="button" class="ac-button cursor-interaction" id="ac-freecad-artifacts" hidden>View artifacts</button>
+        <button type="submit" class="ac-button ac-button-primary cursor-interaction" id="ac-freecad-submit" disabled>Run and verify</button>
+      </div>
     </form>
   </dialog>
   <div class="ac-toast" id="ac-toast" role="status" aria-live="polite" hidden></div>

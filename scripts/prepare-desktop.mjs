@@ -82,7 +82,7 @@ async function stageHost(host) {
   // Only repository runtime source files and the existing generated browser assets are deployable.
   await mkdir(join(host, 'runtime'));
   for (const entry of await readdir(join(root, 'runtime'), { withFileTypes: true })) {
-    if (entry.isFile() && (/\.(?:ts|mjs)$/.test(entry.name) || ['desktop-qt.py', 'freecad-api.py'].includes(entry.name))) {
+    if (entry.isFile() && (/\.(?:ts|mjs)$/.test(entry.name) || ['desktop-qt.py', 'freecad-api.py', 'freecad-gui.py'].includes(entry.name))) {
       await copyFile(join(root, 'runtime', entry.name), join(host, 'runtime', entry.name));
     }
   }

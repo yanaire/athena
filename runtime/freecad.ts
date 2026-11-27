@@ -39,7 +39,7 @@ export function freeCadSpec(value: unknown): FreeCadSpec {
   }
   const dimension = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0.1 && n <= 1000;
   if (!dimension(length) || !dimension(width) || !dimension(height) || !dimension(diameter) ||
-    Math.min(length, width) - diameter < 0.1 ||
+    Math.min(length, width) - diameter < 0.1 - 1e-8 ||
     ![length, width, height, diameter].every(n => Math.abs(n * 100 - Math.round(n * 100)) < 1e-8)) {
     throw new TypeError('Use 0.1–1000 mm in increments of 0.01 mm, with at least 0.1 mm between the diameter and each horizontal dimension.');
   }
@@ -83,7 +83,7 @@ function directory(path: string): string {
   return real;
 }
 
-function appProfile(profile: string, background = false) {
+export function freeCadAppProfile(profile: string, background = false) {
   createPrivateDirectory(profile);
   return {
     args: ['-u', join(profile, 'user.cfg'), '-s', join(profile, 'system.cfg')],
@@ -106,6 +106,7 @@ export function freeCadInstallation(options: ProbeOptions = {}) {
 }
 
 type WorkerReceipt = Readonly<{ version: string; files?: Readonly<Record<string, unknown>> }>;
+export type FreeCadWriter = Readonly<{ lock: string; marker: string; attemptId: string }>;
 
 export class FreeCadAdapter {
   readonly #options: ProbeOptions;
@@ -119,17 +120,17 @@ export class FreeCadAdapter {
   installation() { return freeCadInstallation(this.#options); }
 
   async #worker(mode: 'author' | 'verify', workspace: string, spec: FreeCadSpec, signal: AbortSignal,
-    started: (pid: number) => void) {
+    started: (pid: number) => void, runtimeDirectory = workspace, writer?: FreeCadWriter) {
     signal.throwIfAborted();
     const { app, python, modules, authoringUnsupported } = this.installation();
     if (mode === 'author' && authoringUnsupported) {
       throw new DesktopError('unsupported', 'The FreeCAD authoring adapter reports this operation unsupported.');
     }
     if (!app && !python) throw new DesktopError('unsupported', 'A supported FreeCAD installation was not found.');
-    const profile = join(workspace, mode + '-' + randomUUID());
-    const { args, env } = appProfile(profile, !python);
+    const profile = join(runtimeDirectory, mode + '-' + randomUUID());
+    const { args, env } = freeCadAppProfile(profile, !python);
     const request = join(profile, 'request.json');
-    writeNewPrivateFileSync(request, JSON.stringify({ mode, workspace, spec, modules }));
+    writeNewPrivateFileSync(request, JSON.stringify({ mode, workspace, spec, modules, writer }));
     const script = fileURLToPath(new URL('./freecad-api.py', import.meta.url));
     const executable = python ?? app!;
     const owner = join(profile, 'owner');
@@ -163,7 +164,8 @@ export class FreeCadAdapter {
       const receipt: unknown = report ? JSON.parse(report.slice(resultPrefix.length)) : null;
       if (!dictionary(receipt)) throw new DesktopError(mode === 'author' ? 'indeterminate' : 'failed', 'FreeCAD did not return a result receipt.');
       if (receipt.status !== 'ok') {
-        const code = receipt.status === 'denied' || receipt.status === 'unsupported' || receipt.status === 'indeterminate'
+        const code = receipt.status === 'denied' || receipt.status === 'unsupported' || receipt.status === 'indeterminate' ||
+          receipt.status === 'invalid_result'
           ? receipt.status : 'failed';
         throw new DesktopError(code, typeof receipt.message === 'string' ? receipt.message : 'The FreeCAD operation failed.');
       }
@@ -178,11 +180,11 @@ export class FreeCadAdapter {
     }
   }
 
-  author(workspace: string, spec: FreeCadSpec, signal: AbortSignal, started: (pid: number) => void) {
-    return this.#worker('author', workspace, spec, signal, started);
+  author(workspace: string, spec: FreeCadSpec, signal: AbortSignal, started: (pid: number) => void, writer?: FreeCadWriter) {
+    return this.#worker('author', workspace, spec, signal, started, workspace, writer);
   }
 
-  verify(workspace: string, spec: FreeCadSpec, signal: AbortSignal, started: (pid: number) => void) {
-    return this.#worker('verify', workspace, spec, signal, started);
+  verify(workspace: string, spec: FreeCadSpec, signal: AbortSignal, started: (pid: number) => void, runtimeDirectory?: string) {
+    return this.#worker('verify', workspace, spec, signal, started, runtimeDirectory);
   }
 }

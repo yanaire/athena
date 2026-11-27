@@ -127,7 +127,11 @@ async function rpc(method: string, args: unknown[]) {
     case 'getFreeCadStatus': return manager.getFreeCadStatus(string(input));
     case 'startFreeCad':
       if (credentialWrite || oauthPending()) throw new ManagerError('CREDENTIAL_BUSY', 'Finish the credential operation before starting FreeCAD.');
-      return manager.startFreeCad(string(input), string(second), args[2]);
+      return manager.startFreeCad(string(input), string(second), args[2], args[3] === undefined ? false : booleanArg(args[3]));
+    case 'recoverFreeCad':
+      if (credentialWrite || oauthPending()) throw new ManagerError('CREDENTIAL_BUSY', 'Finish the credential operation before checking FreeCAD outputs.');
+      return manager.recoverFreeCad(string(input), string(second), string(args[2]));
+    case 'takeOverFreeCad': return manager.takeOverFreeCad(string(input), string(second));
     case 'getExtensions': return manager.getExtensions(string(input));
     case 'installPlugin': return manager.installPlugin(string(input),second,revisionArg(args[2]));
     case 'setPluginEnabled': return manager.setPluginEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));

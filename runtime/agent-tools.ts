@@ -98,10 +98,15 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       parameters:Type.Object({serverId:id,tool:id,arguments:Type.Record(Type.String(),Type.Unknown())},closed)})] : []),
   ];
 
+  if (role === 'parent' && freecad) return {
+    systemPrompt: 'You are Athena. Call freecad_run({}) exactly once for the scoped FreeCAD request. Report its verified outputs or the recorded error. Do not retry a write.',
+    customTools: [delegated({ name: 'freecad_run', label: 'Run FreeCAD job',
+      description: 'Run the exact FreeCAD operation authorized in the workspace. The host publishes only verified files.',
+      parameters: Type.Object({}, closed) })],
+  };
   switch (role) {
     case "parent": return {
-      systemPrompt: measurementParent + " Delegate a granted RC input JSON to one child for calculate_rc_response, then join. " + (executionEnabled ? "Delegate with spawn_agent and join with wait_for_agents. In the join response, result is the child's own report; artifacts is what Athena actually published. If outputs were requested but artifacts is empty, send_to_agent with a correction and join again, or report the failure. Read the published result using read_file({artifactId}) before citing its values. Copy URIs only from artifacts. Use fileIds or artifactIds to explicitly pass inputs." : parentPrompt) + resourcePrompt + researchPrompt
-        + (freecad ? '\nThe user approved a scoped FreeCAD job. Call freecad_run({}) exactly once. Report the verified files or the returned error. Do not substitute a different program or retry the write.' : ''),
+      systemPrompt: measurementParent + " Delegate a granted RC input JSON to one child for calculate_rc_response, then join. " + (executionEnabled ? "Delegate with spawn_agent and join with wait_for_agents. In the join response, result is the child's own report; artifacts is what Athena actually published. If outputs were requested but artifacts is empty, send_to_agent with a correction and join again, or report the failure. Read the published result using read_file({artifactId}) before citing its values. Copy URIs only from artifacts. Use fileIds or artifactIds to explicitly pass inputs." : parentPrompt) + resourcePrompt + researchPrompt,
       customTools: [executionEnabled ? delegated({name:"read",label:"Read attached input",description:"Read an input attachment using its exact granted project-relative path.",readOnly:true,parameters:Type.Object({path:id},closed)}) : projectRead,
         ...(executionEnabled ? [delegated({name:"read_file",label:"Verify artifact",description:"Read the verified contents of a direct child's completed artifact in this run.",parameters:artifact,readOnly:true})] : []),
         delegated({ name: "spawn_agent", label: "Spawn agent", description: "Start a direct child research task. Returns its task ID. Omit requestId unless retrying the same request.",
@@ -114,9 +119,6 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
         delegated({ name: "list_tasks", label: "List tasks", description: "List direct child tasks and their current states.", readOnly: true, parameters: Type.Object({}, closed) }),
         delegated({ name: "cancel_task", label: "Cancel task", description: "Cancel a direct child by task ID.", parameters: oneTask }),
         ...shared, ...parentResearch,
-        ...(freecad ? [delegated({ name: 'freecad_run', label: 'Run FreeCAD job',
-          description: 'Run the exact FreeCAD operation authorized in the workspace. The host opens both outputs again and publishes only verified files.',
-          parameters: Type.Object({}, closed) })] : []),
       ],
     };
     case "child": return {

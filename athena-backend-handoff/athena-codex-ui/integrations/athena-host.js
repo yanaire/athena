@@ -28,24 +28,41 @@
     const dialog = document.getElementById('ac-freecad');
     if (!open || !dialog) return;
     const form = document.getElementById('ac-freecad-form');
+    const share = form.elements.namedItem('allowWindow');
     const scope = document.getElementById('ac-freecad-scope');
+    const windowScope = document.getElementById('ac-freecad-window-scope');
     const status = document.getElementById('ac-freecad-status');
     const submit = document.getElementById('ac-freecad-submit');
     const artifacts = document.getElementById('ac-freecad-artifacts');
+    const stop = document.getElementById('ac-freecad-stop');
+    const takeover = document.getElementById('ac-freecad-takeover');
+    const recover = document.getElementById('ac-freecad-recover');
+    const outcomeLabels = { unsupported: 'Unsupported', denied: 'Permission denied', indeterminate: 'Result unknown',
+      invalid_result: 'Files did not pass verification', stopped: 'Stopped', busy: 'Control is busy', failed: 'Failed' };
     let sessionId, permission, submitting = false, error = '';
     const pending = state => ['queued', 'running', 'blocked'].includes(state?.run?.status);
+    const recoveryTarget = state => state?.processes?.findLast(row => row.job?.freecad?.recoveryRequired
+      && !['queued', 'running'].includes(row.status));
     const render = state => {
       open.hidden = !capabilities.includes('freecad') || !state?.sessionId;
       if (!dialog.open) return;
       if (state?.sessionId !== sessionId) { dialog.close(); return; }
       const last = state.processes?.filter(row => row.runId === state.run.id && row.job?.freecad).at(-1)?.job;
       const outcome = last?.freecad?.outcome;
-      submit.disabled = !permission?.available || submitting || pending(state);
+      share.disabled = !permission?.windowAvailable || submitting || pending(state);
+      submit.disabled = (!permission?.available && !(permission?.windowAvailable && share.checked)) || submitting || pending(state);
+      stop.hidden = !state?.run?.freecad || !pending(state);
+      takeover.hidden = stop.hidden || last?.freecad?.phase !== 'window';
+      stop.disabled = takeover.disabled = submitting;
+      recover.hidden = pending(state) || !recoveryTarget(state);
+      recover.disabled = submitting;
       artifacts.hidden = outcome !== 'verified';
+      const failure = outcomeLabels[outcome] ? outcomeLabels[outcome] + (last.error ? ' · ' + last.error : '') : last?.error;
       status.textContent = error || (last
-        ? (last.error || (outcome === 'verified' ? 'Both files passed read-only verification.' : 'FreeCAD is running.')) +
+        ? (failure || (outcome === 'verified' ? 'Both files passed read-only verification.' : 'FreeCAD is running.')) +
           '\n' + last.freecad.outputDirectory
-        : pending(state) ? 'Waiting for the model to call the FreeCAD tool.' : permission?.reason || '');
+        : pending(state) && state.run.freecad ? 'Waiting for the model to call the FreeCAD tool.'
+          : state.run.error || permission?.reason || '');
     };
     workspaceListeners.add(render);
     open.addEventListener('click', async () => {
@@ -53,7 +70,9 @@
       if (!sessionId || dialog.open) return;
       const selected = sessionId;
       error = ''; permission = null;
+      share.checked = false;
       scope.textContent = 'Checking the local FreeCAD installation…';
+      windowScope.textContent = '';
       const source = form.elements.namedItem('sourceArtifactId');
       source.replaceChildren(new Option('Create a new part', ''));
       for (const file of snapshot.artifacts || []) {
@@ -66,12 +85,29 @@
         permission = description;
         scope.textContent = 'App · ' + permission.app + '\nProject · ' + permission.project
           + '\nOutput · ' + permission.outputRoot + '\nModel · ' + (permission.model || 'No model selected')
-          + '\nThe API route uses tool calls without screen capture.';
+          + '\nThe API route uses tool calls. Each write has its own output directory.';
+        windowScope.textContent = permission.windowReason ||
+          'When API authoring is unsupported, Athena checks image input and tool calls with the selected model. It can then control a new FreeCAD window and send its final image to that model. The image is saved with this conversation.';
       } catch (cause) { error = cause.message; }
       render(snapshot);
     });
+    share.addEventListener('change', () => render(snapshot));
     document.getElementById('ac-freecad-close').addEventListener('click', () => dialog.close());
     artifacts.addEventListener('click', () => { dialog.close(); app.openWorkspace('artifacts'); });
+    async function action(method, args) {
+      error = ''; submitting = true; render(snapshot);
+      try {
+        const result = await rpc(method, args);
+        if (result?.success === false) throw new Error(result.error || 'The FreeCAD request was not accepted.');
+      } catch (cause) { error = cause.message; }
+      finally { submitting = false; render(snapshot); }
+    }
+    stop.addEventListener('click', () => action('cancelRun', [snapshot.run.id]));
+    takeover.addEventListener('click', () => action('takeOverFreeCad', [sessionId, snapshot.run.id]));
+    recover.addEventListener('click', () => {
+      const prior = recoveryTarget(snapshot);
+      if (prior) return action('recoverFreeCad', [sessionId, crypto.randomUUID(), prior.id]);
+    });
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (submit.disabled || !form.reportValidity()) return;
@@ -79,12 +115,7 @@
       const spec = { name: values.get('name'), length: Number(values.get('length')), width: Number(values.get('width')),
         height: Number(values.get('height')), diameter: Number(values.get('diameter')),
         ...(values.get('sourceArtifactId') ? { sourceArtifactId: values.get('sourceArtifactId') } : {}) };
-      error = ''; submitting = true; render(snapshot);
-      try {
-        const result = await rpc('startFreeCad', [sessionId, crypto.randomUUID(), spec]);
-        if (!result?.success) throw new Error(result?.error || 'The FreeCAD job was not accepted.');
-      } catch (cause) { error = cause.message; }
-      finally { submitting = false; render(snapshot); }
+      await action('startFreeCad', [sessionId, crypto.randomUUID(), spec, share.checked && permission?.windowAvailable === true]);
     });
   }
   // M3 model-profile surface. Advertised only when the host reports the

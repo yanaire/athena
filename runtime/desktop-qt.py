@@ -18,6 +18,23 @@ class BridgeError(Exception):
         self.status = status
 
 
+class _QueuedAction(QtCore.QObject):
+    """Guard a Qt slot that must enter a modal event loop from native code."""
+    def __init__(self, widget, allowed):
+        super().__init__(widget)
+        self.allowed = allowed
+        widget.installEventFilter(self)
+
+    def eventFilter(self, widget, event):
+        if event.type() != QtCore.QEvent.MetaCall:
+            return False
+        widget.removeEventFilter(self)
+        try:
+            return not self.allowed()
+        finally:
+            self.deleteLater()
+
+
 def _parent_alive(pid):
     if os.name != "nt":
         return lambda: os.getppid() == pid
@@ -39,14 +56,16 @@ def _write_json(path, value):
 
 
 class WindowBridge:
-    def __init__(self, directory, app_id, main_window, document_identity, actions):
+    def __init__(self, directory, app_id, main_window, document_identity, actions, on_release):
         self.directory = pathlib.Path(directory)
         self.app_id = app_id
         self.main = main_window
         self.document_identity = document_identity
         self.actions = actions
+        self.on_release = on_release
         self.parent_alive = _parent_alive(int(os.environ["ATHENA_DESKTOP_PARENT"]))
         self.observed = None
+        self.dispatch = None
         self.timer = QtCore.QTimer(self.main)
         self.timer.timeout.connect(self._poll)
         self.timer.start(40)
@@ -78,10 +97,28 @@ class WindowBridge:
         }
         return window, identity
 
+    def queue_native_slot(self, widget, slot):
+        deadline, identity = self.dispatch
+
+        def allowed():
+            try:
+                return self._live() and time.time() * 1000 < deadline and self._window()[1] == identity
+            except BridgeError:
+                return False
+
+        guard = _QueuedAction(widget, allowed)
+        # Retain the wrapper until Qt has checked and consumed the queued event.
+        widget._athena_action_guard = guard
+        if not QtCore.QMetaObject.invokeMethod(widget, slot, QtCore.Qt.QueuedConnection):
+            widget.removeEventFilter(guard)
+            guard.deleteLater()
+            raise BridgeError("failed", "The observed Qt slot is unavailable.")
+
     def _poll(self):
         if not self._live():
             self.observed = None
             self.timer.stop()
+            self.on_release()
             return
         path = self.directory / "request.json"
         try:
@@ -113,16 +150,21 @@ class WindowBridge:
                 if not self._live():
                     raise BridgeError("stopped", "The user took over the app.")
                 dispatched = True
+                self.dispatch = (request["deadline"], identity)
                 actions[request["target"]]()
             else:
                 raise BridgeError("unsupported", "Unknown app bridge operation.")
         except BridgeError as error:
-            status.update(status=error.status, message=str(error))
+            code = "indeterminate" if dispatched and error.status == "stale_observation" else error.status
+            status.update(status=code, message=str(error))
         except PermissionError:
             status.update(status="indeterminate" if dispatched else "denied", message="The app bridge could not access its scoped files.")
         except Exception:
             status.update(status="indeterminate" if dispatched else "failed", message="The app bridge could not complete the operation.")
         finally:
+            self.dispatch = None
             if self._live():
                 _write_json(self.directory / "reply.json", status)
                 self.timer.start(40)
+            else:
+                self.on_release()

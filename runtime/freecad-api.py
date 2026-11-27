@@ -4,6 +4,7 @@ import math
 import os
 import pathlib
 import re
+import sqlite3
 import sys
 
 
@@ -43,7 +44,7 @@ def _normal_part(doc, app, spec, editing):
 
 
 def _author(app, part, workspace, spec):
-    original = workspace / "source.FCStd"
+    original = workspace / ".athena-source.FCStd"
     editing = original.is_file()
     doc = app.openDocument(str(original)) if editing else app.newDocument("AthenaPart")
     try:
@@ -58,6 +59,21 @@ def _author(app, part, workspace, spec):
         return {"status": "ok"}
     finally:
         app.closeDocument(doc.Name)
+
+
+def _locked_author(app, part, workspace, spec, writer):
+    if writer is None:
+        return _author(app, part, workspace, spec)
+    uri = pathlib.Path(writer["lock"]).as_uri() + "?mode=rw"
+    db = sqlite3.connect(uri, timeout=0, uri=True)
+    try:
+        db.execute("BEGIN EXCLUSIVE")
+        with open(writer["marker"], encoding="utf-8") as file:
+            if json.load(file)["attemptId"] != writer["attemptId"]:
+                return {"status": "denied", "message": "The FreeCAD write grant is inactive."}
+        return _author(app, part, workspace, spec)
+    finally:
+        db.close()
 
 
 def _paths(workspace, spec):
@@ -144,7 +160,7 @@ def main():
         return {"status": "unsupported", "message": "The approved process could not load the FreeCAD Python API."}
     try:
         if mode == "author":
-            output = _author(app, part, workspace, request["spec"])
+            output = _locked_author(app, part, workspace, request["spec"], request.get("writer"))
         elif mode == "verify":
             output = _verify(app, part, workspace, request["spec"])
         else:
@@ -153,7 +169,8 @@ def main():
     except PermissionError:
         return {"status": "denied", "message": "FreeCAD could not access a scoped file."}
     except Exception as error:
-        return {"status": "indeterminate" if mode == "author" else "failed",
+        status = "indeterminate" if mode == "author" else "invalid_result" if isinstance(error, ValueError) else "failed"
+        return {"status": status,
                 "message": str(error).splitlines()[0][:400] if isinstance(error, ValueError) else "FreeCAD could not complete the scoped operation."}
 
 

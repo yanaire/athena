@@ -35,7 +35,8 @@ export interface ProcessMcp {
 }
 export interface ProcessJob {
   readonly mcp?: ProcessMcp;
-  readonly freecad?: { readonly route: 'api'; readonly outcome?: string; readonly outputDirectory: string };
+  readonly freecad?: { readonly route: 'api' | 'gui' | 'recovery'; readonly outcome?: string; readonly outputDirectory: string;
+    readonly phase?: 'authoring' | 'window' | 'verification'; readonly recoveryRequired?: boolean };
   readonly externalMcp?: { readonly serverId: string; readonly pluginId: string; readonly pluginRevision: string; readonly verificationDigest: string; readonly url: string; readonly tool: string; readonly argumentDigest?: string };
   readonly program?: string; readonly args?: readonly string[]; readonly cwd?: string | null;
   readonly limits?: Readonly<Record<string, number>>; readonly policy?: Readonly<Record<string, unknown>>;
@@ -57,7 +58,8 @@ export interface WorkspaceSnapshot {
   /** Monotonically increasing across this subscription, including session switches. */
   revision: number; projectId: string | null; sessionId: string | null;
   projects: Project[]; sessions: Session[];
-  run: { id: string | null; status: Status; startedAt: number | null; elapsedMs: number; model: ModelReference | null };
+  run: { id: string | null; status: Status; startedAt: number | null; elapsedMs: number; model: ModelReference | null;
+    readonly freecad?: true; readonly error?: string };
   tasks: Task[]; agents: Agent[]; tools: Tool[]; artifacts: Artifact[]; events: WorkspaceEvent[]; approvals: Approval[];
   readonly execution?: ExecutionPolicy;
   readonly attempts?: readonly Attempt[]; readonly processes?: readonly Process[];

@@ -61,6 +61,6 @@ export function launchOwnedApp(executable: string, args: readonly string[], opti
       resolve({ code, stdout: overflow ? '' : stdout.toString('utf8'), error: startError });
     });
   });
-  return { started, closed, exited: exited.signal,
+  return { started, closed, exited: exited.signal, detach: () => child.unref(),
     terminate: () => !exited.signal.aborted && child.exitCode === null && child.signalCode === null && child.kill('SIGKILL') };
 }
