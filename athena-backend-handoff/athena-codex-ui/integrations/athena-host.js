@@ -23,6 +23,70 @@
     if (!Object.hasOwn(body, 'result')) throw new Error('The workspace service returned an invalid response.');
     return body.result;
   }
+  function bindFreeCad() {
+    const open = document.getElementById('ac-freecad-open');
+    const dialog = document.getElementById('ac-freecad');
+    if (!open || !dialog) return;
+    const form = document.getElementById('ac-freecad-form');
+    const scope = document.getElementById('ac-freecad-scope');
+    const status = document.getElementById('ac-freecad-status');
+    const submit = document.getElementById('ac-freecad-submit');
+    const artifacts = document.getElementById('ac-freecad-artifacts');
+    let sessionId, permission, submitting = false, error = '';
+    const pending = state => ['queued', 'running', 'blocked'].includes(state?.run?.status);
+    const render = state => {
+      open.hidden = !capabilities.includes('freecad') || !state?.sessionId;
+      if (!dialog.open) return;
+      if (state?.sessionId !== sessionId) { dialog.close(); return; }
+      const last = state.processes?.filter(row => row.runId === state.run.id && row.job?.freecad).at(-1)?.job;
+      const outcome = last?.freecad?.outcome;
+      submit.disabled = !permission?.available || submitting || pending(state);
+      artifacts.hidden = outcome !== 'verified';
+      status.textContent = error || (last
+        ? (last.error || (outcome === 'verified' ? 'Both files passed read-only verification.' : 'FreeCAD is running.')) +
+          '\n' + last.freecad.outputDirectory
+        : pending(state) ? 'Waiting for the model to call the FreeCAD tool.' : permission?.reason || '');
+    };
+    workspaceListeners.add(render);
+    open.addEventListener('click', async () => {
+      sessionId = snapshot?.sessionId;
+      if (!sessionId || dialog.open) return;
+      const selected = sessionId;
+      error = ''; permission = null;
+      scope.textContent = 'Checking the local FreeCAD installation…';
+      const source = form.elements.namedItem('sourceArtifactId');
+      source.replaceChildren(new Option('Create a new part', ''));
+      for (const file of snapshot.artifacts || []) {
+        if (file.file?.receiptKind === 'freecad-v1' && file.title.endsWith('.FCStd')) source.add(new Option(file.title, file.id));
+      }
+      dialog.showModal(); render(snapshot);
+      try {
+        const description = await rpc('getFreeCadStatus', [selected]);
+        if (!dialog.open || selected !== sessionId || snapshot?.sessionId !== selected) return;
+        permission = description;
+        scope.textContent = 'App · ' + permission.app + '\nProject · ' + permission.project
+          + '\nOutput · ' + permission.outputRoot + '\nModel · ' + (permission.model || 'No model selected')
+          + '\nThe API route uses tool calls without screen capture.';
+      } catch (cause) { error = cause.message; }
+      render(snapshot);
+    });
+    document.getElementById('ac-freecad-close').addEventListener('click', () => dialog.close());
+    artifacts.addEventListener('click', () => { dialog.close(); app.openWorkspace('artifacts'); });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (submit.disabled || !form.reportValidity()) return;
+      const values = new FormData(form);
+      const spec = { name: values.get('name'), length: Number(values.get('length')), width: Number(values.get('width')),
+        height: Number(values.get('height')), diameter: Number(values.get('diameter')),
+        ...(values.get('sourceArtifactId') ? { sourceArtifactId: values.get('sourceArtifactId') } : {}) };
+      error = ''; submitting = true; render(snapshot);
+      try {
+        const result = await rpc('startFreeCad', [sessionId, crypto.randomUUID(), spec]);
+        if (!result?.success) throw new Error(result?.error || 'The FreeCAD job was not accepted.');
+      } catch (cause) { error = cause.message; }
+      finally { submitting = false; render(snapshot); }
+    });
+  }
   // M3 model-profile surface. Advertised only when the host reports the
   // 'model_profiles' capability; a legacy host keeps the M2 contract exactly.
   // API keys are passed through as request values only and are never stored,
@@ -186,6 +250,7 @@
         const nextCursor = validCursor(data.cursor) ? data.cursor : null;
         capabilities = data.capabilities; piCapabilities = data.piCapabilities; inputContract = data.inputContract;
         snapshot = { ...data.snapshot, execution: data.snapshot.execution ?? data.execution }; connection = data.connection;
+        notify(workspaceListeners, snapshot);
         unbind();
         await app.attachTaskManager(manager);
         if (destroyed || streamBound !== streamEpoch) return;
@@ -262,6 +327,7 @@
   function start() {
     if (app || !window.AthenaApp) return;
     app = window.AthenaApp; app.enterHostedMode();
+    bindFreeCad();
     retryButton = document.createElement('button');
     retryButton.id = 'ac-host-reconnect'; retryButton.type = 'button'; retryButton.className = 'ac-text-button cursor-interaction';
     retryButton.textContent = 'Retry connection'; retryButton.hidden = true;

@@ -39,6 +39,12 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 .ac-inline-progress{height:3px;background:#e9eae6;border-radius:6px;overflow:hidden;margin-top:5px}.ac-inline-progress span{display:block;height:100%;background:#8ba9a1;border-radius:6px;transition:width .2s}
 .ac-inline-agent>svg{width:16px;height:16px;color:#a4a9a4;flex:none}
 @media(max-width:640px){.ac-inline-agent{gap:8px;padding:11px}.ac-inline-agent-title{flex-wrap:wrap}.ac-inline-status{margin-left:0}}
+#ac-freecad{color:inherit;max-width:min(540px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;margin:auto}
+#ac-freecad::backdrop{background:#0006}
+#ac-freecad-scope,#ac-freecad-status{overflow-wrap:anywhere;white-space:pre-line}
+.ac-freecad-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;border:0;padding:0;margin:12px 0;min-width:0}
+.ac-freecad-fields label{display:grid;gap:4px;align-content:start;min-width:0}
+.ac-freecad-fields .ac-select{width:100%;min-width:0}
 
 /* Athena composer. Motion references are recorded in composer.js.
    All selectors and tokens stay inside the application root. */
@@ -2732,7 +2738,7 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
             <button type="button" class="cursor-interaction" id="ac-pi-send-queued" data-action="pi-send-queued"><i data-lucide="corner-up-right" aria-hidden="true"></i><span>Send draft</span></button>
             <button type="button" class="ac-pi-queue-count cursor-interaction" data-action="pi-queue" aria-label="View queued messages"><i data-lucide="list-ordered" aria-hidden="true"></i><span id="ac-pi-queue-count">0 queued</span></button>
           </div>
-          <div class="ac-composer-caption"><span><i data-lucide="folder-open" aria-hidden="true"></i>Biosignal circuits</span><span id="ac-pi-session-status" class="ac-pi-session-status">UI preview · sample data</span></div>
+          <div class="ac-composer-caption"><span><i data-lucide="folder-open" aria-hidden="true"></i>Biosignal circuits</span><button type="button" id="ac-freecad-open" class="ac-text-button cursor-interaction" hidden>FreeCAD</button><span id="ac-pi-session-status" class="ac-pi-session-status">UI preview · sample data</span></div>
           <div id="ac-pi-statuses" class="ac-pi-statuses" role="status" aria-live="polite" hidden></div>
         </div>
       </section>
@@ -2784,6 +2790,22 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
   </main>
   <button class="ac-overlay-scrim" id="ac-overlay-scrim" aria-label="Close open panel" hidden></button>
   <div class="ac-dialog-backdrop" id="ac-dialog-backdrop" hidden><section class="ac-dialog" role="dialog" aria-modal="true" aria-labelledby="ac-dialog-title"><div class="ac-dialog-heading"><h2 id="ac-dialog-title"></h2><button class="ac-icon-button cursor-interaction" data-action="close-dialog" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button></div><div id="ac-dialog-content"></div><div class="ac-dialog-actions"><button class="ac-button ac-button-subtle cursor-interaction" data-action="close-dialog">Close</button><button class="ac-button ac-button-primary cursor-interaction" id="ac-dialog-primary" hidden></button></div></section></div>
+  <dialog id="ac-freecad" class="ac-dialog" aria-labelledby="ac-freecad-title">
+    <form id="ac-freecad-form">
+      <div class="ac-dialog-heading"><h2 id="ac-freecad-title">FreeCAD</h2><button type="button" class="ac-text-button cursor-interaction" id="ac-freecad-close">Close</button></div>
+      <p id="ac-freecad-scope" class="ac-panel-description"></p>
+      <fieldset class="ac-freecad-fields">
+        <label>Output name<input class="ac-select" name="name" value="test_part" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,63}" required></label>
+        <label>Source document<select class="ac-select" name="sourceArtifactId"><option value="">Create a new part</option></select></label>
+        <label>Length (mm)<input class="ac-select" type="number" name="length" value="40" min="0.1" max="1000" step="0.01" required></label>
+        <label>Width (mm)<input class="ac-select" type="number" name="width" value="20" min="0.1" max="1000" step="0.01" required></label>
+        <label>Height (mm)<input class="ac-select" type="number" name="height" value="10" min="0.1" max="1000" step="0.01" required></label>
+        <label>Centered through-hole diameter (mm)<input class="ac-select" type="number" name="diameter" value="6" min="0.1" max="1000" step="0.01" required></label>
+      </fieldset>
+      <p id="ac-freecad-status" class="ac-panel-description" role="status" aria-live="polite"></p>
+      <div class="ac-dialog-actions"><button type="button" class="ac-button cursor-interaction" id="ac-freecad-artifacts" hidden>View artifacts</button><button type="submit" class="ac-button ac-button-primary cursor-interaction" id="ac-freecad-submit" disabled>Run and verify</button></div>
+    </form>
+  </dialog>
   <div class="ac-toast" id="ac-toast" role="status" aria-live="polite" hidden></div>
   <span class="ac-sr-only" id="ac-live-status" role="status" aria-live="polite"></span>
 </div>

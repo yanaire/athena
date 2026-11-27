@@ -34,10 +34,17 @@ export function applicationEnvironment(source: NodeJS.ProcessEnv = process.env):
 }
 
 export function launchOwnedApp(executable: string, args: readonly string[], options: {
-  readonly cwd: string; readonly env: NodeJS.ProcessEnv; readonly background?: boolean;
+  readonly cwd: string; readonly env: NodeJS.ProcessEnv; readonly background?: boolean; readonly captureOutput?: boolean;
 }) {
-  const child = spawn(executable, args, { ...options, windowsHide: options.background === true, stdio: 'ignore', shell: false });
+  const child = spawn(executable, args, { cwd: options.cwd, env: options.env, windowsHide: options.background === true,
+    stdio: ['ignore', options.captureOutput ? 'pipe' : 'ignore', 'ignore'], shell: false });
   const exited = new AbortController();
+  let stdout = Buffer.alloc(0);
+  let overflow = false;
+  child.stdout?.on('data', (bytes: Buffer) => {
+    if (overflow || stdout.length + bytes.length > 64 * 1024) { overflow = true; return; }
+    stdout = Buffer.concat([stdout, bytes]);
+  });
   let startError: NodeJS.ErrnoException | undefined;
   const started = new Promise<number>((resolve, reject) => {
     child.once('spawn', () => resolve(child.pid!));
@@ -48,10 +55,10 @@ export function launchOwnedApp(executable: string, args: readonly string[], opti
       reject(new DesktopError(code, 'The approved local app could not start.', { cause: error }));
     });
   });
-  const closed = new Promise<{ code: number | null; error?: NodeJS.ErrnoException }>(resolve => {
+  const closed = new Promise<{ code: number | null; stdout: string; error?: NodeJS.ErrnoException }>(resolve => {
     child.once('close', code => {
       exited.abort();
-      resolve({ code, error: startError });
+      resolve({ code, stdout: overflow ? '' : stdout.toString('utf8'), error: startError });
     });
   });
   return { started, closed, exited: exited.signal,

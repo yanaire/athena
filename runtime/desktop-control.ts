@@ -54,9 +54,13 @@ export function checkDesktopPng(bytes: Uint8Array): Buffer {
 
 /** Same-user Athena hosts share one input lease, including across data directories. */
 export function acquireDesktopInput(directory = join(homedir(), '.athena', 'desktop-control')): () => void {
+  return acquireLocalLock(directory, 'input.sqlite', 'Another Athena task has desktop input control.');
+}
+
+export function acquireLocalLock(directory: string, filename: string, busy: string): () => void {
   try {
     createPrivateDirectory(directory);
-    const path = join(directory, 'input.sqlite');
+    const path = join(directory, filename);
     try { writeNewPrivateFileSync(path, ''); }
     catch (cause) {
       if (!(cause instanceof Error && 'code' in cause && cause.code === 'EEXIST')) throw cause;
@@ -70,14 +74,14 @@ export function acquireDesktopInput(directory = join(homedir(), '.athena', 'desk
     catch (cause) {
       db.close();
       if (cause instanceof Error && 'errcode' in cause && cause.errcode === 5) {
-        throw new DesktopError('busy', 'Another Athena task has desktop input control.', { cause });
+        throw new DesktopError('busy', busy, { cause });
       }
       throw cause;
     }
     return () => db.close();
   } catch (cause) {
     if (cause instanceof DesktopError) throw cause;
-    throw new DesktopError('denied', 'Athena could not acquire the local desktop input lock.', { cause });
+    throw new DesktopError('denied', 'Athena could not acquire the local app automation lock.', { cause });
   }
 }
 

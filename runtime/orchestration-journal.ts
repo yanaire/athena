@@ -122,7 +122,8 @@ export class Journal {
     if(!tool || tool.projectId!==job.projectId || tool.sessionId!==job.sessionId || tool.taskId!==job.taskId)throw new Error('Process has no owning tool.');
     const ctx=context(tool), processId=job.attemptId;
     const evidence=job.analysis?.inputs.flatMap(f=>f.fileId && f.versionId?[{id:f.fileId,version:f.versionId}]:[])??
-      (job.grant?[{id:job.grant.fileId,version:job.grant.versionId}]:[]);
+      (job.grant ? [{id:job.grant.fileId,version:job.grant.versionId}]
+        : job.freecad?.source ? [{ id: job.freecad.source.id, version: job.freecad.source.versionId }] : []);
     this.db.putRecord('process',{...ctx,id:processId,processId,toolId:tool.id,status:job.status,job,evidence} satisfies ProcessRow);
     const files=job.artifacts??(job.artifact?[job.artifact]:[]);
     const links={toolId:tool.id,processId,artifactId:files[0]?.id};

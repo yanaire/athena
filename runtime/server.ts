@@ -124,6 +124,10 @@ async function rpc(method: string, args: unknown[]) {
   const [input, second] = args;
   switch (method) {
     case 'getSnapshot': return manager.getSnapshot();
+    case 'getFreeCadStatus': return manager.getFreeCadStatus(string(input));
+    case 'startFreeCad':
+      if (credentialWrite || oauthPending()) throw new ManagerError('CREDENTIAL_BUSY', 'Finish the credential operation before starting FreeCAD.');
+      return manager.startFreeCad(string(input), string(second), args[2]);
     case 'getExtensions': return manager.getExtensions(string(input));
     case 'installPlugin': return manager.installPlugin(string(input),second,revisionArg(args[2]));
     case 'setPluginEnabled': return manager.setPluginEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));

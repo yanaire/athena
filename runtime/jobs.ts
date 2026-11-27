@@ -5,14 +5,17 @@ import { AnalysisFiles, validateOutputNames, type AnalysisArtifact, type Analysi
 export { ANALYSIS_LIMITS } from './analysis-sandbox.ts';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, existsSync, rmSync } from 'node:fs';
 import { lstat, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 import { callExternalMcp, EXTERNAL_MCP_LIMITS, validateExternalVerification, matchesExternalSchema, extensionDigest } from './external-mcp-client.ts';
 import type { PinnedExternalServer } from './extensions.ts';
-import { createPrivateDirectory } from './private-storage.ts';
+import { createPrivateDirectory, writeNewPrivateFileSync } from './private-storage.ts';
+import { acquireLocalLock, DesktopError, type DesktopErrorCode } from './desktop-control.ts';
+import { freeCadFileBytes, freeCadMime, freeCadNames, freeCadSpec, freeCadVerificationName, freeCadWorkerTimeout,
+  type FreeCadAdapter, type FreeCadSpec } from './freecad.ts';
 
 type Scope = { readonly projectId: string; readonly sessionId: string };
 type FileVersion = Scope & { readonly fileId: string; readonly versionId: string; readonly name: string };
@@ -25,6 +28,20 @@ export type McpArtifact = Scope & {
   readonly id: string; readonly attemptId: string; readonly name: string; readonly mcpAlias?: string;
   readonly mimeType: 'application/json'; readonly bytes: number; readonly sha256: string;
   readonly receiptKind?: 'external-mcp-v1';
+};
+export type FreeCadArtifact = Scope & {
+  readonly id: string; readonly attemptId: string; readonly taskId: string; readonly name: string;
+  readonly mimeType: NonNullable<ReturnType<typeof freeCadMime>>; readonly bytes: number; readonly sha256: string;
+  readonly receiptKind: 'freecad-v1';
+};
+export type FreeCadJob = Identity & {
+  readonly adapter: FreeCadAdapter; readonly spec: FreeCadSpec;
+  readonly source?: { readonly id: string; readonly versionId: string; readonly bytes: Uint8Array };
+};
+type FreeCadExecution = {
+  readonly spec: FreeCadSpec; readonly outputDirectory: string; readonly route: 'api';
+  readonly source?: { readonly id: string; readonly versionId: string };
+  readonly outcome?: 'verified' | DesktopErrorCode;
 };
 type JobErrorCode = 'INVALID_INPUT' | 'CLOSED' | 'QUEUE_FULL' | 'DUPLICATE_ATTEMPT'
   | 'GRANT_DENIED' | 'ARTIFACT_DENIED' | 'INVALID_FILE' | 'UNSUPPORTED_PLATFORM';
@@ -111,7 +128,8 @@ export type JobAttempt = Identity & { readonly grantId?: string; readonly column
     readonly alias?:string; readonly resultKind?:string; readonly displayName?:string; readonly registryVersion?:number };
   readonly toolArguments?: Readonly<Record<string,unknown>>;
   readonly externalMcp?: {readonly serverId:string;readonly pluginId:string;readonly pluginRevision:string;readonly verificationDigest:string;readonly url:string;readonly tool:string;readonly argumentDigest:string};
-  readonly artifacts?: readonly AnalysisArtifact[]; readonly containerId?: string; readonly executionId?: string;
+  readonly artifacts?: readonly (AnalysisArtifact | FreeCadArtifact)[]; readonly containerId?: string; readonly executionId?: string;
+  readonly freecad?: FreeCadExecution;
   readonly analysis?: { readonly language: SandboxJob['language']; readonly script: string; readonly outputs: readonly string[];
     readonly inputs: readonly {readonly name:string; readonly sha256:string; readonly fileId?:string; readonly versionId?:string}[];
     readonly limits: Readonly<Record<string, number>>; readonly imageId?:string; readonly version?:string; readonly backend?: 'wasi'; readonly engine?: string };
@@ -149,13 +167,15 @@ export type JobRunnerOptions = {
 };
 
 type StopReason = 'cancelled' | 'timed_out' | 'output_limit';
-type JobHandle = { readonly result: Promise<JobAttempt>; cancel(): void };
+type JobHandle<T extends JobAttempt = JobAttempt> = { readonly result: Promise<T>; cancel(): void };
+type AnalysisAttempt = JobAttempt & { readonly artifacts?: readonly AnalysisArtifact[] };
 type Pending = {
   cancelBeforePublication?: boolean;
   attempt: JobAttempt;
   readonly analysis?: SandboxJob;
   readonly registration?: Registration;
   readonly external?: Pick<ExternalMcpJob,'server'|'tool'|'arguments'|'token'>;
+  readonly freecad?: FreeCadJob;
   readonly result: Promise<JobAttempt>;
   readonly resolve: (attempt: JobAttempt) => void;
   stop?: StopReason;
@@ -182,6 +202,7 @@ function boundedInt(value: number | undefined, fallback: number, limit: number, 
 
 /** Only this host's live child handle can request a group signal. */
 export class JobRunner {
+  readonly #dataDir: string;
   readonly #directory: string;
   readonly #files: AnalysisFiles;
   #discovery?: Promise<AnalysisAccess>;
@@ -200,7 +221,8 @@ export class JobRunner {
     if (process.release.name !== 'node' || !['darwin', 'linux', 'win32'].includes(process.platform) || Number(process.versions.node.split('.')[0]) < 24) {
       throw new CsvJobError('UNSUPPORTED_PLATFORM', 'Job execution requires Node 24+ on macOS, Windows or Linux.');
     }
-    this.#directory = resolve(options.dataDir, 'csv-jobs');
+    this.#dataDir = resolve(options.dataDir);
+    this.#directory = join(this.#dataDir, 'csv-jobs');
     this.#files = new AnalysisFiles(options.dataDir);
     this.#concurrency = boundedInt(options.concurrency, 1, MCP_LIMITS.maxConcurrency, 'job concurrency');
     this.#limits = Object.freeze({ ...MCP_LIMITS, timeoutMs: boundedInt(options.timeoutMs, 5_000, MCP_LIMITS.maxTimeoutMs, 'job timeout') });
@@ -212,6 +234,7 @@ export class JobRunner {
       if (prior.status === 'running' || prior.status === 'queued') {
         const attempt: JobAttempt = Object.freeze({ ...prior, status: 'interrupted', endedAt: Date.now(),
           exitCode: null, signal: null, cancellation: 'unknown', artifact: undefined, artifacts: undefined,
+          ...(prior.freecad ? { freecad: { ...prior.freecad, outcome: 'indeterminate' as const } } : {}),
           error: 'Host restarted before the process attempt settled. Process termination was not observed; the attempt will not rerun.' });
         queueMicrotask(() => this.#emit({ type: 'process_finished', attempt }));
       }
@@ -285,7 +308,7 @@ export class JobRunner {
     return this.#discovery ??= analysisAccess().finally(() => {this.#discovery = undefined;});
   }
 
-  startAnalysis(input: AnalysisJob): JobHandle {
+  startAnalysis(input: AnalysisJob): JobHandle<AnalysisAttempt> {
     this.#assertOpen();
     const {language} = input;
     if (language !== 'node' && language !== 'python') throw new CsvJobError('INVALID_INPUT','Unsupported analysis language.');
@@ -315,10 +338,30 @@ export class JobRunner {
     const job = {projectId:text(input.projectId,'project ID'),sessionId:text(input.sessionId,'session ID'),taskId:text(input.taskId,'task ID'),
       requestId:text(input.requestId,'request ID'),attemptId:text(input.attemptId,'attempt ID'),toolId:text(input.toolId,'tool ID'),
       analysis:Object.freeze({language,script:script.name,inputs:Object.freeze(receipts),outputs,limits:ANALYSIS_LIMITS}),args};
-    return this.#admit(job,{language,script,inputs,outputs,args});
+    return this.#admit(job,{language,script,inputs,outputs,args}) as JobHandle<AnalysisAttempt>;
   }
 
-  #admit(job: Identity & Partial<Pick<JobAttempt,'grantId'|'column'|'analysis'|'args'|'toolArguments'|'externalMcp'>>, analysis?: SandboxJob, registration?: Registration, external?:Pending['external']):JobHandle {
+  freeCadOutputRoot(projectId: string): string {
+    if (!UUID.test(projectId)) throw new CsvJobError('INVALID_INPUT', 'Invalid FreeCAD project ID.');
+    return join(this.#dataDir, 'projects', projectId, 'cad');
+  }
+
+  startFreeCad(input: FreeCadJob): JobHandle {
+    this.#assertOpen();
+    const spec = freeCadSpec(input.spec);
+    const { projectId, sessionId, taskId, attemptId, toolId, requestId, source } = input;
+    if (!UUID.test(attemptId) || Boolean(spec.sourceArtifactId) !== Boolean(source) ||
+      (source && (source.id !== spec.sourceArtifactId || source.bytes.byteLength < 1 || source.bytes.byteLength > freeCadFileBytes))) {
+      throw new CsvJobError('INVALID_INPUT', 'Invalid FreeCAD job or source artifact.');
+    }
+    const freecad: FreeCadExecution = { spec,
+      outputDirectory: join(this.freeCadOutputRoot(projectId), spec.name.toLowerCase(), attemptId),
+      route: 'api', ...(source ? { source: { id: source.id, versionId: source.versionId } } : {}) };
+    return this.#admit({ projectId, sessionId, taskId, attemptId, toolId, requestId, freecad },
+      undefined, undefined, undefined, { ...input, spec });
+  }
+
+  #admit(job: Identity & Partial<Pick<JobAttempt,'grantId'|'column'|'analysis'|'args'|'toolArguments'|'externalMcp'|'freecad'>>, analysis?: SandboxJob, registration?: Registration, external?:Pending['external'], freecad?: FreeCadJob):JobHandle {
     const key = attemptKey(job);
     if (this.#known.has(key)) throw new CsvJobError('DUPLICATE_ATTEMPT', 'Job attempt IDs cannot be reused.');
     if (this.#queue.length >= MCP_LIMITS.queue) throw new CsvJobError('QUEUE_FULL', 'The job queue is full.');
@@ -327,11 +370,12 @@ export class JobRunner {
     const externalIdentity=external ? {registryVersion:1,server:external.server.verification.serverInfo.name,displayName:external.server.definition.name,
       version:external.server.verification.serverInfo.version,protocol:external.server.verification.protocolVersion,tool:external.tool,
       alias:'external:'+external.server.id+':'+external.tool,resultKind:'mcp-result',phase:'initialize' as const} : undefined;
-    const pending: Pending = { result, resolve, analysis, registration, external, attempt: Object.freeze({ ...job,
+    const pending: Pending = { result, resolve, analysis, registration, external, freecad, attempt: Object.freeze({ ...job,
       ...(externalIdentity ? {mcp:externalIdentity} : registration ? { mcp: { ...registration.binding.identity, phase: 'initialize' as const } } : {}),
-      program: external ? 'External MCP' : analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
-      cwd: null, env: external ? {} : analysis ? analysisEnv : ENV,
-      limits: external ? {...this.#limits,artifactBytes:EXTERNAL_MCP_LIMITS.responseBytes+16*1024,timeoutMs:external.server.definition.timeoutMs ?? 10000} : this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
+      program: freecad ? 'FreeCAD' : external ? 'External MCP' : analysis ? analysis.language : process.execPath, args: job.args ?? Object.freeze([]),
+      cwd: null, env: external || freecad ? {} : analysis ? analysisEnv : ENV,
+      limits: freecad ? { ...this.#limits, artifactBytes: freeCadFileBytes, timeoutMs: freeCadWorkerTimeout }
+        : external ? {...this.#limits,artifactBytes:EXTERNAL_MCP_LIMITS.responseBytes+16*1024,timeoutMs:external.server.definition.timeoutMs ?? 10000} : this.#limits, pid: null, status: 'queued', startedAt: null, endedAt: null,
       exitCode: null, signal: null, cancellation: 'not_requested', stdout: '', stderr: '' }) };
     this.#queue.push(pending);
     this.#admitting++;
@@ -351,7 +395,8 @@ export class JobRunner {
   }
 
   /** Only persisted, session-authorized artifact records should reach the runner. */
-  async download(artifact: McpArtifact): Promise<Buffer> {
+  async download(artifact: McpArtifact | FreeCadArtifact): Promise<Buffer> {
+    if (artifact.receiptKind === 'freecad-v1') return this.#downloadFreeCad(artifact);
     const { id, projectId, sessionId, attemptId, bytes, sha256: digest } = artifact;
     // External outputs have a self-contained immutable receipt. A plugin may
     // be updated or removed after publication without breaking past downloads.
@@ -377,6 +422,26 @@ export class JobRunner {
     } catch (error) {
       if (error instanceof CsvJobError && error.code === 'ARTIFACT_DENIED') throw error;
       throw new CsvJobError('ARTIFACT_DENIED', 'MCP artifact is unreadable or failed verification.', { cause: error });
+    }
+  }
+
+  async #downloadFreeCad(artifact: FreeCadArtifact) {
+    const { id, bytes, sha256: digest, name, mimeType } = artifact;
+    if (!UUID.test(id) || !SHA256.test(digest) || freeCadMime(name) !== mimeType ||
+      !Number.isSafeInteger(bytes) || bytes < 1 || bytes > freeCadFileBytes) {
+      throw new CsvJobError('ARTIFACT_DENIED', 'Invalid FreeCAD artifact reference.');
+    }
+    try {
+      const directory = join(await this.#root('attempts'), attemptKey(artifact));
+      const receipt: unknown = JSON.parse((await readBounded(directory, id + '.json', 8192)).toString('utf8'));
+      if (!object(receipt) || Object.entries(artifact).some(([key, value]) => receipt[key] !== value)) {
+        throw new Error('The FreeCAD receipt did not match the artifact.');
+      }
+      const content = await readBounded(directory, id + '.bin', freeCadFileBytes);
+      if (content.length !== bytes || sha256(content) !== digest) throw new Error('The FreeCAD artifact digest changed.');
+      return content;
+    } catch (cause) {
+      throw new CsvJobError('ARTIFACT_DENIED', 'The FreeCAD artifact failed receipt verification.', { cause });
     }
   }
 
@@ -478,6 +543,10 @@ export class JobRunner {
       }
       if (pending.external) {
         await this.#runExternal(pending,pending.external,cwd);
+        return;
+      }
+      if (pending.freecad) {
+        await this.#runFreeCad(pending, pending.freecad, cwd);
         return;
       }
       const registration = pending.registration;
@@ -605,6 +674,75 @@ export class JobRunner {
         error:pending.stop==='cancelled' ? dispatched?'Request cancelled locally. The external server may still have completed the operation.':undefined
           :timedOut?'External MCP call exceeded its time limit; it will not be replayed automatically.':safe});
     } finally { clearTimeout(timeout); }
+  }
+
+  async #runFreeCad(pending: Pending, job: FreeCadJob, receipts: string) {
+    const execution = pending.attempt.freecad!;
+    const workspace = execution.outputDirectory;
+    const documentDir = join(workspace, '..');
+    const marker = join(documentDir, 'pending.json');
+    const names = freeCadNames(job.spec);
+    const abort = new AbortController();
+    pending.terminate = () => abort.abort(new DesktopError('stopped', 'The FreeCAD task was stopped.'));
+    const log = (message: string) => this.#emit({ type: 'process_output', attempt: pending.attempt, stream: 'stdout', text: message });
+    const started = (pid: number) => {
+      pending.attempt = Object.freeze({ ...pending.attempt, pid });
+      this.#emit({ type: 'process_started', attempt: pending.attempt });
+    };
+    let release: (() => void) | undefined;
+    let marked = false;
+    let writeStarted = false;
+    try {
+      release = acquireLocalLock(documentDir, 'document.sqlite', 'This FreeCAD document already has a writer.');
+      if (existsSync(marker)) {
+        throw new DesktopError('indeterminate', 'An earlier FreeCAD write needs a result check before another write to this document.');
+      }
+      await privateDirectory(workspace);
+      if (pending.stop) pending.terminate();
+      abort.signal.throwIfAborted();
+      pending.attempt = Object.freeze({ ...pending.attempt, status: 'running', cwd: workspace, startedAt: Date.now() });
+      this.#emit({ type: 'process_started', attempt: pending.attempt });
+      if (job.source) writeNewPrivateFileSync(join(workspace, 'source.FCStd'), job.source.bytes);
+      writeNewPrivateFileSync(marker, JSON.stringify({ projectId: job.projectId, sessionId: job.sessionId, attemptId: job.attemptId, spec: job.spec }), { flush: true });
+      marked = true;
+      log(job.source ? 'Editing the verified source through the FreeCAD API.' : 'Creating the part through the FreeCAD API.');
+      const author = await job.adapter.author(workspace, job.spec, abort.signal, pid => { writeStarted = true; started(pid); });
+      abort.signal.throwIfAborted();
+      const before = await Promise.all(names.map(name => readBounded(workspace, name, freeCadFileBytes)));
+      log('Reopening the FCStd and STEP with a read-only FreeCAD verifier.');
+      const verified = await job.adapter.verify(workspace, job.spec, abort.signal, started);
+      const after = await Promise.all(names.map(name => readBounded(workspace, name, freeCadFileBytes)));
+      if (!verified.files || before.some((file, index) => !file.equals(after[index]!))) {
+        throw new DesktopError('indeterminate', 'The scoped outputs changed during verification.');
+      }
+      const report = { app: 'FreeCAD', route: 'api', authorVersion: author.version, verifierVersion: verified.version,
+        spec: job.spec, source: execution.source, files: verified.files, readOnlyReopen: true,
+        sha256: Object.fromEntries(names.map((name, index) => [name, sha256(before[index]!)])) };
+      const files = [...names.map((name, index) => ({ name, bytes: before[index]! })),
+        { name: freeCadVerificationName, bytes: Buffer.from(JSON.stringify(report, null, 2) + '\n') }];
+      abort.signal.throwIfAborted();
+      const artifacts = files.map(({ name, bytes }): FreeCadArtifact => {
+        const artifact: FreeCadArtifact = { id: randomUUID(), projectId: job.projectId, sessionId: job.sessionId, taskId: job.taskId,
+          attemptId: job.attemptId, name, mimeType: freeCadMime(name)!, bytes: bytes.length, sha256: sha256(bytes), receiptKind: 'freecad-v1' };
+        writeNewPrivateFileSync(join(receipts, artifact.id + '.bin'), bytes, { flush: true });
+        writeNewPrivateFileSync(join(receipts, artifact.id + '.json'), JSON.stringify(artifact), { flush: true });
+        return artifact;
+      });
+      rmSync(marker);
+      log('Both files passed read-only geometry and unit verification.');
+      this.#finish(pending, { status: 'succeeded', artifacts, exitCode: 0, freecad: { ...execution, outcome: 'verified' } });
+    } catch (cause) {
+      const error = cause instanceof DesktopError ? cause
+        : new DesktopError(errorCode(cause) === 'EACCES' || errorCode(cause) === 'EPERM' ? 'denied'
+          : writeStarted ? 'indeterminate' : 'failed', 'The scoped FreeCAD operation did not complete.', { cause });
+      if (marked && (!writeStarted || ((error.code === 'unsupported' || error.code === 'denied') &&
+        !names.some(name => existsSync(join(workspace, name)))))) rmSync(marker, { force: true });
+      this.#finish(pending, { status: pending.stop ? 'cancelled' : 'failed', error: error.message,
+        cancellation: pending.stop ? writeStarted ? 'unknown' : 'confirmed' : 'not_requested',
+        freecad: { ...execution, outcome: pending.stop && writeStarted ? 'indeterminate' : error.code } });
+    } finally {
+      release?.();
+    }
   }
 
   async #runAnalysis(pending:Pending, job:SandboxJob, cwd:string):Promise<void> {
