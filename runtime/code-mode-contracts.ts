@@ -4,7 +4,7 @@ import { hash, ManagerError, object } from './orchestration.ts';
 
 export const RESEARCH_BOARD = 'athena.research.get_research_board';
 export const READ_ARTIFACT = 'athena.artifacts.read_file';
-export const closed = { additionalProperties: false } as const;
+const closed = { additionalProperties: false } as const;
 const identifier = Type.String({ minLength: 1, maxLength: 256 });
 const digest = Type.String({ pattern: '^[a-f0-9]{64}$', minLength: 64, maxLength: 64 });
 const version = Type.Integer({ minimum: 1, maximum: 2147483647 });

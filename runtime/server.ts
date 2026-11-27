@@ -81,9 +81,10 @@ function publish(event: object) {
   }
 }
 // A tool batch can commit several durable receipts in one event-loop tick.
-// Send the newest workspace view once per frame while retaining every Pi event.
+// Send the newest active workspace view once per refresh interval.
 let nextSnapshot: WorkspaceSnapshot | undefined;
 let snapshotTimer: NodeJS.Timeout | undefined;
+let activeConversation: string | null = null;
 function flushSnapshot() {
   clearTimeout(snapshotTimer);
   snapshotTimer = undefined;
@@ -92,11 +93,16 @@ function flushSnapshot() {
   if (current) publish({ type: 'snapshot', snapshot: current });
 }
 manager.subscribe(snapshot => {
+  activeConversation = snapshot.sessionId;
   nextSnapshot = snapshot;
   if (['queued', 'running', 'blocked'].includes(snapshot.run.status)) snapshotTimer ??= setTimeout(flushSnapshot, 80).unref();
   else flushSnapshot();
 });
-manager.subscribeAllPi((sessionId, event) => publish({ type: 'pi', sessionId, event }));
+// The app consumes the conversation's Pi stream and uses saved snapshots for
+// worker activity. Forwarding worker streams repeats their tool results.
+manager.subscribeAllPi((sessionId, event) => {
+  if (sessionId === activeConversation) publish({ type: 'pi', sessionId, event });
+});
 
 function string(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) throw new TypeError('Expected a nonempty string.');

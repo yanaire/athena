@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
 import { createCodeModeFixture, request, subjects } from '../../../tests/support/code-mode-fixture.mjs';
 
 const evidence = process.env.ATHENA_BROWSER_EVIDENCE || join(tmpdir(), 'athena-code-mode-browser');
 const fixture = await createCodeModeFixture({allowGateFixture:true,browser:true});
 const checks = [], errors = [], streamFailures = [];
+let liveProgress, stopRequestAt;
 let browser, page;
 await mkdir(evidence,{recursive:true});
 try {
@@ -17,6 +19,12 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   page.on('requestfailed', request => {
     if (new URL(request.url()).pathname === '/api/events') streamFailures.push(request.failure()?.errorText);
+  });
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/rpc') {
+      const body = request.postDataJSON();
+      if (body?.method === 'pi' && body.args?.[1]?.type === 'abort') stopRequestAt = Date.now();
+    }
   });
   const screenshot = name => page.screenshot({path:join(evidence, name + '.png'),fullPage:true});
   const connected = () => page.waitForFunction(() => {
@@ -85,21 +93,38 @@ try {
   await fixture.conversation();
   await page.reload();
   await connected();
-  await send('Code-mode test: cancel',attachments.slice(0,1));
-  const running = summaryRow('running');
-  await running.waitFor({state:'visible'});
-  await page.waitForFunction(() => {
-    const current = document.querySelector('[data-aw-code-status="running"] [data-aw-code-progress]');
-    return current?.textContent.includes('reading') && current.textContent.includes('waiting');
+  // Observe the live DOM before sending. Transient progress can appear between
+  // Playwright's locator polls while the host still has an active read.
+  await page.evaluate(() => {
+    window.codeModeTestProgress = new Promise(resolve => {
+      const observer = new MutationObserver(() => {
+        const progress = document.querySelector('[data-aw-code-status="running"] [data-aw-code-progress]');
+        const value = progress?.textContent || '';
+        if (!progress?.getClientRects().length || !value.includes('reading') || !value.includes('waiting')) return;
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve(value);
+      });
+      const timer = setTimeout(() => { observer.disconnect(); resolve(null); }, 30_000);
+      observer.observe(document.body, {childList:true,subtree:true,attributes:true,characterData:true});
+    });
   });
-  await screenshot('code-mode-04-running');
-  await page.getByRole('button',{name:'Stop response',exact:true}).click();
+  await send('Code-mode test: cancel',attachments.slice(0,1));
+  await fixture.waitSnapshot(snapshot => snapshot.processes.some(row => row.job.codeMode?.calls.some(call => call.status === 'running')
+    && row.job.codeMode.calls.some(call => call.status === 'queued')));
+  // The test exits the real composer flow while reads are pending. Allow the
+  // progress snapshot to enter the event feed before issuing the click.
+  await delay(175);
+  await page.getByRole('button',{name:'Stop response',exact:true}).click({force:true,timeout:4_000});
+  liveProgress = await page.evaluate(() => window.codeModeTestProgress);
+  assert.match(liveProgress || '',/reading.*waiting/);
   const stopped = summaryRow('cancelled');
   await showDetails(stopped);
   assert.match(await stopped.locator('[data-aw-code-progress]').innerText(),/[1-4] completed.*unfinished/);
   assert.ok(await stopped.locator('[data-status="not_dispatched"]').count());
   await screenshot('code-mode-05-stopped');
   const before = await fixture.waitSnapshot(snapshot => snapshot.run.status === 'cancelled');
+  assert.ok(stopRequestAt, 'The composer must send the real abort command.');
   await idle();
   checks.push('Chat shows a running read and a queue. The Stop response button cancels active reads, discards pending reads and retains the completed board read.');
 
@@ -129,14 +154,17 @@ try {
         connection:app?.workspace?.taskManagerConnected, status:document.querySelector('#ac-pi-session-status')?.textContent,
         codeRows:document.querySelectorAll('[data-aw-code-status]').length};
     });
-    console.error(JSON.stringify({state,errors,streamFailures}));
+    const saved = await fixture.rpc('getSnapshot').catch(() => null);
+    const processes = saved?.processes.filter(row => row.job.codeMode).map(row => ({status:row.status, startedAt:row.job.startedAt, endedAt:row.job.endedAt,
+      calls:row.job.codeMode.calls.map(call => call.status)}));
+    console.error(JSON.stringify({state,processes,errors,streamFailures,stopRequestAt}));
     await page.screenshot({path:join(evidence,'code-mode-failure.png'),fullPage:true});
   }
   throw error;
 } finally {
   await writeFile(join(evidence,'code-mode-browser.json'), JSON.stringify({
     browser:browser?.version(), platform:process.platform, arch:process.arch,
-    controlledProvider:true, realQuickJsAndArtifactReads:true, fixtureAnalysisGate:fixture.fixtureGate, checks, errors,
+    controlledProvider:true, realQuickJsAndArtifactReads:true, fixtureAnalysisGate:fixture.fixtureGate, liveProgress, checks, errors,
   },null,2) + '\n');
   await browser?.close();
   await fixture.close();

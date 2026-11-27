@@ -137,7 +137,8 @@
     function toolEventHTML(tool, state, agent = null) {
       const task = state.tasks.find(item => item.id === tool.taskId) || (state.mode === 'runtime' ? { id: null, title: 'Session tool', status: tool.status } : null);
       if (!task) return '';
-      const latest = tool.logs[tool.logs.length - 1];
+      const name = tool.sdkToolName || tool.name;
+      const latest = ['discover_read_tools', 'call_read_tool', 'run_code'].includes(name) ? null : tool.logs[tool.logs.length - 1];
       const open = expandedTools.has(tool.id) || (agent && expanded.has(agent.id));
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
       const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
