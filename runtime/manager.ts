@@ -51,12 +51,6 @@ type ModelResolver = {
 };
 export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver;
   readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
-type FreeCadAuthorization = {
-  readonly spec: FreeCadSpec;
-  readonly allowWindow: boolean;
-  readonly recovery?: { readonly attemptId: string; readonly route: 'api' | 'gui' };
-};
-const freeCadAuthorization = Symbol('FreeCAD authorization');
 export type Run = {
   readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly requestId: string; readonly taskId: string; readonly title: string;
@@ -67,6 +61,12 @@ export type Run = {
   readonly recovery?: { readonly requestId: string; readonly reconciliationAttemptId: string };
   readonly freecad?: FreeCadAuthorization;
 };
+type FreeCadAuthorization = {
+  readonly spec: FreeCadSpec;
+  readonly allowWindow: boolean;
+  readonly recovery?: { readonly attemptId: string; readonly route: 'api' | 'gui' };
+};
+const freeCadAuthorization = Symbol('FreeCAD authorization');
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
 };
@@ -1013,11 +1013,12 @@ export class TaskManager implements AthenaTaskManager {
     const turn=this.#turns.get(a.id);
     if(!turn || this.#executing.get(a.agentSessionId)!==a || this.#closed)throw new ManagerError('ATTEMPT_INACTIVE','This attempt is no longer active.');
     const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
-    signal.throwIfAborted();
     if (a.parentTaskId === null && this.#storage.record<Run>('run', a.runId)?.freecad) {
+      signal.throwIfAborted();
       if (name === 'freecad_run') return this.#freeCadTool(a, raw, args, signal);
       throw new ManagerError('TOOL_DENIED', 'This run is scoped to FreeCAD.');
     }
+    signal.throwIfAborted();
     if (['list_skills','load_skill','get_research_board','plan_research','add_research_evidence','request_review','submit_review','remember_research','propose_knowledge'].includes(name)) return this.#researchOperation(a,name,raw,args,signal);
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
     if (['spawn_agent', 'send_to_agent', 'cancel_task'].includes(name)) this.#requireCoordinatorWrites(a);
