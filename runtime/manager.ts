@@ -20,6 +20,8 @@ import { projectHistory, withoutAttachmentContext, withMessageOwner } from './hi
 import { ToolFailureBudget } from './tool-failure-budget.ts';
 import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensions.ts';
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
+import { Bibliography } from './bibliography.ts';
+import { CrossrefProvider, type BibliographicProvider } from './crossref.ts';
 import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
@@ -46,7 +48,7 @@ type ModelResolver = {
   requireProfile(id: string): void;
 };
 export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver;
-  readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
+  readonly bibliographyProvider?: BibliographicProvider; readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
 export type Run = {
   readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly requestId: string; readonly taskId: string; readonly title: string;
@@ -108,6 +110,7 @@ export class TaskManager implements AthenaTaskManager {
   readonly #files: AnalysisFiles;
   readonly #extensions: ExtensionStore;
   readonly #papers: Papers;
+  readonly #bibliography: Bibliography;
   readonly #paperStarting=new Set<string>();
   readonly #research: ResearchLedger;
   readonly #externalCredentials: TaskManagerOptions['externalCredentials'];
@@ -139,6 +142,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#storage = new Storage(options.dataDir);
     this.#extensions = new ExtensionStore(this.#storage);
     this.#papers=new Papers(this.#storage);
+    this.#bibliography=new Bibliography(this.#storage,this.#papers,options.bibliographyProvider??new CrossrefProvider());
     this.#research = new ResearchLedger(this.#storage);
     this.#externalCredentials = options.externalCredentials;
     this.#journal = new Journal(this.#storage);
@@ -350,6 +354,16 @@ export class TaskManager implements AthenaTaskManager {
   }
   async paperRequest(method:string,args:Record<string,unknown>) {
     const project=text(args.projectId,'Project');this.#paperProject(project);
+    if(['bibliographyHistory','authorizeSearch','executeSearch','cancelSearch','addSearchSource'].includes(method)){
+      const session=text(args.sessionId,'Conversation');
+      if(session!==this.#active)throw new ManagerError('SESSION_MISMATCH','Open the conversation that authorized the search.');
+      if(method==='bibliographyHistory')return this.#bibliography.list(project,session);
+      if(method==='authorizeSearch')return this.#bibliography.prepare(project,session,args);
+      const searchId=text(args.searchId,'Search ID');
+      if(method==='executeSearch')return this.#bibliography.execute(project,session,searchId);
+      if(method==='cancelSearch')return this.#bibliography.cancel(project,session,searchId);
+      return this.#bibliography.add(project,session,searchId,args.doi);
+    }
     if(method==='listPapers')return this.paperCatalog(project);
     if(method==='createPaper')return this.#papers.create(project,args);
     if(method==='addPaperSource') {
@@ -1109,6 +1123,10 @@ export class TaskManager implements AthenaTaskManager {
         if(!id)throw new ManagerError('GRANT_DENIED','Path is not an input attached to this turn.');
         return this.#upload(a,id).bytes.toString('utf8');
       }
+      case 'run_bibliography_search':
+        this.#requireCoordinatorWrites(a);
+        return this.#bibliography.execute(a.projectId,a.sessionId,text(args.searchId,'Authorized search'),signal,
+          {runId:a.runId,taskId:a.taskId,attemptId:a.id,toolId:toolId(a,raw)});
       case 'spawn_agent':case 'send_to_agent':return this.#dispatch(a,name,raw,args,signal);
       case 'get_task':return this.#summary(this.#child(a,args.taskId));
       case 'list_tasks':return {tasks:await Promise.all(this.#children(a).map(t=>this.#summary(t)))};
@@ -1586,6 +1604,7 @@ export class TaskManager implements AthenaTaskManager {
     for(const t of turns)t.controller.abort();
     await Promise.all(turns.filter(t=>this.#executing.get(t.attempt.agentSessionId)===t.attempt).map(t=>t.runtime.command({type:'abort',id:randomUUID()})));
     await Promise.all(turns.map(t=>t.finished));
+    await this.#bibliography.close();
     await this.#jobs.close();
     for(const runtime of this.#registry.values())runtime.close();
     this.#registry.clear();

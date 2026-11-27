@@ -122,6 +122,13 @@
             <details><summary>New manuscript and sources</summary>
               <label>Source file<input data-paper="file" type="file" accept=".txt,.md,.csv,.json"></label><button data-paper-action="add-file">Add text source</button>
               <label>Published data<select data-paper="artifacts"></select></label><button data-paper-action="add-result">Add result as source</button>
+              <details><summary>Search Crossref</summary>
+                <label>Search by<select data-paper="search-mode"><option value="query">Bibliographic query</option><option value="doi">DOI</option></select></label>
+                <label>Search term sent to Crossref<input data-paper="term" maxlength="300"></label>
+                <button data-paper-action="search">Search</button><button data-paper-action="authorize">Authorize for chat</button>
+                <label>Search history<select data-paper="history"></select></label><p data-paper="search-status" role="status"></p>
+                <button data-paper-action="cancel-search">Cancel search</button><div data-paper="candidates"></div>
+              </details>
               <label>Title<input data-paper="title" maxlength="256"></label><label>Research objective<textarea data-paper="goal"></textarea></label>
               <label>Source material<select data-paper="sources" multiple size="4"></select></label><button data-paper-action="create">Create manuscript</button>
             </details>

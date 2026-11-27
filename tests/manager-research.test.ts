@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { privateTestDirectory } from './platform-test-helpers.ts';
 import { JobRunner } from '../runtime/jobs.ts';
+import { CrossrefProvider } from '../runtime/crossref.ts';
 import { TaskManager } from '../runtime/manager.ts';
 import type { ResearchEvidence, ResearchMission, ResearchReview } from '../runtime/research.ts';
 
@@ -307,7 +308,7 @@ test('execution disabled preserves CSV evidence and observations after joining, 
 test('paper outlining, editorial revision, independent frozen reviews and exact exports survive restart', {timeout:90000}, async t=>{
   const directory=privateTestDirectory(join(tmpdir(),'paper-integration-'));
   const sourceText='The reported voltage is 19 mV.',title='Voltage study';
-  let sourceId='',round=0;const errors:string[]=[];
+  let authorized='',sourceId='',round=0;const errors:string[]=[];
   let held:ReturnType<typeof Promise.withResolvers<void>>|undefined, holdStage='';
   const server=createServer(async(request,response)=>{
     try {
@@ -317,7 +318,8 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
         held.resolve();await new Promise<void>(resolve=>response.once('close',resolve));return;
       }
       let next:string|Call;
-      if(parent(w))next=out.length?'Manuscript stage settled.':{name:'compose_manuscript',args:prompt.includes('Manuscript outline request')?{outline:['Results']}:{}};
+      if(parent(w)&&prompt.startsWith('Execute my approved bibliography search'))next=out.length?'Candidates ready.':{name:'run_bibliography_search',args:{searchId:authorized}};
+      else if(parent(w))next=out.length?'Manuscript stage settled.':{name:'compose_manuscript',args:prompt.includes('Manuscript outline request')?{outline:['Results']}:{}};
       else if(prompt.includes('Return only a JSON array'))next=JSON.stringify([{heading:'Results',text:sourceText}]);
       else if(prompt.includes('Use publish_manuscript')) {
         if(!out.length){round++;next={name:'publish_manuscript',args:{text:'# Results\n\n'+sourceText+'\nRevision '+round,
@@ -338,12 +340,23 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   const address=server.address();assert.ok(address&&typeof address!=='string');
   const env={ATHENA_ENDPOINT:'http://127.0.0.1:'+address.port+'/v1',ATHENA_MODEL:'paper-fixture',ATHENA_MODEL_CONCURRENCY:'1',ATHENA_MAX_CHILDREN:'4'};
   const restore=Object.entries(env).map(([k,v])=>{const old=process.env[k];process.env[k]=v;return ()=>{if(old===undefined)delete process.env[k];else process.env[k]=old;};});
-  let manager=new TaskManager({dataDir:directory});
+  const doi='10.9999/voltage-fixture';
+  const provider=new CrossrefProvider(async url=>{
+    assert.equal(String(url),'https://api.crossref.org/works/'+encodeURIComponent(doi));
+    return Response.json({status:'ok',message:{DOI:doi,title:['Voltage observations'],abstract:sourceText}});
+  });
+  let manager=new TaskManager({dataDir:directory,bibliographyProvider:provider});
   t.after(async()=>{await manager.close();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));restore.forEach(fn=>fn());await rm(directory,{recursive:true,force:true});});
   await manager.initialize();const {project}=await manager.createProject({name:title});const {sessionId}=await manager.createSession({projectId:project.id,title});
   await manager.setProjectExecution(project.id,true);
   const call=(method:string,args:Record<string,unknown>={})=>manager.paperRequest(method,{projectId:project.id,...args}) as Promise<any>;
-  const source=await call('addPaperSource',{title:'Observations',text:sourceText});sourceId=source.sourceId;
+  authorized=(await call('authorizeSearch',{sessionId,mode:'doi',term:doi,requestId:'explicit-doi'})).id;
+  await manager.pi(sessionId,{type:'prompt',id:'search-bibliography',message:'Execute my approved bibliography search '+authorized});
+  const discovery=await terminal(manager);
+  const [search]=await call('bibliographyHistory',{sessionId});
+  assert.equal(search.status,'succeeded');assert.equal(search.execution.runId,discovery.run.id);
+  assert.ok(discovery.tools.some(t=>t.name==='run_bibliography_search'&&t.id===search.execution.toolId));
+  const source=await call('addSearchSource',{sessionId,searchId:authorized,doi});sourceId=source.sourceId;
   const paper=await call('createPaper',{title,goal:'Report the measured voltage.',evidence:[source]});const documentId=paper.id;
   for(const mode of ['outline','write']){
     const req={documentId,mode,sessionId,requestId:'paper-'+mode};
@@ -369,7 +382,10 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   await manager.close();manager=new TaskManager({dataDir:directory});await manager.initialize();
   assert.deepEqual((await call('paperDetails',{documentId})).runs,d.runs);
   assert.deepEqual((await manager.artifactDownload(sessionId,md.id)).bytes,saved.bytes);
-  assert.equal(JSON.parse((await manager.artifactDownload(sessionId,manifest.id)).bytes.toString()).assessment.verdict,'changes_required');
+  const exported=JSON.parse((await manager.artifactDownload(sessionId,manifest.id)).bytes.toString());
+  assert.equal(exported.assessment.verdict,'changes_required');
+  assert.equal(exported.evidence[0].origin.providerId,doi);assert.equal(exported.evidence[0].level,'abstract');
+  assert.equal(exported.evidence[0].origin.rawSha256,sha256(JSON.stringify(exported.evidence[0].origin.raw)));
   for(const stage of ['Return only a JSON array','Review assignment: ']){
     holdStage=stage;held=Promise.withResolvers<void>();
     const receipt=await call('startPaper',{documentId,sessionId,requestId:'cancel-'+stage,mode:'write'});

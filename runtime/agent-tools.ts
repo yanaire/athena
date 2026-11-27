@@ -79,6 +79,9 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       parameters:Type.Object({scope:Type.Union([Type.Literal('project'),Type.Literal('agent')]),text:message,requestId:Type.Optional(id)},closed)}),
   ];
   const parentResearch = [
+    delegated({name:'run_bibliography_search',label:'Search bibliography',openWorld:true,
+      description:'Execute the exact Crossref search explicitly authorized by the user in this conversation. Supply the search ID shared by the user.',
+      parameters:Type.Object({searchId:id},closed)}),
     ...(executionEnabled ? [delegated({name:'compose_manuscript',label:'Compose manuscript',description:'Execute the explicitly requested manuscript stage. Outlining takes headings; writing uses the saved outline.',
       parameters:Type.Object({outline:Type.Optional(Type.Array(id,{minItems:1,maxItems:8}))},closed)})] : []),
     delegated({name:'plan_research',label:'Plan research',description:'Save a research objective, acceptance criteria and named stages. This does not execute work or approve a claim.',
