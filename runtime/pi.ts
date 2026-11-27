@@ -11,6 +11,7 @@ import { createPiHostAdapter } from "../athena-backend-handoff/athena-codex-ui/i
 import { createPiToolLoadout } from "./agent-tools.ts";
 import type { PiOrchestration } from "./agent-tools.ts";
 import { addCompatibleModels, compatibleEndpoint } from './compatible-model.ts';
+import { currentDesktopImages } from './desktop-model.ts';
 
 export type { PiOrchestration } from "./agent-tools.ts";
 
@@ -56,7 +57,7 @@ function publicValue(value: unknown, redact: (text: string) => string): unknown 
   if (typeof value === "string") {
     return publicText(value, redact);
   }
-  if (Array.isArray(value)) return value.map(item => publicValue(item, redact));
+  if (Array.isArray(value)) return value.filter(item => !(object(item) && item.type === 'image')).map(item => publicValue(item, redact));
   if (!object(value)) return value;
   return Object.fromEntries(Object.entries(value)
     .filter(([key, item]) => item !== undefined && !/api.?key|token|secret|password|authorization|headers|credentials|environment|^env$/i.test(key))
@@ -245,10 +246,12 @@ export async function createPiSession(options: PiSessionOptions) {
     thinkingLevel, tools: customTools.map(tool => tool.name), customTools,
     resourceLoader: fixedResources(systemPrompt),
   });
-  if (options.selection?.redact || secret) {
+  {
     const upstream = session.agent.streamFunction;
     session.agent.streamFunction = async (...args) => {
+      args[1] = currentDesktopImages(args[1]);
       const source = await upstream(...args);
+      if (!options.selection?.redact && !secret) return source;
       const clean = createAssistantMessageEventStream();
       const emitted = new Map<number, string>();
       void (async () => {

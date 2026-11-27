@@ -5,6 +5,7 @@ import type { TObject } from "typebox";
 import { createProjectReadTool } from "./files.ts";
 import { ANALYSIS_LIMITS } from "./analysis-sandbox.ts";
 import type { ExtensionPin } from './extensions.ts';
+import { DesktopImageResult } from './desktop-model.ts';
 
 export interface PiOrchestration {
   readonly role: "parent" | "child";
@@ -37,6 +38,9 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
     async execute(rawToolCallId, args, signal) {
       signal?.throwIfAborted();
       const result = await execute(spec.name, rawToolCallId, args, signal);
+      if (result instanceof DesktopImageResult) {
+        return { content: [{ type: 'text', text: JSON.stringify(result.details) }, result.image], details: result.details };
+      }
       return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) ?? "null" }], details: result };
     },
   });

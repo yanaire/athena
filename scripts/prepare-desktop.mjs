@@ -82,7 +82,7 @@ async function stageHost(host) {
   // Only repository runtime source files and the existing generated browser assets are deployable.
   await mkdir(join(host, 'runtime'));
   for (const entry of await readdir(join(root, 'runtime'), { withFileTypes: true })) {
-    if (entry.isFile() && /\.(?:ts|mjs)$/.test(entry.name)) {
+    if (entry.isFile() && (/\.(?:ts|mjs)$/.test(entry.name) || entry.name === 'desktop-qt.py')) {
       await copyFile(join(root, 'runtime', entry.name), join(host, 'runtime', entry.name));
     }
   }
