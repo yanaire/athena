@@ -82,7 +82,7 @@ test("parent SDK tools preserve explicit request IDs and support joining all chi
     assert.deepEqual(requests[0]?.tools.map(tool => tool.function.name).sort(),
       ["cancel_task", "get_task", "list_tasks", "read", "send_to_agent", "spawn_agent", "wait_for_agents",
         "list_skills", "load_skill", "get_research_board", "add_research_evidence", "remember_research",
-        "plan_research", "propose_knowledge"].sort());
+        "plan_research", "propose_knowledge", "run_bibliography_search"].sort());
     assert.match(JSON.stringify(requests[0]?.messages), /Independent evidence review is unavailable/);
     assert.deepEqual(received, calls.slice(0, 3), "Only parent tools reach the manager, with raw IDs and validated arguments");
     const results = requests.at(-1)?.messages.filter(message => message.role === "tool").map(message => message.content);

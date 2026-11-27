@@ -22,7 +22,7 @@ const result=(items:unknown[])=>Response.json({status:'ok',message:{items}});
 
 test('search pages keep original provenance through partial failure and source deduplication',async t=>{
   const urls:URL[]=[];
-  const {lib,prepare}=setup(t,async url=>{urls.push(new URL(String(url)));return urls.length===1?result([1,2,3,4,1].map(item)):new Response(null,{status:429});});
+  const {lib,prepare,db,papers}=setup(t,async url=>{urls.push(new URL(String(url)));return urls.length===1?result([1,2,3,4,1].map(item)):new Response(null,{status:429});});
   const {id}=prepare('explicit words',2);
   const row=await lib.execute('p','s',id);assert.equal(row.status,'partial');assert.equal(row.error,'rate_limited');
   assert.equal(row.records.length,4);assert.equal(urls[0]?.searchParams.get('query.bibliographic'),'explicit words');assert.equal(urls[1]?.searchParams.get('offset'),'5');
@@ -31,6 +31,8 @@ test('search pages keep original provenance through partial failure and source d
   assert.ok(src.origin&&'provider' in src.origin);assert.deepEqual(src.origin.raw,item(1));assert.deepEqual(src.origin.fullTextLinks,['https://example.org/paper']);
   assert.equal(src.origin.fullTextAcquired,false);assert.equal(src.origin.hasAbstract,false);
   assert.throws(()=>lib.add('p','other',id,item(1).DOI));await assert.rejects(lib.execute('other','s',id));
+  db.set('papers.v1:'+JSON.stringify(['p','source',src.sourceId]),{...src,origin:{...src.origin,raw:item(2)}});
+  assert.throws(()=>papers.source('p',src.sourceId),{code:'SOURCE_DENIED'});
 });
 test('successful empty result and persisted cache retain original retrieval time', async t=>{
   let calls=0;const {lib,db,provider,papers,prepare}=setup(t,async()=>{calls++;return result([]);});
