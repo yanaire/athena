@@ -1,23 +1,26 @@
 import { builtins, bindCall } from './mcp-registry.ts';
 import { randomUUID } from 'node:crypto';
+import { Check } from 'typebox/value';
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Storage } from './storage.ts';
 import { createPrivateDirectory, hasPrivatePermissions, writeNewPrivateFileSync } from './private-storage.ts';
 import type { StoredSession } from './storage.ts';
-import type { AthenaTaskManager, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
+import type { AthenaTaskManager, CodeExecution, ModelReference, Project, SessionActivation, Status, Task, Tool, WorkspaceEvent, WorkspaceSnapshot, Agent } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 import type { FileReference } from '../athena-backend-handoff/athena-codex-ui/integrations/pi-bridge-contracts.d.ts';
 import type { PiOrchestration } from './agent-tools.ts';
 import type { PiModelSelection, PiSessionOptions } from './pi.ts';
 import { JobRunner, ANALYSIS_LIMITS, MCP_LIMITS } from './jobs.ts';
 import { AnalysisFiles, ANALYSIS_FILE_LIMITS, validateAnalysisName, validateOutputNames } from './analysis-files.ts';
 import type { AnalysisSnapshot } from './analysis-files.ts';
-import type { JobEvent } from './jobs.ts';
+import type { JobAttempt, JobEvent } from './jobs.ts';
 import { ManagerError, object, text, hash, pending, limit, TurnScheduler, artifactRef, executionProjects } from './orchestration.ts';
 import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow } from './orchestration.ts';
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
 import { projectHistory, withoutAttachmentContext, withMessageOwner } from './history.ts';
-import { ToolFailureBudget } from './tool-failure-budget.ts';
+import { ToolFailureBudget, type ToolFailureLimit } from './tool-failure-budget.ts';
+import { CODE_LIMITS, executeCode, interruptCode } from './code-mode.ts';
+import { checkReadCall, checkReadPin, codeInput, describeReadTools, READ_ARTIFACT, RESEARCH_BOARD, type ContractPin } from './code-mode-contracts.ts';
 import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensions.ts';
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
@@ -120,6 +123,8 @@ export class TaskManager implements AthenaTaskManager {
   readonly #retryTasks = new Set<string>();
   readonly #turns = new Map<string, Live>();
   readonly #executing = new Map<string, Attempt>();
+  readonly #failureBudgets = new Map<string, ToolFailureBudget>();
+  readonly #codeConcurrency = limit('ATHENA_CODE_READ_CONCURRENCY', CODE_LIMITS.concurrency, 1, CODE_LIMITS.concurrency);
   readonly #waiters = new Set<() => void>();
   readonly #modelConcurrency = limit('ATHENA_MODEL_CONCURRENCY', 2, 1, 64);
   readonly #scheduler = new TurnScheduler(this.#modelConcurrency);
@@ -140,7 +145,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#journal = new Journal(this.#storage);
     this.#files = new AnalysisFiles(options.dataDir);
     this.#jobs = new JobRunner({dataDir: options.dataDir, concurrency: this.#concurrency, timeoutMs:this.#timeoutMs,
-      recoveredAttempts: this.#storage.sessions().flatMap(s => this.#storage.records<ProcessRow>('process', s.id).map(p => p.job)),
+      recoveredAttempts: this.#storage.sessions().flatMap(s => this.#storage.records<ProcessRow>('process', s.id).map(p => p.job).filter(job => !job.codeMode)),
       onEvent: event => this.#processEvent(event) });
     this.#factory = options.createPiSession ?? (async options => {
       const { createPiSession } = await import('./pi.ts');
@@ -239,14 +244,14 @@ export class TaskManager implements AthenaTaskManager {
   #executionEnabled(projectId: string): boolean {
     return this.#access.available && (this.#storage.project(projectId)?.offlineAnalysis ?? this.#enabledProjects.has(projectId));
   }
-  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId)) {
+  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId), readTools?:AgentSession['readTools']) {
     let runtime: ManagedPiSession;
     // Pi may execute tools from a single model response concurrently. Bind each call at entry,
     // and serialize its manager effects (including spawn then join) in SDK call order.
     let chain = Promise.resolve();
     const executionEnabled = this.#executionEnabled(projectId);
     runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,
-      executionEnabled, extensions,
+      executionEnabled, extensions, readTools,
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
         if (!a) throw new ManagerError('ATTEMPT_INACTIVE','No dispatched attempt owns this tool.');
@@ -266,7 +271,7 @@ export class TaskManager implements AthenaTaskManager {
   #load(s: AgentSession, selection?: PiModelSelection, extensions?: ExtensionPin): Promise<ManagedPiSession> {
     const runtime = this.#registry.get(s.id); if (runtime) return Promise.resolve(runtime);
     const loading = this.#loading.get(s.id); if (loading) return loading;
-    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions).then(value => {
+    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions,s.readTools).then(value => {
       if (value.sessionId !== s.id) { this.#registry.delete(value.sessionId); value.close(); throw new ManagerError('SESSION_ID_MISMATCH','Unexpected Pi identity.'); }
       return value;
     }).finally(()=>this.#loading.delete(s.id));
@@ -761,6 +766,7 @@ export class TaskManager implements AthenaTaskManager {
         });
       }
       this.#executing.set(a.agentSessionId,a);
+      this.#failureBudgets.set(a.id, failureBudget);
       const attachment = this.#attachmentMessage(a, runtime);
       const publicMessage = (message: unknown) => withMessageOwner(withoutAttachmentContext(message, attachment), a);
       unsubscribe=runtime.subscribe(event=>{
@@ -769,17 +775,10 @@ export class TaskManager implements AthenaTaskManager {
         const failure = failureBudget.observe(event);
         this.#storage.transaction(()=>{
           this.#journal.receive(a,event,signal.aborted);
-          if (failure) {
-            this.#journal.transition(a, 'failed', failure.message);
-            this.#journal.event(a, 'tool_failure_limit', failure.message,
-              typeof event.toolCallId === 'string' ? {toolId:toolId(a,event.toolCallId)} : {});
-          }
+          if (failure) this.#recordToolLimit(a, failure, typeof event.toolCallId === 'string' ? toolId(a,event.toolCallId) : undefined);
           if(semantic){this.#journal.event(a,event.type,event.type,typeof event.toolCallId==='string'?{toolId:toolId(a,event.toolCallId)}:{});this.#storage.advanceRevision();}
         });
-        if (failure && this.#executing.get(a.agentSessionId) === a) {
-          this.#turns.get(a.id)?.controller.abort(new ManagerError(failure.code, failure.message));
-          void runtime.command({type:'abort',id:randomUUID()}).catch(() => {});
-        }
+        if (failure) this.#abortForToolLimit(a, failure);
         const normalized=normalizeEvent(a,{...event,
           ...('message' in event ? {message:publicMessage(event.message)} : {}),
           ...(Array.isArray(event.messages) ? {messages:event.messages.map(publicMessage)} : {}),
@@ -794,10 +793,21 @@ export class TaskManager implements AthenaTaskManager {
       if(!this.#closed)this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'failed',error instanceof Error?error.message:'Pi failed.'));
     }finally{
       unsubscribe?.();
+      this.#failureBudgets.delete(a.id);
       if(this.#executing.get(a.agentSessionId)===a)this.#executing.delete(a.agentSessionId);
       this.#scheduler.release(a);this.#turns.delete(a.id);
       if (!this.#closed && !pending(this.#storage.record<Run>('run',a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
     }
+  }
+  #recordToolLimit(a: Attempt, failure: ToolFailureLimit, owningToolId?: string) {
+    this.#journal.transition(a, 'failed', failure.message);
+    this.#journal.event(a, 'tool_failure_limit', failure.message, owningToolId ? { toolId: owningToolId } : {});
+  }
+  #abortForToolLimit(a: Attempt, failure: ToolFailureLimit) {
+    const turn = this.#turns.get(a.id);
+    if (!turn || this.#executing.get(a.agentSessionId) !== a) return;
+    turn.controller.abort(new ManagerError(failure.code, failure.message));
+    void turn.runtime.command({type:'abort',id:randomUUID()}).catch(() => {});
   }
   #children(a:Context) {return this.#storage.records<TaskRow>('task',a.sessionId).filter(t=>t.runId===a.runId && t.parentTaskId===a.taskId);}
   #child(a:Context,id:unknown) {
@@ -863,10 +873,113 @@ export class TaskManager implements AthenaTaskManager {
       taskId:row.taskId,attemptId:row.attemptId,agentSessionId:row.agentSessionId,processId:row.processId,
       inputVersions: (row.evidence ?? process.evidence ?? []).map(input => ({id:input.id,version:input.version}))};
   }
+  #researchBoard(a: Attempt) {
+    return this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId,agentSessionId:a.agentSessionId});
+  }
+  #requireDiscoveredReads(a: Attempt, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const agent = this.#storage.record<AgentSession>('agent_session', a.agentSessionId);
+    if (!a.parentTaskId || agent?.role !== 'child' || agent.readTools !== 'discover' ||
+        agent.projectId !== a.projectId || agent.sessionId !== a.sessionId)
+      throw new ManagerError('TOOL_DENIED', 'Discovered reads are available to the assigned research worker.');
+    const current = this.#storage.record<Attempt>('attempt', a.id);
+    const run = this.#storage.record<Run>('run', a.runId);
+    const task = this.#storage.record<TaskRow>('task', a.taskId);
+    if (this.#closed || this.#executing.get(a.agentSessionId) !== a || !this.#turns.has(a.id) ||
+        current?.status !== 'running' || !Object.entries(context(a)).every(([key, value]) => current[key as keyof Context] === value) ||
+        !run || run.projectId !== a.projectId || run.sessionId !== a.sessionId || !pending(run.status) || run.cancellationRequested ||
+        task?.runId !== a.runId || task.projectId !== a.projectId || task.sessionId !== a.sessionId ||
+        task.parentTaskId !== a.parentTaskId || task.agentSessionId !== a.agentSessionId)
+      throw new ManagerError('ATTEMPT_INACTIVE', 'The research worker attempt is no longer authorized to read.');
+    return (id: string) => id === RESEARCH_BOARD || id === READ_ARTIFACT && this.#executionEnabled(a.projectId);
+  }
+  #grantedBoard(a: Attempt, missionId: unknown) {
+    const board = this.#researchBoard(a);
+    const missions = board.missions.filter(mission => mission.runId === a.runId && (missionId === undefined || mission.id === missionId))
+      .map(({id, objective}) => ({id, objective}));
+    const missionIds = new Set(missions.map(mission => mission.id));
+    const artifacts = this.#executionEnabled(a.projectId) ? board.evidence.flatMap(evidence => {
+      if (!missionIds.has(evidence.missionId)) return [];
+      const refs = evidence.targets.flatMap(target => {
+        if (target.kind !== 'artifact') return [];
+        const row = this.#storage.record<ArtifactRow>('artifact', target.id);
+        if (!row || !this.#canReadArtifact(a, row) || row.version !== target.version || row.file.sha256 !== target.sha256) return [];
+        return [artifactRef(row.file)];
+      });
+      return refs.length ? [{id:evidence.id, missionId:evidence.missionId, title:evidence.title, artifacts:refs}] : [];
+    }) : [];
+    return { missions, evidence: artifacts };
+  }
+  async #discoveredRead(a: Attempt, raw: unknown, signal: AbortSignal, bindings?: ReadonlyMap<string, ContractPin>) {
+    const allowed = this.#requireDiscoveredReads(a, signal);
+    const call = checkReadCall(raw, allowed);
+    if (bindings && !bindings.has(call.id)) throw new ManagerError('TOOL_NOT_BOUND', 'Pin this read tool before executing JavaScript.');
+    if (call.id === RESEARCH_BOARD) return {value:this.#grantedBoard(a, call.args.missionId)};
+    const value = await this.#verifiedArtifact(a, call.args.artifactId, CODE_LIMITS.resultBytes);
+    this.#requireDiscoveredReads(a, signal);
+    this.#requireEnabled(a);
+    return {value, source:value.artifact};
+  }
+  async #runCode(a: Attempt, raw: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) {
+    const allowed = this.#requireDiscoveredReads(a, signal);
+    if (!Check(codeInput, args)) throw new ManagerError('INVALID_INPUT', 'Supply JavaScript and one or two selected read contracts.');
+    const id = randomUUID();
+    const queuedAt = Date.now();
+    const owner = toolId(a, raw);
+    const base: CodeExecution = {id, sourceSha256:hash(args.source), language:'javascript', bindings:args.tools,
+      limits:{...CODE_LIMITS, concurrency:this.#codeConcurrency}, queuedAt, startedAt:null, endedAt:null, calls:[], peakConcurrency:0};
+    const job: JobAttempt = {projectId:a.projectId, sessionId:a.sessionId, taskId:a.taskId, attemptId:id,
+      toolId:owner, requestId:raw, status:'queued', program:'JavaScript (QuickJS)', args:[], cwd:null, env:{},
+      limits:{...MCP_LIMITS, timeoutMs:CODE_LIMITS.wallMs},
+      pid:null, startedAt:null, endedAt:null, exitCode:null, signal:null, cancellation:'not_requested', stdout:'', stderr:'', codeMode:base};
+    this.#processEvent({type:'process_queued', attempt:job});
+    let result: CodeExecution;
+    try {
+      const bindings = new Map<string, ContractPin>();
+      for (const pin of args.tools) {
+        checkReadPin(pin, allowed);
+        if (bindings.has(pin.id)) throw new ManagerError('INVALID_INPUT', 'Select each read tool only once.');
+        bindings.set(pin.id, pin);
+      }
+      let started = false;
+      result = await executeCode({receipt:base, source:args.source, signal, concurrency:this.#codeConcurrency,
+        read:(request, readSignal) => this.#discoveredRead(a, request, readSignal, bindings),
+        update:codeMode => {
+          this.#processEvent({type:started ? 'process_progress' : 'process_started',
+            attempt:{...job, status:'running', startedAt:codeMode.startedAt, codeMode}});
+          started = true;
+        },
+        observe:(call, request) => {
+          const name = call.tool === READ_ARTIFACT ? 'read_file' : call.tool === RESEARCH_BOARD ? 'get_research_board' : 'restricted_read';
+          const failure = this.#failureBudgets.get(a.id)?.observe({
+            type:'tool_execution_end', toolCallId:'code:' + call.id, toolName:name,
+            args:object(request) ? request.args : call.argumentsSha256, isError:call.status !== 'succeeded',
+          });
+          if (failure) {
+            this.#commit(() => this.#recordToolLimit(a, failure, owner));
+            this.#abortForToolLimit(a, failure);
+          }
+        },
+      });
+    } catch (error) {
+      result = {...base, endedAt:Date.now(), error:error instanceof ManagerError ? {code:error.code, message:error.message}
+        : {code:'CODE_HOST_FAILED', message:'The host could not start the JavaScript execution.'}};
+    }
+    const code = result.error?.code;
+    const status = !code ? 'succeeded' : code === 'CANCELLED' ? 'cancelled' : code === 'WALL_LIMIT' || code === 'CPU_LIMIT' ? 'timed_out' : 'failed';
+    this.#processEvent({type:'process_finished', attempt:{...job, status, codeMode:result, startedAt:result.startedAt, endedAt:result.endedAt,
+      ...(result.error ? {error:result.error.message} : {}), cancellation:code === 'CANCELLED' ? 'confirmed' : 'not_requested'}});
+    const sources = new Map(result.calls.flatMap(call => call.source ? [[call.source.id, call.source] as const] : []));
+    const incomplete = result.calls.filter(call => call.status !== 'succeeded');
+    if (result.error) throw new ManagerError(result.error.code,
+      result.error.code + ': ' + result.error.message + ' Completed reads: ' + (result.calls.length - incomplete.length) + '.');
+    return {executionId:id, result:result.result, sources:[...sources.values()], completedReads:result.calls.length - incomplete.length,
+      incompleteReads:incomplete.map(call => ({order:call.order, status:call.status, ...(call.error ? {error:call.error} : {})}))};
+  }
   async #researchOperation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<unknown> {
     const resources = this.#runExtensions(a);
     if (name === 'list_skills') return {skills:resources.skills.filter(skill => skill.roles.includes(a.parentTaskId ? 'child' : 'parent'))};
-    if (name === 'get_research_board') return this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId,agentSessionId:a.agentSessionId});
+    if (name === 'get_research_board') return this.#researchBoard(a);
     if (name === 'load_skill') {
       if (Object.keys(args).some(key => !['id','reason','mode'].includes(key)) || args.mode !== undefined && args.mode !== 'automatic' && args.mode !== 'explicit') throw new ManagerError('INVALID_INPUT', 'Invalid skill selection.');
       const loaded = this.#extensions.loadSkill(resources,a,text(args.id,'Skill ID'),text(args.reason,'Selection reason'),this.#effectiveCapabilities(a),args.mode ?? 'explicit');
@@ -934,8 +1047,7 @@ export class TaskManager implements AthenaTaskManager {
       case 'read_file':{
         this.#requireEnabled(a);
         if(Object.keys(args).length!==1)throw new ManagerError('INVALID_INPUT','Supply only an artifactId.');
-        const row=this.#artifact(a,args.artifactId);
-        return {artifact:artifactRef(row.file),content:(await this.#readArtifact(row)).toString('utf8')};
+        return this.#verifiedArtifact(a,args.artifactId);
       }
       case 'wait_for_agents':return this.#wait(a,args.taskIds,signal);
       case 'cancel_task':{
@@ -955,6 +1067,9 @@ export class TaskManager implements AthenaTaskManager {
     const requestId=text(args.requestId??raw,'Request ID');
     const id=hash(canonical([a.sessionId,a.runId,a.taskId,name,requestId]));
     const kind=name==='spawn_agent'?'spawn':'send';
+    const readTools = args.readTools;
+    if (readTools !== undefined && (kind !== 'spawn' || readTools !== 'discover'))
+      throw new ManagerError('INVALID_INPUT', 'Select discovered reads when creating a new research worker.');
     const fingerprint=hash(canonical(args));
     const existing=this.#storage.record<Dispatch>(kind,id);
     if(existing){
@@ -986,7 +1101,7 @@ export class TaskManager implements AthenaTaskManager {
     const reservation:Dispatch={...context(a),id,taskId,fingerprint};
     this.#commit(()=>this.#storage.putRecord(kind,reservation));
     const sessionDir=join(this.#directory,'agents',randomUUID());
-    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId),this.#runExtensions(a));
+    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId),this.#runExtensions(a),readTools);
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
     if(a.model)this.#validateModel(runtime,a.model);
     signal.throwIfAborted();
@@ -998,7 +1113,7 @@ export class TaskManager implements AthenaTaskManager {
     const response={taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId,attemptId:next.id,status:next.status};
     this.#commit(()=>{
       if(!child)this.#storage.putRecord('agent_session',{projectId:a.projectId,sessionId:a.sessionId,id:runtime.sessionId,
-        role:'child',sessionDir,sessionFile:runtime.sessionFile,...(a.model?{model:a.model}:{})} satisfies AgentSession);
+        role:'child',sessionDir,sessionFile:runtime.sessionFile,...(a.model?{model:a.model}:{}),...(readTools?{readTools}:{})} satisfies AgentSession);
       this.#journal.accept(next,title);
       // A reviewer must be bound to its durable identity before the scheduler
       // can run its first tool. The binding shares the acceptance transaction.
@@ -1047,12 +1162,27 @@ export class TaskManager implements AthenaTaskManager {
   #requireEnabled(a:Context) {
     if(!this.#executionEnabled(a.projectId))throw new ManagerError('EXECUTION_DISABLED','Offline execution is not enabled for this project.');
   }
+  #canReadArtifact(a: Attempt, row: ArtifactRow) {
+    return row.projectId === a.projectId && row.sessionId === a.sessionId && row.runId === a.runId &&
+      (a.parentTaskId ? row.taskId === a.taskId || (a.artifactGrants ?? []).includes(row.id) : row.parentTaskId === a.taskId);
+  }
   #artifact(a:Attempt,id:unknown) {
     const row=this.#storage.record<ArtifactRow>('artifact',text(id,'Artifact ID'));
-    if(!row || row.projectId!==a.projectId || row.sessionId!==a.sessionId || row.runId!==a.runId ||
-      (a.parentTaskId ? row.taskId!==a.taskId && !a.artifactGrants?.includes(row.id) : row.parentTaskId!==a.taskId))
+    if(!row || !this.#canReadArtifact(a, row))
       throw new ManagerError('ARTIFACT_DENIED','Artifact is outside the calling task grants.');
     return row;
+  }
+  async #verifiedArtifact(a: Attempt, id: unknown, maxBytes = Infinity) {
+    this.#requireEnabled(a);
+    const row = this.#artifact(a, id);
+    if (row.file.bytes > maxBytes) throw new ManagerError('RESULT_LIMIT', 'The verified result exceeds the read size limit.');
+    const bytes = await this.#readArtifact(row);
+    if (maxBytes === Infinity) return {artifact:artifactRef(row.file), content:bytes.toString('utf8')};
+    try {
+      return {artifact:artifactRef(row.file), content:new TextDecoder('utf-8', {fatal:true, ignoreBOM:true}).decode(bytes)};
+    } catch {
+      throw new ManagerError('UNSUPPORTED_RESULT_TYPE', 'The granted result is not valid UTF-8 text.');
+    }
   }
   async #readArtifact(row:ArtifactRow) {
     const f=row.file;
@@ -1118,6 +1248,9 @@ export class TaskManager implements AthenaTaskManager {
     }finally{signal.removeEventListener('abort',cancel);}
   }
   async #childTool(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    if (name === 'discover_read_tools') return describeReadTools(args, this.#requireDiscoveredReads(a, signal));
+    if (name === 'call_read_tool') return (await this.#discoveredRead(a, args, signal)).value;
+    if (name === 'run_code') return this.#runCode(a, raw, args, signal);
     if (name==='call_external_mcp') {
       if (Object.keys(args).some(key=>!['serverId','tool','arguments'].includes(key)) || !object(args.arguments)) throw new ManagerError('INVALID_INPUT','Choose an approved server, tool and JSON arguments.');
       const server=this.#extensions.getServer(this.#runExtensions(a),text(args.serverId,'Server ID'));
@@ -1152,7 +1285,7 @@ export class TaskManager implements AthenaTaskManager {
       }
       if(Object.keys(args).length!==1)throw new ManagerError('INVALID_INPUT','Choose exactly one file source.');
       if(typeof args.fileId==='string')return this.#upload(a,args.fileId).bytes.toString('utf8');
-      if(typeof args.artifactId==='string')return (await this.#readArtifact(this.#artifact(a,args.artifactId))).toString('utf8');
+      if(typeof args.artifactId==='string')return (await this.#verifiedArtifact(a,args.artifactId)).content;
       return Buffer.from((await this.#analysisInput(a,text(args.name,'Name'))).bytes).toString('utf8');
     }
     if (name === 'read') {
@@ -1384,6 +1517,13 @@ export class TaskManager implements AthenaTaskManager {
     return reply({type:'abort'},{runId});
   }
   #interrupt(sessionId:string,reason:string){
+    for (const row of this.#storage.records<ProcessRow>('process', sessionId)) {
+      if (!row.job.codeMode || (row.status !== 'running' && row.status !== 'queued')) continue;
+      const endedAt = Date.now();
+      const codeMode = interruptCode(row.job.codeMode, endedAt);
+      this.#journal.process({type:'process_finished', attempt:{...row.job, status:'interrupted', endedAt, codeMode,
+        error:codeMode.error?.message, cancellation:'unknown'}});
+    }
     // Settle the interrupted run in the same transaction as its outstanding work. A completed
     // coordinator cannot establish the outcome of work that was still pending when the host died.
     for(const r of this.#runs(sessionId))if(pending(r.status)){

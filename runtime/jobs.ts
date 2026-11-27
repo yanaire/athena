@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { callExternalMcp, EXTERNAL_MCP_LIMITS, validateExternalVerification, matchesExternalSchema, extensionDigest } from './external-mcp-client.ts';
 import type { PinnedExternalServer } from './extensions.ts';
 import { createPrivateDirectory } from './private-storage.ts';
+import type { CodeExecution } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 
 type Scope = { readonly projectId: string; readonly sessionId: string };
 type FileVersion = Scope & { readonly fileId: string; readonly versionId: string; readonly name: string };
@@ -107,6 +108,7 @@ type Identity = Omit<CsvJob,'grantId'|'column'>;
 export type ExternalMcpJob = Identity & {readonly server:PinnedExternalServer;readonly tool:string;readonly arguments:Readonly<Record<string,unknown>>;readonly token?:string};
 export type AnalysisJob = Identity & SandboxJob & { readonly inputs: readonly (AnalysisSnapshot & {readonly fileId?:string; readonly versionId?:string})[] };
 export type JobAttempt = Identity & { readonly grantId?: string; readonly column?: string;
+  readonly codeMode?: CodeExecution;
   readonly mcp?: { readonly server:string; readonly version:string; readonly protocol:string; readonly tool:string; readonly phase:McpPhase;
     readonly alias?:string; readonly resultKind?:string; readonly displayName?:string; readonly registryVersion?:number };
   readonly toolArguments?: Readonly<Record<string,unknown>>;
@@ -137,6 +139,7 @@ export type JobAttempt = Identity & { readonly grantId?: string; readonly column
 
 export type JobEvent =
   | { readonly type: 'process_queued' | 'process_started' | 'process_finished'; readonly attempt: JobAttempt }
+  | { readonly type: 'process_progress'; readonly attempt: JobAttempt }
   | { readonly type: 'process_output'; readonly attempt: JobAttempt; readonly stream: 'stdout' | 'stderr'; readonly text: string };
 
 export type JobRunnerOptions = {

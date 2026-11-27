@@ -113,6 +113,11 @@
 #athena-codex .aw-baseline-body {padding-top:13px;}
 
 #athena-codex .aw-diagnostics {min-width:0;margin:10px 0 0;color:#858976;font-size:11px;line-height:1.7;}
+#athena-codex .aw-code-reads {display:grid;gap:8px;margin:8px 0 12px;padding-inline-start:20px;}
+#athena-codex .aw-code-reads > li {padding:6px 8px;border-bottom:1px solid var(--aw-activity-line, #e0e3d8);}
+#athena-codex .aw-code-reads li > small {display:block;color:var(--aw-activity-muted);}
+#athena-codex .aw-code-reads li > p {margin:4px 0;overflow-wrap:anywhere;}
+#athena-codex .aw-code-read-title {display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
 #athena-codex .aw-diagnostics > summary {width:fit-content;padding:6px 0;cursor:pointer;}
 #athena-codex .aw-diagnostics > summary:focus-visible {outline:2px solid #9ca888;outline-offset:3px;border-radius:3px;}
 #athena-codex .aw-diagnostics > dl {display:grid;gap:8px;margin:6px 0 0;padding:10px 12px;border:1px solid #e0e3d8;border-radius:6px;background:#f7f8f1;}

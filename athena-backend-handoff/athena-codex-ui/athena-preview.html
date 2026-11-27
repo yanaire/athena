@@ -895,6 +895,11 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .aw-baseline-body {padding-top:13px;}
 
 #athena-codex .aw-diagnostics {min-width:0;margin:10px 0 0;color:#858976;font-size:11px;line-height:1.7;}
+#athena-codex .aw-code-reads {display:grid;gap:8px;margin:8px 0 12px;padding-inline-start:20px;}
+#athena-codex .aw-code-reads > li {padding:6px 8px;border-bottom:1px solid var(--aw-activity-line, #e0e3d8);}
+#athena-codex .aw-code-reads li > small {display:block;color:var(--aw-activity-muted);}
+#athena-codex .aw-code-reads li > p {margin:4px 0;overflow-wrap:anywhere;}
+#athena-codex .aw-code-read-title {display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
 #athena-codex .aw-diagnostics > summary {width:fit-content;padding:6px 0;cursor:pointer;}
 #athena-codex .aw-diagnostics > summary:focus-visible {outline:2px solid #9ca888;outline-offset:3px;border-radius:3px;}
 #athena-codex .aw-diagnostics > dl {display:grid;gap:8px;margin:6px 0 0;padding:10px 12px;border:1px solid #e0e3d8;border-radius:6px;background:#f7f8f1;}
@@ -2898,6 +2903,9 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     read_file: ['file-text', 'Reading result file', 'Read result file', 'Result file read', 'Result file read failed'],
     write_file: ['file-plus-2', 'Writing analysis file', 'Write analysis file', 'Analysis file written', 'Analysis file write failed'],
     run_command: ['square-terminal', 'Running analysis', 'Run analysis', 'Analysis finished', 'Analysis failed'],
+    run_code: ['braces', 'Comparing research results', 'Compare research results', 'Research comparison finished', 'Research comparison failed'],
+    discover_read_tools: ['search', 'Looking up read tools', 'Look up read tools', 'Read tools found', 'Read tools unavailable'],
+    call_read_tool: ['file-text', 'Reading research result', 'Read research result', 'Research result read', 'Research read failed'],
     list_skills: ['book-open', 'Checking available skills', 'Check available skills', 'Available skills checked', 'Skills unavailable'],
     load_skill: ['book-open', 'Loading research procedure', 'Load research procedure', 'Research procedure loaded', 'Procedure could not load'],
     get_research_board: ['notebook-text', 'Reading research records', 'Read research records', 'Research records read', 'Research records unavailable'],
@@ -6888,6 +6896,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     const knownIds = model.nodes.flatMap(node => [node.id, node.task.parentTaskId, node.task.attemptId, node.task.agentSessionId, ...node.attempts.map(attempt => attempt.id), ...node.processes.flatMap(process => [process.id, process.toolId, process.attemptId, process.agentSessionId])]);
     const processName = process => {
       const job = process.job || process;
+      if (job.codeMode) return 'Research comparison';
       return clean(window.AthenaResultFiles?.mcp(job.mcp)?.name || job.program, job.mcp ? 'Engineering calculation' : 'Background process', knownIds);
     };
     const nodeTitle = id => byId.has(id) ? title(byId.get(id).task) : 'Unavailable task';
@@ -7243,7 +7252,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const ids = [process.id, process.processId, process.taskId, process.attemptId, process.agentSessionId];
       const registered = window.AthenaResultFiles?.mcp(job.mcp);
       const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
-      const description = job.mcp ? [registered?.name || 'Engineering calculation', ['queued', 'running'].includes(process.status) && phase].filter(Boolean).join(' · ')
+      const description = job.codeMode ? 'Research comparison' : job.mcp ? [registered?.name || 'Engineering calculation', ['queued', 'running'].includes(process.status) && phase].filter(Boolean).join(' · ')
         : labels.text(job.program, 'Background process', ids);
       return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(description) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }
@@ -10092,7 +10101,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
-  const LABELS = { ready: 'Ready', queued: 'Queued', running: 'Working', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', cancelled: 'Stopped' };
+  const LABELS = { ready: 'Ready', queued: 'Queued', running: 'Running', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', cancelled: 'Stopped', timed_out: 'Timed out', interrupted: 'Interrupted', not_dispatched: 'Never started' };
 
   function mount(root, options) {
     const host = root.querySelector('#aw-activity');
@@ -10320,8 +10329,54 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       }).join('');
     }
 
+    function codeModeHTML(process, task, trace) {
+      const reads = trace.calls || [];
+      const complete = reads.filter(call => call.status === 'succeeded').length;
+      const active = reads.filter(call => call.status === 'running').length;
+      const queued = reads.filter(call => call.status === 'queued').length;
+      const incomplete = reads.length - complete - active - queued;
+      const progress = [complete + ' completed', active && active + ' reading', queued && queued + ' waiting',
+        incomplete && incomplete + ' unfinished'].filter(Boolean).join(' · ');
+      const rows = reads.map(call => {
+        const name = call.tool === 'athena.research.get_research_board' ? 'Read research board'
+          : call.tool === 'athena.artifacts.read_file' ? 'Read result file' : 'Read request';
+        const status = LABELS[call.status] || 'Unknown';
+        const timings = [call.startedAt != null && trace.startedAt != null ? '+ ' + Math.max(0, call.startedAt - trace.startedAt) + ' ms from launch' : '',
+          call.startedAt != null && call.endedAt != null ? Math.max(0, call.endedAt - call.startedAt) + ' ms' : ''].filter(Boolean).join(' · ');
+        const artifact = call.source && snapshot.artifacts.find(item => item.id === call.source.id && item.version === call.source.version);
+        const source = artifact ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(artifact.id)
+          + '" data-aw-artifact-version="' + esc(artifact.version) + '">' + icon('file-check') + esc(displayText(artifact.title, 'View verified result')) + '</button>' : '';
+        const diagnostics = labels.diagnostics([['Call ID', call.id], ['Tool ID', call.tool], ['Contract version', call.version], ['Contract hash', call.contractHash],
+          ['Arguments SHA-256', call.argumentsSha256], ['Result SHA-256', call.resultSha256], ['Artifact ID', call.source?.id],
+          ['Artifact version', call.source?.version], ['Artifact SHA-256', call.source?.sha256], ['Error code', call.error?.code]], 'code-read:' + call.id);
+        return '<li data-aw-code-call="' + esc(call.order) + '"><div class="aw-code-read-title"><strong>' + esc(name) + '</strong>'
+          + '<span class="aw-status" data-status="' + esc(call.status) + '">' + esc(status) + '</span></div>'
+          + (timings ? '<small>' + esc(timings) + '</small>' : '') + source
+          + (call.error ? '<p>' + esc(call.error.message) + '</p>' : '') + diagnostics + '</li>';
+      }).join('');
+      const source = snapshot.tools.find(tool => tool.id === process.toolId)?.args?.source;
+      const summary = trace.result === undefined ? '' : JSON.stringify(trace.result, (_, value) => typeof value === 'string'
+        ? displayText(value, '[See technical details]') : value, 2);
+      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Execution ID', trace.id], ['Source SHA-256', trace.sourceSha256],
+        ['Limits', JSON.stringify(trace.limits)], ['Worker CPU time', trace.cpuMs == null ? null : trace.cpuMs.toFixed(1) + ' ms'],
+        ['Error code', trace.error?.code], ['JavaScript', source],
+        ['Full summary', summary.includes('[See technical details]') ? JSON.stringify(trace.result, null, 2) : '']], 'code:' + trace.id);
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '" data-aw-code-status="' + esc(process.status) + '"'
+        + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">'
+        + icon('braces') + '<span class="aw-agent-copy"><span class="aw-agent-name">Research comparison'
+        + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(LABELS[process.status] || 'Unknown') + '</span></span>'
+        + '<span class="aw-tool-target" data-aw-code-progress>' + esc(progress) + '</span></span>' + icon('chevron-down') + '</summary>'
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + ' · ' + esc(labels.attempt(process.attemptId, task)) + '</p>'
+        + (trace.error ? '<p class="aw-tool-task" data-aw-code-error>' + esc(trace.error.message) + '</p>' : '')
+        + (rows ? '<ol class="aw-code-reads" aria-label="Reads in request order">' + rows + '</ol>' : '')
+        + (summary ? '<p class="aw-tool-task">JavaScript summary</p><pre class="aw-tool-log" data-aw-code-result>' + esc(summary) + '</pre>' : '')
+        + diagnostics + '</div></details>';
+    }
+
     function processHTML(process) {
       const job = process.job || process;
+      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
+      if (job.codeMode) return codeModeHTML(process, task, job.codeMode);
       const registered = window.AthenaResultFiles?.mcp(job.mcp);
       const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
       const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
@@ -10338,7 +10393,6 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
         ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase],
         ['Plugin ID', job.externalMcp?.pluginId], ['Plugin revision', job.externalMcp?.pluginRevision], ['Verified schema digest', job.externalMcp?.verificationDigest], ['Endpoint', job.externalMcp?.url]], 'process:' + process.id);
-      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p>' + (cancellation ? '<p class="aw-tool-task">' + esc(cancellation) + '</p>' : '') + '<dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';

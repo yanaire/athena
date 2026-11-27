@@ -34,7 +34,8 @@ export type Attempt = Context & { readonly id: string; readonly requestId: strin
   readonly kind?: 'reconciliation'; readonly retryOfAttemptId?: string };
 export type TaskRow = Task & Context & { readonly result?: string; readonly error?: string };
 export type AgentSession = { readonly id: string; readonly projectId: string; readonly sessionId: string;
-  readonly sessionDir: string; readonly sessionFile: string; readonly role: 'parent' | 'child'; readonly model?: ModelReference | null };
+  readonly sessionDir: string; readonly sessionFile: string; readonly role: 'parent' | 'child'; readonly model?: ModelReference | null;
+  readonly readTools?: 'discover' };
 export type Evidence = {readonly id:string; readonly version:string};
 export type ProcessRow = Context & { readonly id: string; readonly processId: string; readonly toolId: string;
   readonly status: JobAttempt['status']; readonly job: JobAttempt; readonly evidence?: readonly Evidence[] };

@@ -3,7 +3,7 @@
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
-  const LABELS = { ready: 'Ready', queued: 'Queued', running: 'Working', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', cancelled: 'Stopped' };
+  const LABELS = { ready: 'Ready', queued: 'Queued', running: 'Running', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', cancelled: 'Stopped', timed_out: 'Timed out', interrupted: 'Interrupted', not_dispatched: 'Never started' };
 
   function mount(root, options) {
     const host = root.querySelector('#aw-activity');
@@ -231,8 +231,54 @@
       }).join('');
     }
 
+    function codeModeHTML(process, task, trace) {
+      const reads = trace.calls || [];
+      const complete = reads.filter(call => call.status === 'succeeded').length;
+      const active = reads.filter(call => call.status === 'running').length;
+      const queued = reads.filter(call => call.status === 'queued').length;
+      const incomplete = reads.length - complete - active - queued;
+      const progress = [complete + ' completed', active && active + ' reading', queued && queued + ' waiting',
+        incomplete && incomplete + ' unfinished'].filter(Boolean).join(' · ');
+      const rows = reads.map(call => {
+        const name = call.tool === 'athena.research.get_research_board' ? 'Read research board'
+          : call.tool === 'athena.artifacts.read_file' ? 'Read result file' : 'Read request';
+        const status = LABELS[call.status] || 'Unknown';
+        const timings = [call.startedAt != null && trace.startedAt != null ? '+ ' + Math.max(0, call.startedAt - trace.startedAt) + ' ms from launch' : '',
+          call.startedAt != null && call.endedAt != null ? Math.max(0, call.endedAt - call.startedAt) + ' ms' : ''].filter(Boolean).join(' · ');
+        const artifact = call.source && snapshot.artifacts.find(item => item.id === call.source.id && item.version === call.source.version);
+        const source = artifact ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(artifact.id)
+          + '" data-aw-artifact-version="' + esc(artifact.version) + '">' + icon('file-check') + esc(displayText(artifact.title, 'View verified result')) + '</button>' : '';
+        const diagnostics = labels.diagnostics([['Call ID', call.id], ['Tool ID', call.tool], ['Contract version', call.version], ['Contract hash', call.contractHash],
+          ['Arguments SHA-256', call.argumentsSha256], ['Result SHA-256', call.resultSha256], ['Artifact ID', call.source?.id],
+          ['Artifact version', call.source?.version], ['Artifact SHA-256', call.source?.sha256], ['Error code', call.error?.code]], 'code-read:' + call.id);
+        return '<li data-aw-code-call="' + esc(call.order) + '"><div class="aw-code-read-title"><strong>' + esc(name) + '</strong>'
+          + '<span class="aw-status" data-status="' + esc(call.status) + '">' + esc(status) + '</span></div>'
+          + (timings ? '<small>' + esc(timings) + '</small>' : '') + source
+          + (call.error ? '<p>' + esc(call.error.message) + '</p>' : '') + diagnostics + '</li>';
+      }).join('');
+      const source = snapshot.tools.find(tool => tool.id === process.toolId)?.args?.source;
+      const summary = trace.result === undefined ? '' : JSON.stringify(trace.result, (_, value) => typeof value === 'string'
+        ? displayText(value, '[See technical details]') : value, 2);
+      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Execution ID', trace.id], ['Source SHA-256', trace.sourceSha256],
+        ['Limits', JSON.stringify(trace.limits)], ['Worker CPU time', trace.cpuMs == null ? null : trace.cpuMs.toFixed(1) + ' ms'],
+        ['Error code', trace.error?.code], ['JavaScript', source],
+        ['Full summary', summary.includes('[See technical details]') ? JSON.stringify(trace.result, null, 2) : '']], 'code:' + trace.id);
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '" data-aw-code-status="' + esc(process.status) + '"'
+        + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">'
+        + icon('braces') + '<span class="aw-agent-copy"><span class="aw-agent-name">Research comparison'
+        + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(LABELS[process.status] || 'Unknown') + '</span></span>'
+        + '<span class="aw-tool-target" data-aw-code-progress>' + esc(progress) + '</span></span>' + icon('chevron-down') + '</summary>'
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + ' · ' + esc(labels.attempt(process.attemptId, task)) + '</p>'
+        + (trace.error ? '<p class="aw-tool-task" data-aw-code-error>' + esc(trace.error.message) + '</p>' : '')
+        + (rows ? '<ol class="aw-code-reads" aria-label="Reads in request order">' + rows + '</ol>' : '')
+        + (summary ? '<p class="aw-tool-task">JavaScript summary</p><pre class="aw-tool-log" data-aw-code-result>' + esc(summary) + '</pre>' : '')
+        + diagnostics + '</div></details>';
+    }
+
     function processHTML(process) {
       const job = process.job || process;
+      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
+      if (job.codeMode) return codeModeHTML(process, task, job.codeMode);
       const registered = window.AthenaResultFiles?.mcp(job.mcp);
       const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
       const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
@@ -249,7 +295,6 @@
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
         ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase],
         ['Plugin ID', job.externalMcp?.pluginId], ['Plugin revision', job.externalMcp?.pluginRevision], ['Verified schema digest', job.externalMcp?.verificationDigest], ['Endpoint', job.externalMcp?.url]], 'process:' + process.id);
-      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p>' + (cancellation ? '<p class="aw-tool-task">' + esc(cancellation) + '</p>' : '') + '<dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
