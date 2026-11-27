@@ -26,3 +26,9 @@
 .ac-inline-progress{height:3px;background:#e9eae6;border-radius:6px;overflow:hidden;margin-top:5px}.ac-inline-progress span{display:block;height:100%;background:#8ba9a1;border-radius:6px;transition:width .2s}
 .ac-inline-agent>svg{width:16px;height:16px;color:#a4a9a4;flex:none}
 @media(max-width:640px){.ac-inline-agent{gap:8px;padding:11px}.ac-inline-agent-title{flex-wrap:wrap}.ac-inline-status{margin-left:0}}
+#ac-freecad{color:inherit;max-width:min(540px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;margin:auto}
+#ac-freecad::backdrop{background:#0006}
+#ac-freecad-scope,#ac-freecad-status{overflow-wrap:anywhere;white-space:pre-line}
+.ac-freecad-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;border:0;padding:0;margin:12px 0;min-width:0}
+.ac-freecad-fields label{display:grid;gap:4px;align-content:start;min-width:0}
+.ac-freecad-fields .ac-select{width:100%;min-width:0}

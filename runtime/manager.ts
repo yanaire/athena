@@ -21,6 +21,8 @@ import { ToolFailureBudget } from './tool-failure-budget.ts';
 import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensions.ts';
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
+import { FreeCadAdapter, freeCadSpec, type FreeCadSpec } from './freecad.ts';
+import { DesktopError } from './desktop-control.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 import type { AttachmentMessage, HistoryEvent } from './history.ts';
 export { ManagerError } from './orchestration.ts';
@@ -44,6 +46,7 @@ type ModelResolver = {
   pin(model: ModelReference): Promise<PiModelSelection>;
   requireProfile(id: string): void;
 };
+const freeCadAuthorization = Symbol('FreeCAD authorization');
 export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver;
   readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
 export type Run = {
@@ -54,6 +57,7 @@ export type Run = {
   readonly extensions?: ExtensionPin;
   readonly cancellationRequested?: boolean;
   readonly recovery?: { readonly requestId: string; readonly reconciliationAttemptId: string };
+  readonly freecad?: FreeCadSpec;
 };
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
@@ -89,7 +93,7 @@ type RetryReceipt = { readonly id: string; readonly projectId: string; readonly 
 type Live = { runtime: ManagedPiSession; controller: AbortController; attempt: Attempt; finished: Promise<void> };
 
 export class TaskManager implements AthenaTaskManager {
-  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'retry_task', 'get_agent_history', 'extensions', 'research_workflow'];
+  readonly capabilities: AthenaTaskManager['capabilities'] = ['create_project', 'create_session', 'open_session', 'set_project_model', 'set_project_execution', 'cancel_run', 'cancel_task', 'retry_task', 'get_agent_history', 'extensions', 'research_workflow', 'freecad'];
   readonly inputContract = {
     maxMessageCharacters: 262144, lengthUnit: 'utf16-code-units',
     supportsFileReferences: true, canStageFiles: true, supportsStreamingPrompts: false,
@@ -104,6 +108,8 @@ export class TaskManager implements AthenaTaskManager {
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
   readonly #journal: Journal;
   readonly #jobs: JobRunner;
+  readonly #freecad = new FreeCadAdapter();
+  readonly #runtimeFreeCad = new WeakSet<ManagedPiSession>();
   readonly #files: AnalysisFiles;
   readonly #extensions: ExtensionStore;
   readonly #research: ResearchLedger;
@@ -239,14 +245,14 @@ export class TaskManager implements AthenaTaskManager {
   #executionEnabled(projectId: string): boolean {
     return this.#access.available && (this.#storage.project(projectId)?.offlineAnalysis ?? this.#enabledProjects.has(projectId));
   }
-  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId)) {
+  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId), freecad = false) {
     let runtime: ManagedPiSession;
     // Pi may execute tools from a single model response concurrently. Bind each call at entry,
     // and serialize its manager effects (including spawn then join) in SDK call order.
     let chain = Promise.resolve();
     const executionEnabled = this.#executionEnabled(projectId);
     runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,
-      executionEnabled, extensions,
+      executionEnabled, extensions, freecad,
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
         if (!a) throw new ManagerError('ATTEMPT_INACTIVE','No dispatched attempt owns this tool.');
@@ -257,22 +263,25 @@ export class TaskManager implements AthenaTaskManager {
       runtime.close(); throw new ManagerError('SESSION_UNAVAILABLE','Manager closed or duplicate Pi identity.');
     }
     this.#runtimeExecution.set(runtime, executionEnabled);
+    if (freecad) this.#runtimeFreeCad.add(runtime);
     this.#runtimeExtensions.set(runtime, structuredClone(extensions));
     if (selection) this.#runtimeModels.set(runtime, { provider: selection.model.provider, modelId: selection.model.id,
       thinkingLevel: selection.thinkingLevel, ...(selection.endpoint ? { endpoint: selection.endpoint } : {}),
       ...(selection.authRef ? { authRef: selection.authRef } : {}) });
     this.#registry.set(runtime.sessionId,runtime); return runtime;
   }
-  #load(s: AgentSession, selection?: PiModelSelection, extensions?: ExtensionPin): Promise<ManagedPiSession> {
+  #load(s: AgentSession, selection?: PiModelSelection, extensions?: ExtensionPin, freecad = false): Promise<ManagedPiSession> {
     const runtime = this.#registry.get(s.id); if (runtime) return Promise.resolve(runtime);
     const loading = this.#loading.get(s.id); if (loading) return loading;
-    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions).then(value => {
+    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions,freecad).then(value => {
       if (value.sessionId !== s.id) { this.#registry.delete(value.sessionId); value.close(); throw new ManagerError('SESSION_ID_MISMATCH','Unexpected Pi identity.'); }
       return value;
     }).finally(()=>this.#loading.delete(s.id));
     this.#loading.set(s.id,promise); return promise;
   }
-  #openRoot(s: StoredSession, extensions?: ExtensionPin) { return this.#load({...s,sessionId:s.id,role:'parent'}, undefined, extensions); }
+  #openRoot(s: StoredSession, extensions?: ExtensionPin, freecad = false) {
+    return this.#load({...s,sessionId:s.id,role:'parent'}, undefined, extensions, freecad);
+  }
   hasPendingRuns(): boolean {
     return this.#busy || this.#storage.sessions().some(s => this.#runs(s.id).some(r => pending(r.status)));
   }
@@ -377,6 +386,43 @@ export class TaskManager implements AthenaTaskManager {
   }
   #runs(sessionId: string): Run[] { return this.#storage.records<Run>('run', sessionId); }
   #currentRun(sessionId: string): Run | undefined { return this.#runs(sessionId).at(-1); }
+
+  getFreeCadStatus(sessionId: string) {
+    const { session, runtime } = this.#bound(sessionId);
+    const project = this.#storage.project(session.projectId);
+    const model = this.#models?.resolve(session.profileId, project?.defaultProfileId) ?? this.#model(runtime);
+    const info = { app: 'FreeCAD', projectId: session.projectId, project: project?.name ?? 'Project',
+      outputRoot: this.#jobs.freeCadOutputRoot(session.projectId), model: model?.modelId ?? null };
+    try {
+      const { app, python, authoringUnsupported } = this.#freecad.installation();
+      const reason = !app && !python ? 'A supported FreeCAD installation was not found.'
+        : authoringUnsupported ? 'The installed FreeCAD authoring adapter reports unsupported.'
+        : !model ? 'Select a model connection with tool calling before starting a FreeCAD job.' : null;
+      return { ...info, available: reason === null, reason };
+    } catch (cause) {
+      return { ...info, available: false, reason: cause instanceof DesktopError ? cause.message : 'FreeCAD installation could not be checked.' };
+    }
+  }
+
+  #freeCadSource(session: StoredSession, spec: FreeCadSpec) {
+    if (!spec.sourceArtifactId) return;
+    const source = this.#storage.record<ArtifactRow>('artifact', spec.sourceArtifactId);
+    if (!source || source.projectId !== session.projectId || source.sessionId !== session.id ||
+      !('receiptKind' in source.file) || source.file.receiptKind !== 'freecad-v1' || !source.file.name.endsWith('.FCStd')) {
+      throw new ManagerError('ARTIFACT_DENIED', 'Choose a verified FreeCAD document from this conversation.');
+    }
+    return source;
+  }
+
+  startFreeCad(sessionId: string, requestId: string, input: unknown) {
+    const { session, runtime } = this.#bound(sessionId);
+    const spec = freeCadSpec(input);
+    this.#freeCadSource(session, spec);
+    const message = 'FreeCAD ' + (spec.sourceArtifactId ? 'edit' : 'create') + ' and verify ' + spec.name
+      + ' (' + [spec.length, spec.width, spec.height].join(' × ') + ' mm, centered Ø' + spec.diameter + ' mm through-hole).';
+    const command = { type: 'prompt', id: requestId, message, [freeCadAuthorization]: spec };
+    return this.#prompt(session, runtime, command);
+  }
 
   getSnapshot() {
     this.#assertReady();
@@ -647,7 +693,8 @@ export class TaskManager implements AthenaTaskManager {
 
   async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand): Promise<Response> {
     const requestId = text(command.id, 'Request ID');
-    const fingerprint = hash(canonical(command));
+    const freecad = (command as PiCommand & { readonly [freeCadAuthorization]?: FreeCadSpec })[freeCadAuthorization];
+    const fingerprint = hash(canonical(freecad ? { command, freecad } : command));
     const previous = this.#storage.receipt(session.id, requestId);
     if (previous) {
       if (previous.fingerprint !== fingerprint) throw new ManagerError('REQUEST_ID_CONFLICT', 'Request ID was already used for different input.');
@@ -674,7 +721,7 @@ export class TaskManager implements AthenaTaskManager {
           runtime.close();
           this.#registry.delete(runtime.sessionId);
           try {
-            runtime = await this.#make(session.projectId, session.sessionDir, 'parent', session.sessionFile, pin, extensions);
+            runtime = await this.#make(session.projectId, session.sessionDir, 'parent', session.sessionFile, pin, extensions, Boolean(freecad));
             if (runtime.sessionId !== session.id) {
               this.#registry.delete(runtime.sessionId);
               runtime.close();
@@ -689,16 +736,17 @@ export class TaskManager implements AthenaTaskManager {
         this.#validateModel(runtime, selection);
       } finally { this.#busy = false; }
     } else if (this.#runtimeModels.has(runtime) || this.#runtimeExecution.get(runtime) !== this.#executionEnabled(session.projectId)
+      || this.#runtimeFreeCad.has(runtime) !== Boolean(freecad)
       || this.#runtimeExtensions.get(runtime)?.revision !== extensions.revision) {
       this.#busy = true;
       try {
         runtime.close(); this.#registry.delete(runtime.sessionId);
-        runtime = await this.#openRoot(session, extensions);
+        runtime = await this.#openRoot(session, extensions, Boolean(freecad));
       } finally { this.#busy = false; }
     } else this.#validateModel(runtime, session.model ?? null);
     const run: Run = { id: randomUUID(), projectId: session.projectId, sessionId: session.id, requestId,
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
-      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions };
+      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions, ...(freecad ? { freecad } : {}) };
     const fileIds=Array.isArray(command.fileReferences)?command.fileReferences.filter(object).map(ref=>text(ref.id,'File ID')):[];
     const a=this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
       parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds,selection ?? undefined);
@@ -768,6 +816,13 @@ export class TaskManager implements AthenaTaskManager {
         const semantic=SNAPSHOT_EVENTS.has(event.type);
         const failure = failureBudget.observe(event);
         this.#storage.transaction(()=>{
+          if (a.parentTaskId === null && event.type === 'agent_settled' && !signal.aborted && event.aborted !== true &&
+            this.#storage.record<Run>('run', a.runId)?.freecad) {
+            const process = this.#storage.records<ProcessRow>('process', a.sessionId).find(row => row.runId === a.runId && row.job.freecad);
+            if (process?.job.freecad?.outcome !== 'verified') {
+              this.#journal.transition(a, 'failed', process?.job.error ?? 'The selected model did not run and verify the authorized FreeCAD job.');
+            }
+          }
           this.#journal.receive(a,event,signal.aborted);
           if (failure) {
             this.#journal.transition(a, 'failed', failure.message);
@@ -921,6 +976,7 @@ export class TaskManager implements AthenaTaskManager {
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
     if (['spawn_agent', 'send_to_agent', 'cancel_task'].includes(name)) this.#requireCoordinatorWrites(a);
     switch(name){
+      case 'freecad_run': return this.#freeCadTool(a, raw, args, signal);
       case 'read':{
         this.#requireEnabled(a);
         const path=text(args.path,'Granted path');
@@ -945,6 +1001,28 @@ export class TaskManager implements AthenaTaskManager {
       }
       default:throw new ManagerError('TOOL_DENIED','Tool is not available to this agent.');
     }
+  }
+  async #freeCadTool(a: Attempt, raw: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) {
+    this.#requireCoordinatorWrites(a);
+    const spec = this.#storage.record<Run>('run', a.runId)?.freecad;
+    if (!spec || Object.keys(args).length) throw new ManagerError('FREECAD_DENIED', 'The run has no matching FreeCAD authorization.');
+    if (this.#storage.records<ProcessRow>('process', a.sessionId).some(row => row.runId === a.runId && row.job.freecad)) {
+      throw new ManagerError('FREECAD_ALREADY_RUN', 'This FreeCAD job has already been submitted. Inspect its recorded outcome.');
+    }
+    const source = this.#freeCadSource(this.#session(a.sessionId), spec);
+    const sourceInput = source ? { id: source.id, versionId: source.version, bytes: await this.#readArtifact(source) } : undefined;
+    signal.throwIfAborted();
+    const job = this.#jobs.startFreeCad({ projectId: a.projectId, sessionId: a.sessionId, taskId: a.taskId, attemptId: randomUUID(),
+      toolId: toolId(a, raw), requestId: raw, adapter: this.#freecad, spec, source: sourceInput });
+    const cancel = () => job.cancel();
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const result = await job.result;
+      if (result.status !== 'succeeded' || !result.artifacts) {
+        throw new ManagerError('FREECAD_' + (result.freecad?.outcome ?? 'failed').toUpperCase(), result.error ?? 'The FreeCAD job did not complete.');
+      }
+      return { status: 'verified', route: result.freecad?.route, artifacts: result.artifacts.map(artifactRef) };
+    } finally { signal.removeEventListener('abort', cancel); }
   }
   #requireCoordinatorWrites(a: Attempt) {
     if (a.kind === 'reconciliation' || this.#storage.record<Run>('run', a.runId)?.recovery) {
