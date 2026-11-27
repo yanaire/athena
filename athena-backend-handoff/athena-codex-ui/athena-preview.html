@@ -6442,7 +6442,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if (existing && (existing.text !== revision.text || JSON.stringify(existing.evidence) !== JSON.stringify(revision.evidence))) throw new Error('A stored version cannot replace different text or evidence.');
       if (existing) { existing.persistence = 'host'; existing.originalLocation = revision.originalLocation; existing.review = revision.review; }
       else doc.versions.push(revision);
-      if (!doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
+      if ((!input.currentVersion || input.currentVersion === revision.version) && !doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
         doc.currentVersion = revision.version; doc.selectedVersion = revision.version; doc.title = revision.title;
         doc.draft = { text: revision.text, baseVersion: revision.version, dirty: false };
       }
@@ -6478,6 +6478,11 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     async function loadDocument(id, version) {
       const result = await operation(id, 'getDocument', (target, project) => target.getDocument({ projectId: project, documentId: id, ...(version == null ? {} : { version: String(version) }) }));
       if (result?.documentId !== id || version != null && String(result?.version) !== String(version)) throw new Error('The document service returned a different document or revision.');
+      if (result.currentVersion && result.currentVersion !== result.version && !getDocument(id)?.versions.some(v => v.version === result.currentVersion)) {
+        const current = await operation(id, 'getDocument', (target, project) => target.getDocument({projectId:project,documentId:id}));
+        if (current.documentId !== id || current.projectId !== result.projectId) throw new Error('The current manuscript changed scope.');
+        acceptDocument(current);
+      }
       return acceptDocument(result);
     }
     async function exportPDF(id, value) {
@@ -6755,7 +6760,7 @@ window.AthenaManuscripts = {mount(root, options) {
     if(epoch!==generation||id!==selected||q('versions').value!==version)return;
     q('assessment').textContent=[v.assessment?.verdict||'Unreviewed',...(v.issues||[]),...(v.assessment?.findings||[])].join(' · ');
   }
-  async function details(){
+  async function details(preferredVersion){
     clearTimeout(timer);if(!selected)return;
     const token=++detailGeneration,epoch=generation,d=await call('paperDetails',{documentId:selected});
     if(epoch!==generation||token!==detailGeneration||d.id!==selected)return;
@@ -6763,9 +6768,11 @@ window.AthenaManuscripts = {mount(root, options) {
     if(!dirtyOutline&&document.activeElement!==q('outline'))q('outline').value=d.outline.join('\n');
     const versions=d.versions.map((v,i)=>[v,'Revision '+(i+1)]);
     if(JSON.stringify(versions)!==q('versions').dataset.signature){
-      choices(q('versions'),versions,'Select a revision');q('versions').value=d.versions.at(-1)||'';
+      const previous=q('versions').dataset.signature&&q('versions').value;
+      choices(q('versions'),versions,'Select a revision');q('versions').value=previous&&d.versions.includes(previous)?previous:d.versions.at(-1)||'';
       q('versions').dataset.signature=JSON.stringify(versions);
     }
+    if(preferredVersion!==undefined)q('versions').value=d.versions.includes(preferredVersion)?preferredVersion:'';
     const r=d.runs.at(-1);
     q('progress').textContent=r?[r.stage+' · '+r.executionStatus,...r.sections.map(s=>'Draft saved · '+s.heading),
       ...r.reviews.flatMap(v=>[v.verdict,...v.checks,...v.findings]),r.error].filter(Boolean).join('\n'):'Ready';
@@ -6824,7 +6831,7 @@ window.AthenaManuscripts = {mount(root, options) {
     } catch(error){if(epoch===generation)notice(error);}
     finally{button.disabled=false;if(epoch===generation&&selected)details().catch(notice);}
   },listeners);
-  return {attach(value){service=value;reset();},refresh,reload(){details().catch(notice);},scope(s){
+  return {attach(value){service=value;reset();},refresh,reload(version){details(version).catch(notice);},scope(s){
     snapshot=s;
     if(project!==s.projectId||session!==s.sessionId){project=s.projectId;session=s.sessionId;reset();}
     const items=(snapshot.artifacts||[]).filter(a=>a.status==='ready').map(a=>[a.id,a.title]);
@@ -13387,7 +13394,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  function drawChart(){const el=q('#ac-response-chart');if(!el||q('#ac-research-panel').hidden||q('#ac-research-slot').hidden||q('#ac-view-results').hidden||q('#ac-result-response').hidden)return;const W=Math.max(230,Math.round(el.clientWidth||360)),H=220,L=42,R=22,T=25,B=42,pw=W-L-R,ph=H-T-B;const X=f=>L+(Math.log10(f)-1)/4*pw,Y=g=>T-g/40*ph;let line='',theory='';const fc=1/(2*Math.PI*1000*100e-9);for(let i=0;i<=120;i++){const f=10**(1+i/30),prefix=i?'L':'M';line+=prefix+X(f).toFixed(2)+' '+Y(-10*Math.log10(1+(f/1592)**2)).toFixed(2)+' ';theory+=prefix+X(f).toFixed(2)+' '+Y(-10*Math.log10(1+(f/fc)**2)).toFixed(2)+' ';}let svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Example RC frequency response: approximately minus 3 decibels at 1.592 kilohertz"><title>RC frequency response · example</title>';for(const g of [0,-10,-20,-30,-40])svg+='<line x1="'+L+'" y1="'+Y(g)+'" x2="'+(W-R)+'" y2="'+Y(g)+'" stroke="#e8e6dc" stroke-width=".7"/><text x="'+(L-9)+'" y="'+(Y(g)+4)+'" text-anchor="end" font-size="11" fill="#8d806c" font-family="Arial">'+g+'</text>';for(const [f,l] of (W<330?[[10,'10'],[1000,'1k'],[100000,'100k']]:[[10,'10'],[100,'100'],[1000,'1k'],[10000,'10k'],[100000,'100k']]))svg+='<text x="'+X(f)+'" y="'+(H-B+19)+'" text-anchor="middle" font-size="11" fill="#8d806c" font-family="Arial">'+l+'</text>';svg+='<text x="8" y="12" font-size="11" fill="#8d806c" font-family="Arial">Gain (dB)</text><text x="'+(W-R)+'" y="'+(H-3)+'" font-size="11" fill="#8d806c" text-anchor="end" font-family="Arial">Frequency (Hz)</text><path d="'+theory+'" fill="none" stroke="#a3a18f" stroke-width="4" opacity=".4"/><path d="'+line+'" fill="none" stroke="#c96442" stroke-width="2"/><line x1="'+X(1592)+'" x2="'+X(1592)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#c8bfaa" stroke-dasharray="3 4"/><circle cx="'+X(1592)+'" cy="'+Y(-3.0103)+'" r="3.7" fill="#c96442" stroke="#fff" stroke-width="1.5"/>';const ax=Math.min(X(1592)+7,W-94);svg+='<rect x="'+ax+'" y="'+(Y(-3.0103)+12)+'" width="76" height="29" rx="4" fill="#f3e9dd"/><text x="'+(ax+8)+'" y="'+(Y(-3.0103)+31)+'" font-size="11" fill="#8e624a" font-family="Arial">1.592 kHz</text></svg>';el.innerHTML=svg;}
  function mountDocumentToolbar(){
   recordToolbar?.destroy();
-  recordToolbar=window.AthenaResearchRecords.mountToolbar(q('#ac-document-revisions'),{store:records,documentId:activeDocumentId,icons,toast,onVersion(){requestedDocumentVersion=null;renderDocumentRecord();paperPanel?.reload();},onExport:downloadDocumentExport});
+  recordToolbar=window.AthenaResearchRecords.mountToolbar(q('#ac-document-revisions'),{store:records,documentId:activeDocumentId,icons,toast,onVersion(revision){requestedDocumentVersion=null;renderDocumentRecord();paperPanel?.reload(revision.version);},onExport:downloadDocumentExport});
  }
  async function openDocument(selection={}){
   state.documentEditing=false;q('#ac-document-editor').hidden=true;q('#ac-editor-label').hidden=true;q('#ac-document').hidden=false;q('#ac-edit-manuscript').innerHTML='<i data-lucide="pencil" aria-hidden="true"></i>Edit';

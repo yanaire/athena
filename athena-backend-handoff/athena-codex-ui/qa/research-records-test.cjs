@@ -122,3 +122,18 @@ test('Knowledge hands off original bytes explicitly, separates PDF preview/extra
   assert.equal(env.api.getOriginalFile(source.id, '1'), file); assert.equal(env.api.getOriginalFile(source.id, '2'), null);
   env.api.destroy(); assert.equal(env.urls.size, 0);
 });
+
+test('opening a historical project revision first keeps the current host version and draft intact', async () => {
+  const store = records();
+  const revisions = ['old','current'].map(version => ({
+    projectId:'project-rc',documentId:'study',title:'Study',text:version,version,currentVersion:'current',evidence:[]
+  }));
+  store.attach({getDocument: async request => revisions[request.version==='old'?0:1]});
+  await store.loadDocument('study','old');
+  assert.equal(store.getDocument('study').currentVersion,'current');
+  store.selectVersion('study','old');assert.throws(()=>store.updateDraft('study','replacement'),/read-only/);
+  store.selectVersion('study','current');store.updateDraft('study','my edits');
+  await store.loadDocument('study','old');
+  assert.equal(store.getDocument('study').draft.text,'my edits');
+  store.destroy();
+});

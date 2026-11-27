@@ -121,7 +121,7 @@ export class Papers {
     if(!v||v.documentId!==id||v.sha256!==hash(v.text)) fail('VERSION_DENIED','Stored manuscript version unavailable.');
     const review=d.runs.flatMap(r=>r.reviews).find(r=>r.state==='completed'&&r.targets.some(t=>t.kind==='artifact'&&t.id===v.artifact?.id&&t.sha256===v.sha256));
     const status=review?.verdict==='supported'?'approved':review?.verdict?'changes_requested':'unreviewed';
-    return {...v,persistence:'host' as const,review:{version:key,status,reviewerId:review?.reviewer?.agentSessionId,notes:review?.verdict},assessment:review};
+    return {...v,currentVersion:d.versions.at(-1)!,persistence:'host' as const,review:{version:key,status,reviewerId:review?.reviewer?.agentSessionId,notes:review?.verdict},assessment:review};
   }
   save(project:string,id:string,args:Record<string,unknown>,generated?:{artifact:ResearchTarget;links:unknown;runId:string}) {
     const body=bounded(args.text,'manuscript text',120000),title=bounded(args.title,'title',256);

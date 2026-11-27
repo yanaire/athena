@@ -305,7 +305,7 @@ test('execution disabled preserves CSV evidence and observations after joining, 
 });
 
 test('paper outlining, editorial revision, independent frozen reviews and exact exports survive restart', {timeout:90000}, async t=>{
-  const directory=privateTestDirectory(join(tmpdir(),'paper-integration-'));
+  const directory=await realpath(privateTestDirectory(join(tmpdir(),'paper-integration-')));
   const sourceText='The reported voltage is 19 mV.',title='Voltage study';
   let sourceId='',round=0;const errors:string[]=[];
   let held:ReturnType<typeof Promise.withResolvers<void>>|undefined, holdStage='';
