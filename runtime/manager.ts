@@ -76,6 +76,20 @@ type StoredFile = FileReference & {
 const planningTools = new Set(['plan_research','read','read_file','list_skills','load_skill','get_research_board',
   'search_project_library','read_project_paper','get_task','list_tasks','cancel_task','wait_for_agents']);
 const uploadBytes = 256 * 1024;
+// Staged inputs must be independently readable UTF-8. Preserve the exact text when
+// a large brief or review record spans several files.
+function manuscriptContextFiles(name:string, value:string):StagedFileInput[] {
+  const bytes=Buffer.from(value);
+  const parts:StagedFileInput[]=[];
+  for(let start=0;start<bytes.length;){
+    let end=Math.min(start+uploadBytes,bytes.length);
+    while(end<bytes.length && (bytes[end]! & 0xc0)===0x80)end--;
+    parts.push({name:bytes.length>uploadBytes?name+'.part-'+(parts.length+1):name,
+      mimeType:'text/plain',data:bytes.subarray(start,end).toString('base64')});
+    start=end;
+  }
+  return parts;
+}
 type Response = {
   readonly type: 'response'; readonly command: string; readonly id?: string;
   readonly success: boolean; readonly data?: unknown; readonly error?: string;
@@ -884,7 +898,20 @@ export class TaskManager implements AthenaTaskManager {
             throw new ManagerError('ARTIFACT_DENIED','The selected result changed.');
         }
       }
-      const {fileReferences}=await this.stageFiles(sessionId,sources.map((s,i)=>({name:'source-'+(i+1)+'.txt',mimeType:'text/plain',data:Buffer.from(s.content).toString('base64')})));
+      const files=sources.map((s,i)=>({name:'source-'+(i+1)+'.txt',mimeType:'text/plain',data:Buffer.from(s.content).toString('base64')}));
+      const base=d.versions.at(-1);
+      const previous=mode==='write'&&base?this.#papers.version(project,id,base):undefined;
+      const review=previous?.assessment;
+      if(previous && review?.verdict==='changes_required'){
+        if(!review.reviewer || this.#storage.record<Attempt>('attempt',review.reviewer.attemptId)?.status!=='succeeded')
+          throw new ManagerError('PAPER_NO_REVIEW','The prior edition needs a completed independent review.');
+        files.push(...manuscriptContextFiles('prior-manuscript.md',previous.text),
+          ...manuscriptContextFiles('prior-review.json',JSON.stringify({version:previous.version,sha256:previous.sha256,
+            reviewId:review.id,verdict:review.verdict,checks:review.checks,findings:review.findings,linkIssues:previous.issues})));
+      }
+      const userBrief=d.workflow?.sessionId===sessionId?this.#flow(d.workflow.runId)?.input??d.goal:d.goal;
+      if(mode==='write'&&JSON.stringify(userBrief).length>2048)files.push(...manuscriptContextFiles('user-research-brief.txt',userBrief));
+      const {fileReferences}=await this.stageFiles(sessionId,files);
       const flow=original&&this.#flow(original.id);
       const contextDraft=flow?'\nPreliminary sections: '+JSON.stringify(flow.drafts)+'\nCitations and uses: '+JSON.stringify([...(flow.citations??[]),...(flow.pages??[]).filter(page=>d.evidence.some(ref=>ref.sourceId===page.sourceId))]):'';
       const message='Manuscript '+mode+' request. Objective: '+d.goal+'\n'+(mode==='outline'?'Inspect the selected sources and call compose_manuscript with an outline of 1–8 headings.':'Call compose_manuscript with {} to execute the approved outline: '+JSON.stringify(d.outline))+
@@ -893,7 +920,8 @@ export class TaskManager implements AthenaTaskManager {
         const current=this.#papers.paper(project,id);
         if(JSON.stringify([current.evidence,current.outline,current.versions])!==JSON.stringify([d.evidence,d.outline,d.versions]))throw new ManagerError('VERSION_CONFLICT','Manuscript changed during start.');
         current.runs.push({id:a.runId,requestId,mode,baseVersion:d.versions.at(-1)??null,context:context(a),stage:'requested',outline:[...d.outline],sections:[],
-          attempts:[],versions:[],reviews:[],uploads:fileReferences.map((f,i)=>({fileId:f.id,sourceId:sources[i]!.sourceId}))});
+          attempts:[],versions:[],reviews:[],...(review?.verdict==='changes_required'?{revisionReviewId:review.id}:{}),
+          contextFileIds:fileReferences.slice(sources.length).map(f=>f.id),uploads:fileReferences.slice(0,sources.length).map((f,i)=>({fileId:f.id,sourceId:sources[i]!.sourceId}))});
         this.#papers.put(current);this.#storage.set('paper.run:'+a.runId,id);
       },original);
       return response.data;
@@ -911,6 +939,14 @@ export class TaskManager implements AthenaTaskManager {
     }
     const doc=current(),sources=doc.evidence.map(ref=>this.#papers.source(a.projectId,ref.sourceId));
     const upstream=doc.workflow&&this.#flow(doc.workflow.runId);
+    const paperRun=run(),sourceFileIds=paperRun.uploads.map(u=>u.fileId);
+    const contextFileIds=paperRun.contextFileIds??[];
+    const userBrief=doc.workflow?.sessionId===a.sessionId?upstream?.input??doc.goal:doc.goal;
+    const userContext='User-provided research brief (scope and requirements only; substantive claims require independent evidence): '+
+      (JSON.stringify(userBrief).length>2048 && contextFileIds.length?'read the granted user-research-brief.txt file(s).':JSON.stringify(userBrief).slice(0,2048));
+    const revisionContext=paperRun.revisionReviewId?
+      'Use read_file with each granted prior-manuscript.md and prior-review.json fileId (all parts). Previous edition '+paperRun.baseVersion+
+      ', independent review '+paperRun.revisionReviewId+'. Check each recorded finding and preserve supported material. These inputs describe the revision history and are not sources for empirical claims.':'';
     const study=upstream && this.#experimentMission(upstream.runId);
     const measurements=study?.trials.flatMap(t=>{
       if (!t.outcome || !('value' in t.outcome)) return [];
@@ -922,7 +958,7 @@ export class TaskManager implements AthenaTaskManager {
       protocol:study.contract.protocol,metricPath:study.contract.metricPath,target:study.contract.target,direction:study.contract.direction,
       status:study.status,measurements
     }):'';
-    const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:a.fileIds[i],title:s.title,coverage:s.level,
+    const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:sourceFileIds[i],title:s.title,coverage:s.level,
       ...upstream?.pages?.find(p=>p.sourceId===s.sourceId),claim:upstream?.citations?.find(c=>c.sourceId===s.sourceId)?.claim??upstream?.pages?.find(p=>p.sourceId===s.sourceId)?.claim})));
     // Reserve a fresh reviewer for a possible revision before reserving a literature session.
     const separatePlanner=this.#maxChildren>=5;
@@ -936,7 +972,8 @@ export class TaskManager implements AthenaTaskManager {
       }
       const requestId='paper:'+a.runId+':'+role+':'+a.id+(correcting?':correct':'');
       update(r=>{r.stage=role;});
-      const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId}:{title:role,prompt,requestId},signal,next=>{
+      const fileIds=role==='Edit manuscript'||role==='Revise manuscript'?a.fileIds:sourceFileIds;
+      const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId,fileIds}:{title:role,prompt,requestId,fileIds},signal,next=>{
         // Called inside the existing child admission transaction.
         const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
       },!!prior||!!previous&&a.requestId.startsWith('resume:'),role==='Plan manuscript evidence'&&separatePlanner?'literature':role==='Draft sections'||role==='Plan manuscript evidence'?'writer':'editor');
@@ -960,7 +997,7 @@ export class TaskManager implements AthenaTaskManager {
       let briefs=run().sectionBriefs;
       const scholarly=sources.some(s=>s.origin && 'provider' in s.origin);
       let planner=run().attempts.find(t=>t.role==='Plan manuscript evidence')?.taskId;
-      if(!briefs && (scholarly || args.sectionBriefs!==undefined)){
+      if(!revisionContext && !briefs && (scholarly || args.sectionBriefs!==undefined)){
         const validate=(reply:unknown)=>sectionBriefs(reply,doc.outline,sources);
         if(args.sectionBriefs!==undefined)briefs=validate(args.sectionBriefs);
         else {
@@ -972,7 +1009,7 @@ export class TaskManager implements AthenaTaskManager {
       const briefContext=briefs?'\nSection evidence and visual plan: '+JSON.stringify(briefs):'';
       const revisionRoom=this.#maxChildren>=4;
       let sections=run().sections;
-      if(!sections.length){
+      if(!revisionContext && !sections.length){
         const writer=await structuredChild('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
         trialContext+briefContext+(upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
         '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline),reply=>sectionDrafts(reply,doc.outline),separatePlanner?undefined:planner);
@@ -990,7 +1027,8 @@ export class TaskManager implements AthenaTaskManager {
           break;
         }
         const result=priorVersion?.artifact?.taskId?await this.#summary(this.#child(a,priorVersion.artifact.taskId)):await child(cycle?'Revise manuscript':'Edit manuscript',
-          'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+trialContext+briefContext+
+          (revisionContext?(cycle?'Amend your newly published revision in light of the latest independent review. ':'Revise the prior edition directly. ')+revisionContext:'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections))+
+          '\n'+userContext+'\nSources: '+description+trialContext+briefContext+
           (doc.workflow?.tables?.length?'\nFor numeric results you can put ![Caption](athena-plot:sourceId/xKey/yKey) or ![Caption](athena-table:sourceId/xKey/yKey) on a separate line. Use the exact sourceId and numeric field names from these verified arrays: '+JSON.stringify(doc.workflow.tables):'')+
           '\nFor a method diagram, use ![caption](athena-diagram:sourceId/label1/label2) on a separate line. Copy 2–6 short ordered labels from one linked full-text source and URL-encode each label.'+
           '\nUse publish_manuscript exactly once. Supply claim/citation/figure links with exact manuscript and source quotes. Include data units for figures. Unavailable evidence must be disclosed.'+
@@ -1008,9 +1046,9 @@ export class TaskManager implements AthenaTaskManager {
           if(durableReview.verdict==='changes_required'&&cycle===0&&revisionRoom){findings=[...(durableReview.findings??[]),...version.issues];continue;}
           break;
         }
-        const evidence=await this.#research.addEvidence(a,{missionId:mission.id,title:'Manuscript '+(cycle+1),artifactIds,fileIds:a.fileIds},resolver);
+        const evidence=await this.#research.addEvidence(a,{missionId:mission.id,title:'Manuscript '+(cycle+1),artifactIds,fileIds:sourceFileIds},resolver);
         const review=await this.#research.prepareReview(a,{missionId:mission.id,evidenceIds:[evidence.id],question:
-          'Use read_file with each exact artifactId and fileId to read manuscript.md, links.json and all granted sources. Check exact quotes, cited scope, and data variables, units, transformations and captions. Include a separate substantive check beginning Claims:, Citations:, and Figures:. Report unsupported statements, missing citations or unit errors. Do not claim reproduction.'},resolver);
+          'Use read_file with each exact artifactId and fileId to read manuscript.md, links.json and all granted sources. Check exact quotes, cited scope, and data variables, units, transformations and captions. Include a separate substantive check beginning Claims:, Citations:, and Figures:. Report unsupported statements, missing citations or unit errors. Do not claim reproduction.\n'+userContext+'\n'+revisionContext},resolver,contextFileIds);
         update(r=>{r.stage='Independent review';});
         const name='Review manuscript '+(cycle+1);
         const prior=run().attempts.findLast(t=>t.role===name);
@@ -1042,6 +1080,11 @@ export class TaskManager implements AthenaTaskManager {
     const expectedRole=r.versions.length?'Revise manuscript':'Edit manuscript';
     if(r.versions.length>=2||r.stage!==expectedRole||!r.attempts.some(t=>t.role===expectedRole&&t.attemptId===a.id))
       throw new ManagerError('EDITOR_DENIED','Only the assigned editor may publish this revision once.');
+    if(r.revisionReviewId && !r.versions.length){
+      const reads=this.#storage.records<Tool>('tool',a.sessionId).filter(t=>t.attemptId===a.id&&t.name==='read_file'&&t.status==='succeeded');
+      if(r.contextFileIds?.some(id=>!reads.some(t=>object(t.args)&&t.args.fileId===id)))
+        throw new ManagerError('REVISION_UNREAD','Read the assigned revision context with read_file before publishing this revision.');
+    }
     const expected=r.versions.at(-1)??r.baseVersion;
     if((d.versions.at(-1)??null)!==expected)throw new ManagerError('VERSION_CONFLICT','Manuscript changed since assignment.');
     const body=bounded(args.text,'manuscript',120000),sources=r.uploads.map(u=>this.#papers.source(a.projectId,u.sourceId));
@@ -1717,12 +1760,12 @@ export class TaskManager implements AthenaTaskManager {
     this.#commit(()=>this.#journal.event(a,'research_updated','Research record saved.'));
     return result;
   }
-  #reviewPrompt(review: {id:string;missionId:string;question:string;targets:readonly ResearchTarget[]}) {
-    return 'You are a fresh independent evidence reviewer. Begin with the original question and the exact evidence below. The author conversation and conclusions are not provided. '
+  #reviewPrompt(review: {id:string;missionId:string;question:string;targets:readonly ResearchTarget[];contextFiles?:readonly ResearchTarget[]}) {
+    return 'You are a fresh independent evidence reviewer. Begin with the original question and the exact evidence below. Assess the current deliverable on its own evidence. '
       + 'Inspect actual files, test the stated criteria, record failures and missing evidence. A separate session can still share model biases. '
       + 'When possible, independently reproduce the calculation using the granted original input and publish your own result. Use add_research_evidence with both the original fileIds and your own artifactIds; include its evidence ID in submit_review.reproductionEvidenceIds. '
       + 'Do not call a re-read of the author result a reproduction. Submit your supported, changes_required or insufficient_evidence verdict with submit_review; checks must describe work actually performed. '
-      + '\nReview assignment: ' + JSON.stringify({reviewId:review.id,missionId:review.missionId,question:review.question,targets:review.targets});
+      + '\nReview assignment: ' + JSON.stringify({reviewId:review.id,missionId:review.missionId,question:review.question,targets:review.targets,...(review.contextFiles?{contextFiles:review.contextFiles}: {})});
   }
   async #operation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,sdkSignal?:AbortSignal):Promise<unknown> {
     const turn=this.#turns.get(a.id);

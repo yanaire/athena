@@ -27,7 +27,7 @@ export type ResearchEvidence = {
 export type ResearchVerdict = 'supported' | 'changes_required' | 'insufficient_evidence';
 export type ResearchReview = {
   readonly id: string; readonly missionId: string; readonly evidenceIds: readonly string[];
-  readonly targets: readonly ResearchTarget[]; readonly question: string; readonly createdAt: number;
+  readonly targets: readonly ResearchTarget[]; readonly contextFiles?: readonly ResearchTarget[]; readonly question: string; readonly createdAt: number;
   readonly requestedBy: Context; readonly reviewer?: Context;
   readonly state: 'awaiting_reviewer' | 'pending' | 'completed' | 'failed' | 'cancelled' | 'paused';
   readonly executionStatus?: string; readonly verdict?: ResearchVerdict;
@@ -238,7 +238,7 @@ export class ResearchLedger {
     return structuredClone(evidence);
   }
 
-  async prepareReview(ctx: Context, args: Args, resolve: ResearchResolver): Promise<ResearchReview> {
+  async prepareReview(ctx: Context, args: Args, resolve: ResearchResolver, contextFileIds: readonly string[] = []): Promise<ResearchReview> {
     this.#active(ctx, true);
     fields(args, ['missionId', 'evidenceIds', 'question', 'requestId']);
     const evidenceIds = strings(args.evidenceIds, 'Evidence IDs', { length: 256 });
@@ -255,11 +255,17 @@ export class ResearchLedger {
     }
     const targets = [...unique.values()];
     if (!targets.some(target => target.kind === 'artifact')) fail('EVIDENCE_MISSING', 'An independent result review requires a published artifact.');
+    const contextFiles: ResearchTarget[] = [];
+    for (const id of contextFileIds) {
+      const file = await this.#resolve(ctx, {kind:'file',id}, resolve);
+      if (unique.has(targetKey(file))) fail('REVIEWER_GRANTS', 'Review context cannot also be submitted as research evidence.');
+      contextFiles.push(file);
+    }
     await this.#verify(ctx, targets, resolve);
     this.#active(ctx, true); doc = this.#document(ctx.projectId); this.#mission(doc, ctx, mission.id);
     const request = this.#request(doc, ctx, 'review', args);
     if (request?.id) return structuredClone(doc.reviews.find(row => row.id === request.id)!);
-    const review: ResearchReview = { id: randomUUID(), missionId: mission.id, evidenceIds, targets,
+    const review: ResearchReview = { id: randomUUID(), missionId: mission.id, evidenceIds, targets, ...(contextFiles.length ? {contextFiles} : {}),
       question, createdAt: Date.now(), requestedBy: contextCopy(ctx), state: 'awaiting_reviewer' };
     doc.reviews.push(review); this.#receipt(doc, request, review.id); this.#save(doc);
     return structuredClone(review);
@@ -276,7 +282,7 @@ export class ResearchLedger {
         reviewer.parentTaskId !== ctx.taskId || reviewer.taskId === ctx.taskId || reviewer.agentSessionId === ctx.agentSessionId) fail('REVIEWER_INVALID', 'A review requires a real separate direct child session in this run.');
     if (review.targets.some(target => target.kind === 'artifact' && (target.taskId === reviewer.taskId || target.agentSessionId === reviewer.agentSessionId)) ||
         this.#evidence(doc, review.missionId, review.evidenceIds).some(row => row.createdBy.taskId === reviewer.taskId || row.createdBy.agentSessionId === reviewer.agentSessionId)) fail('REVIEWER_NOT_INDEPENDENT', 'The producing agent cannot independently review its own evidence.');
-    const expectedFiles = review.targets.filter(target => target.kind === 'file').map(target => target.id).sort();
+    const expectedFiles = [...review.targets, ...(review.contextFiles ?? [])].filter(target => target.kind === 'file').map(target => target.id).sort();
     const expectedArtifacts = review.targets.filter(target => target.kind === 'artifact').map(target => target.id).sort();
     if (stable([...reviewerAttempt.fileIds].sort()) !== stable(expectedFiles) || stable([...(reviewerAttempt.artifactGrants ?? [])].sort()) !== stable(expectedArtifacts)) fail('REVIEWER_GRANTS', 'Reviewer inputs must be exactly the frozen review package, without unrelated inherited inputs.');
     if (review.reviewer) {
@@ -301,7 +307,7 @@ export class ResearchLedger {
     const replay = doc.reviews.find(row => row.previousReviewId === source.id && row.reviewer && sameContext(row.reviewer, next));
     if (replay) return structuredClone(replay);
     const review: ResearchReview = { id: randomUUID(), missionId: source.missionId, evidenceIds: [...source.evidenceIds],
-      targets: structuredClone(source.targets), question: source.question, createdAt: Date.now(), requestedBy: contextCopy(source.requestedBy),
+      targets: structuredClone(source.targets), ...(source.contextFiles ? {contextFiles:structuredClone(source.contextFiles)} : {}), question: source.question, createdAt: Date.now(), requestedBy: contextCopy(source.requestedBy),
       reviewer: contextCopy(next), state: 'pending', previousReviewId: source.id };
     doc.reviews.push(review); this.#save(doc); return structuredClone(review);
   }
@@ -328,7 +334,7 @@ export class ResearchLedger {
     for (const evidence of reproductions) {
       if (!sameContext(evidence.createdBy, ctx) || !evidence.targets.some(target => target.kind === 'artifact' && target.taskId === ctx.taskId && target.attemptId === ctx.attemptId && target.agentSessionId === ctx.agentSessionId)) fail('REPRODUCTION_INVALID', 'Reproduction must include an actual artifact produced by this reviewer attempt.');
     }
-    await this.#verify(ctx, review.targets, resolve);
+    await this.#verify(ctx, [...review.targets, ...(review.contextFiles ?? [])], resolve);
     for (const evidence of reproductions) await this.#verify(ctx, evidence.targets, resolve);
     if (this.#context(ctx).status !== 'running') fail('ATTEMPT_INACTIVE', 'The reviewer stopped before submission was persisted.');
     doc = this.#document(ctx.projectId); const index = doc.reviews.findIndex(row => row.id === reviewId);

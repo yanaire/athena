@@ -15,7 +15,7 @@ export type PaperLink = {kind:'claim'|'citation'|'figure'; quote:string; sourceI
   locator:string; manuscriptOffset?:number;sourceOffset?:number; variable?:string;unit?:string;transformation?:string;caption?:string};
 type PaperVersion = {projectId:string;documentId:string;version:string;baseVersion:string|null;title:string;text:string;sha256:string;
   evidence:Ref[];links:PaperLink[];issues:string[];createdAt:string;artifact?:ResearchTarget};
-export type PaperRun = {sectionBriefs?:import('./manuscript-draft.ts').SectionBrief[];id:string;requestId:string;mode:'outline'|'write';context:Context;baseVersion:string|null;stage:string;
+export type PaperRun = {revisionReviewId?:string;contextFileIds?:string[];sectionBriefs?:import('./manuscript-draft.ts').SectionBrief[];id:string;requestId:string;mode:'outline'|'write';context:Context;baseVersion:string|null;stage:string;
   outline:string[];sections:{heading:string;text:string}[];attempts:{role:string;taskId:string;attemptId:string}[];
   versions:string[];reviews:ResearchReview[];uploads:{fileId:string;sourceId:string}[];error?:string};
 type Download = {id:string;name:string;uri:string;sha256:string;bytes:number;mimeType:string};
