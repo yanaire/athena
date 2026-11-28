@@ -291,6 +291,30 @@ try {
       assert.equal(sha(Buffer.from(await response.arrayBuffer())), artifact.file.sha256);
     }
     await shot('08-restored-chat');
+    await page.evaluate(() => window.AthenaApp.openWorkspace('manuscript'));
+    const panel=page.locator('#ac-paper-project');
+    await panel.getByText('New manuscript and sources',{exact:true}).click();
+    await panel.getByText('Search Crossref',{exact:true}).click();
+    await panel.getByLabel('Search term sent to Crossref').fill('bounded synthetic voltage search');
+    await panel.getByRole('button',{name:'Authorize for chat'}).click();
+    await page.waitForFunction(()=>document.querySelector('[data-paper="search-status"]').textContent.includes('Share this search ID'));
+    await panel.getByRole('button',{name:'Cancel search'}).click();
+    await page.waitForFunction(()=>document.querySelector('[data-paper="search-status"]').textContent==='cancelled');
+    await panel.locator('[data-paper="file"]').setInputFiles({name:'observation.txt',mimeType:'text/plain',buffer:Buffer.from('A 19 mV observation.')});
+    await panel.getByRole('button',{name:'Add text source'}).click();
+    await panel.getByLabel('Source material').selectOption({label:'observation.txt · full_text'});
+    await panel.getByLabel('Title',{exact:true}).fill('Browser manuscript');
+    await panel.getByLabel('Research objective').fill('Summarize the observed voltage.');
+    await panel.getByRole('button',{name:'Create manuscript'}).click();
+    await panel.getByLabel('Section headings, one per line').fill('Observations');
+    await panel.getByRole('button',{name:'Save outline'}).click();
+    const catalog=await fixture.rpc('listPapers',[{projectId:restored.projectId}]);
+    const manuscript=catalog.documents.find(d=>d.title==='Browser manuscript');assert.ok(manuscript);
+    await page.waitForFunction(()=>!document.querySelector('[data-paper="write"]').disabled);
+    assert.deepEqual((await fixture.rpc('paperDetails',[{projectId:restored.projectId,documentId:manuscript.id}])).outline,['Observations']);
+    await shot('08b-manuscript-sources');
+    checks.push('The shipped manuscript panel authorizes and cancels a Crossref search, imports user bytes, creates a source-backed manuscript and saves its outline through host RPC.');
+    await page.evaluate(()=>window.AthenaApp.closePanel());
     checks.push('A real host restart reconnects and page reload restores the same tasks, processes, outputs, attachment badges and user messages without automatic re-execution.');
 
     await page.evaluate(() => window.AthenaApp.createResearch('Attachment-only message'));

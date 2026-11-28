@@ -123,6 +123,7 @@ async function changeCredentials<T>(action: () => Promise<T>): Promise<T> {
 async function rpc(method: string, args: unknown[]) {
   const [input, second] = args;
   switch (method) {
+    case 'bibliographyHistory':case 'authorizeSearch':case 'executeSearch':case 'cancelSearch':case 'addSearchSource':
     case 'listPapers':case 'createPaper':case 'addPaperSource':case 'getDocument':case 'saveDocument':
     case 'exportPaper':case 'paperDetails':case 'setPaperOutline':case 'startPaper':
       if(!object(input))throw new TypeError('Expected manuscript request.');

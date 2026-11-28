@@ -7,7 +7,7 @@ import type { ResearchReview, ResearchTarget } from './research.ts';
 type Ref = {sourceId:string;version:string};
 export interface PaperSource extends Ref {
   projectId:string; title:string; content:string; level:'metadata'|'abstract'|'full_text'; sha256:string;
-  origin?: ResearchTarget | {provider:string;providerId:string;query:string;retrievedAt:string;raw:unknown;rawSha256:string;fullTextAcquired:false};
+  origin?: ResearchTarget | {provider:string;providerId:string;query:string;retrievedAt:string;raw:unknown;rawSha256:string;hasAbstract:boolean;fullTextLinks:string[];fullTextAcquired:false};
 }
 export type PaperLink = {kind:'claim'|'citation'|'figure'; quote:string; sourceId:string; excerpt:string;
   locator:string; manuscriptOffset?:number;sourceOffset?:number; variable?:string;unit?:string;transformation?:string;caption?:string};
@@ -77,7 +77,7 @@ export class Papers {
   }
   source(project:string,id:string) {
     const s=this.db.get<PaperSource>(this.key(project,'source',id));
-    if(!s||s.projectId!==project||s.sha256!==hash(s.content)) fail('SOURCE_DENIED','Verified project source unavailable.');
+    if(!s||s.projectId!==project||s.sha256!==hash(s.content)||s.origin&&'provider' in s.origin&&s.origin.rawSha256!==hash(JSON.stringify(s.origin.raw))) fail('SOURCE_DENIED','Verified project source unavailable.');
     return s;
   }
   saveSource(project:string,title:string,content:string,level:PaperSource['level']='full_text',origin?:PaperSource['origin']) {
