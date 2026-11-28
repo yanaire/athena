@@ -65,6 +65,7 @@
     const initialSources = project => !runtimeMode && project === 'project-rc' ? SAMPLES.map((source, index) => sourceDefaults({ ...source, origin: 'sample', isSample: true, sessionOnly: false, pinned: index === 0, createdAt: '', order: index }, project)) : [];
     let sources = initialSources(projectId);
     const storageKey = () => KNOWLEDGE_NAMESPACE + ':' + encodeURIComponent(projectId);
+    const editionPinKey = source => storageKey() + ':pin:' + encodeURIComponent(source.id) + ':' + encodeURIComponent(source.sourceVersion);
     function loadProjectStorage() {
     try {
       const raw = window.localStorage.getItem(storageKey()) || (projectId === 'project-rc' ? window.localStorage.getItem(KNOWLEDGE_NAMESPACE) : null);
@@ -353,13 +354,19 @@
     }
     function mergeHostSource(value, expectedId = null, render = true) {
       const next = checkedHostSource(value, projectId, expectedId), existing = sources.find(item => item.id === next.id);
+      if (existing && existing.sourceVersion === next.sourceVersion) {
+        next.pinned = existing.pinned;
+      } else {
+        try { next.pinned = window.localStorage.getItem(editionPinKey(next)) === '1'; }
+        catch (_) { /* Storage may be unavailable in this window. */ }
+      }
       if (!existing) sources.push(next);
       else {
         const versions = existing.versions;
         if (existing.sourceVersion !== next.sourceVersion && !versions.some(version => version.sourceVersion === existing.sourceVersion)) {
           const previous = { ...existing, originalLocation: { ...existing.originalLocation }, extraction: { ...existing.extraction }, review: { ...existing.review } }; delete previous.versions; versions.push(previous);
         }
-        Object.assign(existing, next, { pinned: existing.pinned, origin: existing.origin, order: existing.order, versions });
+        Object.assign(existing, next, { origin: existing.origin, order: existing.order, versions });
       }
       if (render) { renderCollection(); refreshStorageNote(); }
       return next;
@@ -493,10 +500,20 @@
       if (action === 'reset-filters') { restoreFullList(); renderCollection(); searchInput.focus({ preventScroll: true }); }
       if (action === 'pin' && source) {
         source.pinned = !source.pinned;
-        persist();
+        let sessionOnly;
+        if (source.persistence === 'host') {
+          try {
+            const key = editionPinKey(source);
+            if (source.pinned) window.localStorage.setItem(key, '1');
+            else window.localStorage.removeItem(key);
+          } catch (_) { sessionOnly = true; }
+        } else {
+          persist();
+          sessionOnly = storageMode === 'session';
+        }
         renderCollection();
         (detail.querySelector('[data-akn-action="pin"]') || pinnedFilter).focus({ preventScroll: true });
-        if (storageMode === 'session') showNotice('Pin changes are kept for this session because persistent storage is unavailable.');
+        if (sessionOnly) showNotice('Pin changes are kept for this session because persistent storage is unavailable.');
       }
       if (action === 'use-source' && source) {
         if (typeof options.onUseSource === 'function') {
