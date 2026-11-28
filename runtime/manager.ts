@@ -681,8 +681,6 @@ export class TaskManager implements AthenaTaskManager {
     const current=paper?.versions.at(-1),version=current?this.#papers.version(project,paper!.id,current):undefined;
     const processes=this.#storage.records<ProcessRow>('process',session).filter(p=>p.runId===run.id);
     const artifacts=this.#storage.records<ArtifactRow>('artifact',session).filter(f=>f.runId===run.id);
-    const recorded=new Set([...(flow.tables??[]).map(t=>t.artifactId),...reviews.flatMap(r=>r.targets.filter(t=>t.kind==='artifact').map(t=>t.id))]);
-    const experiments=processes.filter(p=>!p.job.externalMcp||artifacts.some(f=>f.processId===p.id&&recorded.has(f.id)));
     const searches=this.#bibliography.list(project,session).filter(s=>flow.searchIds.includes(s.id));
     const retained=paper?.workflow?.references?.filter(ref=>flow.citations?.some(c=>c.sourceId===ref.sourceId))??[];
     const succeeded=reviews.findLast(r=>r.verdict==='supported'&&r.executionStatus==='succeeded');
@@ -692,11 +690,58 @@ export class TaskManager implements AthenaTaskManager {
     const phase=(title:string,status:string,taskId?:string,description?:string)=>({title,status,taskId,description});
     const studyStatus=study?.status==='reached'?'Succeeded':study?.status==='stopped'?'Stopped':
       study?.status==='exhausted'||study?.status==='blocked'?'Waiting for input':pending(run.status)?'Running':states(run.status);
+    // A worker can publish a preliminary result and run another analysis in the same
+    // attempt. Project completion only from settled work and exact artifact editions.
+    const experimentStage=()=>{
+      const row=(status:string,taskId?:string,reason?:string)=>phase('Experiment',status,taskId,reason);
+      if(study)return row(studyStatus,study.trials.at(-1)?.worker?.taskId,study.reason);
+      const artifactKey=(id:string,version:string)=>JSON.stringify([id,version]);
+      const pinned=new Set((flow.tables??[]).map(t=>artifactKey(t.artifactId,t.version)));
+      const evidence=board.evidence.filter(e=>e.createdBy.runId===run.id && e.createdBy.parentTaskId===null);
+      for(const record of [...evidence,...reviews]){
+        for(const target of record.targets)if(target.kind==='artifact')pinned.add(artifactKey(target.id,target.version));
+      }
+      const pinnedProcesses=new Set(artifacts.filter(f=>f.version && pinned.has(artifactKey(f.id,f.version))).map(f=>f.processId));
+      const tasks=this.#storage.records<TaskRow>('task',session).filter(t=>t.runId===run.id);
+      const assignedWorkers=new Set(tasks.filter(t=>t.role==='experiment').map(t=>t.id));
+      const excludedTasks=new Set(tasks.filter(t=>['literature','mission','verification','reviewer','writer','editor'].includes(t.role??'')).map(t=>t.id));
+      for(const review of reviews)if(review.reviewer)excludedTasks.add(review.reviewer.taskId);
+      const experiments=processes.filter(p=>{
+        if(excludedTasks.has(p.taskId))return false;
+        const external=p.job.externalMcp;
+        if(!external)return true;
+        const capability=run.extensions?.servers.find(s=>s.id===external.serverId)?.definition.capability;
+        return capability!=='browser' && (assignedWorkers.has(p.taskId)||pinnedProcesses.has(p.id));
+      });
+      const processOwners=new Set(experiments.map(p=>p.taskId));
+      const workers=tasks.filter(t=>t.parentTaskId && !excludedTasks.has(t.id) && (assignedWorkers.has(t.id)||processOwners.has(t.id)));
+      const activeWorker=workers.find(t=>pending(t.status));
+      const completed=experiments.findLast(p=>p.status==='succeeded' && pinnedProcesses.has(p.id));
+      const failedWorker=workers.findLast(t=>['failed','cancelled','paused'].includes(t.status));
+      if(activeWorker)return row(states(activeWorker.status),activeWorker.id);
+      const active=experiments.find(p=>p.status==='running'||p.status==='queued');
+      if(active)return row('Running',active.taskId);
+      if(failedWorker && !flow.documentId)return row(states(failedWorker.status),failedWorker.id);
+      if(completed)return row('Succeeded',completed.taskId);
+      // Older research flows predate explicit evidence pins. Keep their final outcome.
+      if(!flow.planMode && run.status==='succeeded' && !pinned.size){
+        const legacy=experiments.findLast(p=>p.status==='succeeded' && artifacts.some(f=>f.processId===p.id));
+        if(legacy)return row('Succeeded',legacy.taskId);
+      }
+      const last=experiments.at(-1),worker=workers.at(-1);
+      if(last && last.status!=='succeeded')return row(states(last.status),last.taskId);
+      if(last||worker){
+        const waiting=pending(run.status);
+        const explanation=last?.status==='succeeded'?'Waiting for the coordinator to record the result edition.':undefined;
+        return row(waiting?'Running':states(run.status),last?.taskId??worker?.id,explanation);
+      }
+      return row(upcoming);
+    };
     const stages=[
       phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission?.objective),
       phase('Sources',flow.pages?.length||flow.inputs?.length||retained.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
         [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...[...(flow.pages??[]),...retained].map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
-      phase('Experiment',study?studyStatus:experiments.some(p=>p.status==='succeeded'&&artifacts.some(f=>f.processId===p.id))?'Succeeded':experiments.length?states(experiments.at(-1)?.status):upcoming,study?.trials.at(-1)?.worker?.taskId??experiments.at(-1)?.taskId,study?.reason),
+      experimentStage(),
       phase('Verify results',succeeded?'Succeeded':reviews.length?states(reviews.at(-1)?.executionStatus):upcoming,reviews.at(-1)?.reviewer?.taskId,reviews.at(-1)?.verdict),
       phase('Manuscript',current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',writing?.attempts.find(t=>t.role==='Edit manuscript')?.taskId,writing?.error||flow.error),
       phase('Independent review',version&&version.review.status==='approved'?'Succeeded':version?.assessment?'Waiting for input':writing?.stage==='Independent review'?states(written?.status):'Planned',version?.assessment?.reviewer?.taskId,version?.assessment?.verdict),
