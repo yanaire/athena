@@ -34,10 +34,10 @@ def model_spacers(outer_mm, height_mm, bores_mm):
     if len(set(bores_mm)) != len(bores_mm) or max(bores_mm) >= outer_mm:
         raise ValueError("Bores must be distinct and smaller than the outer diameter.")
     rows, models = [], []
-    with tempfile.TemporaryDirectory(prefix="athena-spacer-") as scratch:
-        for bore in bores_mm:
+    for bore in bores_mm:
+        with tempfile.TemporaryDirectory(prefix="athena-spacer-") as scratch:
             model = cq.Workplane("XY").circle(outer_mm / 2).circle(bore / 2).extrude(height_mm)
-            path = Path(scratch) / f"spacer-{bore}mm.step"
+            path = Path(scratch) / "spacer.step"
             cq.exporters.export(model, str(path))
             restored = cq.importers.importStep(str(path)).val()
             if not restored.isValid() or len(restored.Solids()) != 1:
@@ -49,7 +49,7 @@ def model_spacers(outer_mm, height_mm, bores_mm):
                 "solid_count": len(restored.Solids()),
             })
             models.append({
-                "filename": path.name,
+                "filename": f"spacer-{bore}mm.step",
                 "sha256": hashlib.sha256(step).hexdigest(), "step": step.decode("ascii"),
             })
     return {"engine": "CadQuery", "version": cq.__version__, "outer_mm": outer_mm, "height_mm": height_mm, "rows": rows, "models": models}
