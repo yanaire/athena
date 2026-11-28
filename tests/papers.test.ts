@@ -46,7 +46,7 @@ test('saved section checks use Markdown heading boundaries and exact quote offse
   const link=(quote:string,sourceOffset=0)=>({kind:'claim' as const,quote,sourceId:'source',excerpt:quote,locator:'table',
     manuscriptOffset:text.indexOf(quote),sourceOffset});
   const links=[link('Results is mentioned'),link('Tested one'),link('Measured 19'),link('Measured 20'),link('A second'),link('mV.',-1)];
-  assert.deepEqual(manuscriptSectionChecks({text,title:'Study',links}),[
+  assert.deepEqual(manuscriptSectionChecks({text,title:'Original project title',links}),[
     {heading:'Methods',linkedPassages:1},{heading:'Results',linkedPassages:1},
     {heading:'Sensitivity',linkedPassages:1},{heading:'Results',linkedPassages:1}]);
 });

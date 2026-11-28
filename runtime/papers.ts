@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { marked } from 'marked';
 import { publicationMetadata } from './crossref.ts';
-import { typeset, type Template, type MeasuredSeries } from './typesetting.ts';
+import { manuscriptTitleHeading, typeset, type Template, type MeasuredSeries } from './typesetting.ts';
 import { Storage } from './storage.ts';
 import { hash, ManagerError, object } from './orchestration.ts';
 import type { Context } from './orchestration.ts';
@@ -73,12 +73,13 @@ export function manuscriptSectionChecks({title,text,links}:Pick<PaperVersion,'ti
   const sections:{heading:string;start:number;linkedPassages:number}[]=[];
   // Marked normalizes CRLF. Keep token starts in the original UTF-16 coordinates
   // used by inspectLinks so Windows manuscripts retain exact quote attribution.
+  const titleHeading=manuscriptTitleHeading(text.split(/\r?\n/),title);
   const crlf=text.matchAll(/\r\n/g);
   let nextCrlf=crlf.next(),removed=0,position=0,firstHeading=true;
   for(const token of marked.lexer(text)){
     if(token.type==='heading'){
       while(!nextCrlf.done && nextCrlf.value.index<position+removed){removed++;nextCrlf=crlf.next();}
-      if(!firstHeading || token.text!==title)
+      if(!firstHeading || token.text!==titleHeading?.text)
         sections.push({heading:token.text,start:position+removed,linkedPassages:0});
       firstHeading=false;
     }

@@ -67,6 +67,11 @@ function startsWithTitle(lines:string[], heading:NonNullable<ReturnType<typeof h
   }
   return true;
 }
+export function manuscriptTitleHeading(lines:string[],title:string) {
+  const index=lines.findIndex(line=>line.trim());
+  const heading=index<0?undefined:headingAt(lines,index);
+  if(heading && startsWithTitle(lines,heading,index+heading.size,title))return {index,text:heading.text};
+}
 function referenceUrl(value:string) {
   try {
     const url=new URL(value);
@@ -153,7 +158,7 @@ function evidenceBlock(kind:string, caption:string, series:MeasuredSeries, xKey:
 export function manuscriptTex(title:string, markdown:string, style:Template,references?:readonly PaperReference[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[],diagrams:readonly DiagramSource[]=[]) {
   const lines = markdown.split(/\r?\n/);
   const body:string[] = [];
-  const firstContent=lines.findIndex(line=>line.trim());
+  const titleHeading=manuscriptTitleHeading(lines,title);
   const authoredReferences:string[]=[];
   const sourceDois=new Set(references?.map(ref=>doiFromUrl(referenceUrl(ref.url))));
   let linkedDoi=false;
@@ -178,7 +183,7 @@ export function manuscriptTex(title:string, markdown:string, style:Template,refe
     if(heading) {
       i=index+heading.size;
       const bibliography=bibliographyHeading(heading.text);
-      if(index===firstContent && startsWithTitle(lines,heading,i,title)){
+      if(index===titleHeading?.index){
         title=heading.text;
         continue;
       }
