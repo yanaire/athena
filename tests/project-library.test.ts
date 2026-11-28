@@ -6,6 +6,7 @@ import test from 'node:test';
 import { Storage } from '../runtime/storage.ts';
 import { Papers } from '../runtime/papers.ts';
 import { ProjectLibrary } from '../runtime/project-library.ts';
+import { projectFolder } from '../runtime/project-folder.ts';
 import { hash } from '../runtime/orchestration.ts';
 import { privateTestDirectory } from './platform-test-helpers.ts';
 
@@ -14,7 +15,8 @@ test('a project keeps the retrieved original, searchable edition and access scop
   const folder=mkdtempSync(join(tmpdir(),'athena-papers-'));
   let db=new Storage(internal),papers=new Papers(db);
   t.after(()=>{db.close();rmSync(internal,{recursive:true,force:true});rmSync(folder,{recursive:true,force:true});});
-  for(const id of ['a','b'])db.putProject({id,name:id,folder:{path:folder}});
+  const selected=projectFolder(folder,internal);
+  for(const id of ['a','b'])db.putProject({id,name:id,folder:selected});
   const xml=Buffer.from('<article><body>A spectrum peaks at 690 nm.</body></article>');
   let requests=0;
   const open=()=>new ProjectLibrary(db,papers,internal,async(doi)=>{
