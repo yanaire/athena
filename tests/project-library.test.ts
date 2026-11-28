@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { Storage } from '../runtime/storage.ts';
 import { Papers } from '../runtime/papers.ts';
-import { ProjectLibrary } from '../runtime/project-library.ts';
+import { acquireOpenPaper, ProjectLibrary } from '../runtime/project-library.ts';
 import { projectFolder } from '../runtime/project-folder.ts';
 import { hash } from '../runtime/orchestration.ts';
 import { privateTestDirectory } from './platform-test-helpers.ts';
@@ -57,4 +57,21 @@ test('a project keeps the retrieved original, searchable edition and access scop
     symlinkSync(join(folder,'moved'),join(folder,'Athena Library'));
     assert.throws(()=>library.original('a',entry.sourceId),/accessible project folder/);
   }
+});
+
+test('Europe PMC indexes body text once and retains the exact JATS source',async t=>{
+  const doi='10.1000/optics';
+  const raw='<!DOCTYPE article SYSTEM "journal.dtd"><article><front><title>Metadata only</title></front><body><sec><title>Mixtures &amp; optics</title>'+
+    '<p data-label="A > B">H<sub>2</sub>O at &#x3B2;.</p><p><![CDATA[x < y]]>; &amp;lt; denotes encoded text.</p>'+
+    '<table><tr><td>Peak</td><td>690 nm</td></tr></table></sec></body><back>Bibliography</back></article>';
+  const urls:string[]=[];
+  t.mock.method(globalThis,'fetch',async (url:URL|string)=>{
+    urls.push(String(url));
+    return urls.length===1?Response.json({resultList:{result:[{doi,isOpenAccess:'Y',pmcid:'PMC12345'}]}}):new Response(raw);
+  });
+  const acquired=await acquireOpenPaper(doi,new AbortController().signal);
+  assert.equal(acquired?.format,'xml');
+  assert.deepEqual(acquired?.bytes,Buffer.from(raw));
+  assert.equal(acquired?.text,'Mixtures & optics\nH2O at β.\nx < y; &lt; denotes encoded text.\nPeak 690 nm');
+  assert.deepEqual(urls.map(url=>new URL(url).pathname),['/europepmc/webservices/rest/search','/europepmc/webservices/rest/PMC12345/fullTextXML']);
 });

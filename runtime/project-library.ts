@@ -1,3 +1,4 @@
+import { paperElements, paperText, parsePaperXml } from './crossref.ts';
 import { fetchBytes, journalArchive } from './open-papers.ts';
 import { randomUUID } from 'node:crypto';
 import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -35,10 +36,9 @@ export const acquireOpenPaper:PaperAcquisition=async(doi,signal)=>{
   if(!item)return;
   const url='https://www.ebi.ac.uk/europepmc/webservices/rest/'+item.pmcid+'/fullTextXML';
   const bytes=await fetchBytes(url,stop,limit),xml=bytes.toString('utf8');
-  const body=/<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(xml)?.[1];
-  if(!body)throw Error('Repository returned no article body.');
-  const text=body.replace(/<\/(?:p|title|sec)>/gi,'\n').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/[\t ]+/g,' ').trim();
-  return {url,bytes,format:'xml',text};
+  const body=paperElements(parsePaperXml(xml),'body').next().value;
+  if(!body?.children.length)throw Error('Repository returned no article body.');
+  return {url,bytes,format:'xml',text:paperText(body)};
 };
 function safeDir(path:string){
   try{mkdirSync(path,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}

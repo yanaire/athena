@@ -1,3 +1,4 @@
+import { parseXml, XmlElement, XmlText } from '@rgrove/parse-xml';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fetchBytes, journalArchive } from './open-papers.ts';
 import { hash, object } from './orchestration.ts';
@@ -28,13 +29,62 @@ export function publicationMetadata(raw:unknown){
     return {authors,date};
 }
 
+// Fetches bound the byte length. Also bound tree allocation for markup-heavy articles.
+export function parsePaperXml(source:string):XmlElement {
+  let delimiters=0;
+  for(let i=source.indexOf('<');i!==-1;i=source.indexOf('<',i+1)){
+    if(++delimiters>150_000)throw new SearchError('record_too_large');
+  }
+  // The parser never loads DTDs. Keep unknown named references as literal source text.
+  try {
+    const root=parseXml(source,{maxElementDepth:128,ignoreUndefinedEntities:true}).root;
+    if(root)return root;
+  } catch { /* Report the provider failure without storing parser excerpts. */ }
+  throw new SearchError('malformed');
+}
+
+function localName(element:XmlElement) {
+  return element.name.slice(element.name.lastIndexOf(':')+1).toLowerCase();
+}
+
+export function* paperElements(root:XmlElement,name:string):Generator<XmlElement> {
+  if(localName(root)===name)yield root;
+  for(const child of root.children){
+    if(child instanceof XmlElement)yield* paperElements(child,name);
+  }
+}
+
+export function paperText(element:XmlElement):string {
+  const chunks:string[]=[];
+  const blocks=new Set(['p','title','sec','list-item','caption','tr','break']);
+  function collect(node:XmlElement){
+    for(const child of node.children){
+      if(child instanceof XmlElement)collect(child);
+      else if(child instanceof XmlText)chunks.push(child.text);
+    }
+    const name=localName(node);
+    if(blocks.has(name))chunks.push('\n');
+    else if(name==='td'||name==='th')chunks.push(' ');
+  }
+  collect(element);
+  return chunks.join('').replace(/[\t ]+/g,' ').trim();
+}
+
+function abstractText(source:string) {
+  if(!source)return '';
+  let text=source;
+  try {text=paperText(parsePaperXml('<abstract>'+source+'</abstract>'));}
+  catch { /* Crossref also accepts plain-text abstracts with literal comparison signs. */ }
+  return text.replace(/\s+/g,' ').trim();
+}
+
 function candidate(raw:unknown):Candidate {
   if(!object(raw)||typeof raw.DOI!=='string')throw new SearchError('malformed');
   let doi:string;try {doi=canonicalDoi(raw.DOI);}catch{throw new SearchError('malformed');}
   const rawJson=JSON.stringify(raw);
   if(Buffer.byteLength(rawJson)>64000)throw new SearchError('record_too_large');
   const title=Array.isArray(raw.title)&&typeof raw.title[0]==='string'?raw.title[0].trim():'';
-  const abstract=typeof raw.abstract==='string'?raw.abstract.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim():'';
+  const abstract=typeof raw.abstract==='string'?abstractText(raw.abstract):'';
   const links=Array.isArray(raw.link)?raw.link.flatMap(l=>object(l)&&typeof l.URL==='string'&&/^https?:\/\//i.test(l.URL)?[l.URL]:[]):[];
   return {doi,title:title.slice(0,512)||doi,abstract,links,raw,rawSha256:hash(rawJson)};
 }
@@ -68,13 +118,18 @@ export class CrossrefProvider implements BibliographicProvider {
         if(archive){
           const sourceUrl=archive+'.crossref.xml';
           const bytes=await fetchBytes(sourceUrl,signal,64000,this.transport);
-          const article=/<journal_article\b[^>]*>([\s\S]*?)<\/journal_article>/.exec(bytes.toString('utf8'))?.[1]??'';
-          const plain=(v:string)=>v.replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim();
-          const tag=(v:string,key:string)=>plain(new RegExp('<'+key+'(?:\\s[^>]*)?>([\\s\\S]*?)</'+key+'>').exec(v)?.[1]??'');
-          const doi=tag(article,'doi'),title=tag(article,'title');
+          const root=parsePaperXml(bytes.toString('utf8'));
+          const article=paperElements(root,'journal_article').next().value;
+          if(!article)throw new SearchError('malformed');
+          const field=(element:XmlElement,name:string)=>paperElements(element,name).next().value?.text.trim()??'';
+          const doiData=paperElements(article,'doi_data').next().value;
+          const titles=paperElements(article,'titles').next().value;
+          const doi=field(doiData??article,'doi'),title=field(titles??article,'title');
           if(doi.toLowerCase()!==spec.term||!title)throw new SearchError('malformed');
-          const authors=Array.from(article.matchAll(/<person_name\b[^>]*contributor_role="author"[^>]*>([\s\S]*?)<\/person_name>/g),m=>({given:tag(m[1]!,'given_name'),family:tag(m[1]!,'surname')}));
-          const year=tag(article,'year');
+          const authors=Array.from(paperElements(article,'person_name'))
+            .filter(person=>person.attributes.contributor_role==='author')
+            .map(person=>({given:field(person,'given_name'),family:field(person,'surname')}));
+          const year=field(article,'year');
           const record=candidate({DOI:doi,title:[title],author:authors,'container-title':['Journal of Open Source Software'],
             issued:{'date-parts':year?[[Number(year)]]:[]},link:[{URL:archive+'.pdf'}],sourceUrl,depositSha256:hash(bytes)});
           page([{...record,provider:'Open Journals Crossref deposit'}],new Date().toISOString());return;
