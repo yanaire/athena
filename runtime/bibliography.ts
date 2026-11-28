@@ -102,7 +102,7 @@ export class Bibliography {
     const content=[record.title,'DOI: '+record.doi,authors.length&&'Authors: '+authors.join(', '),
       date&&'Issued: '+date,typeof journal==='string'&&'Published in: '+journal,record.abstract].filter(Boolean).join('\n');
     return this.papers.saveSource(project,record.title,content,record.abstract?'abstract':'metadata',{
-      provider:this.provider.id,providerId:record.doi,query:row.term,retrievedAt:record.retrievedAt,raw:record.raw,rawSha256:record.rawSha256,
+      provider:record.provider??this.provider.id,providerId:record.doi,query:row.term,retrievedAt:record.retrievedAt,raw:record.raw,rawSha256:record.rawSha256,
       hasAbstract:!!record.abstract,fullTextLinks:record.links,fullTextAcquired:false});
   }
   async close(){for(const c of this.active.values())c.abort();await Promise.allSettled(this.jobs);}

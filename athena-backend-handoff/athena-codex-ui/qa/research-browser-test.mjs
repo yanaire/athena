@@ -1,10 +1,10 @@
 // Controlled model turns; actual Pi, Chromium MCP page read, circuit worker, WASI, SQLite and TeX.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { basename, join, resolve } from 'node:path';
+import { basename, join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { execFile } from 'node:child_process';
@@ -31,6 +31,9 @@ const method='The circuit used a 10 kOhm resistor and a 100 nF capacitor. Five t
 const templateFile=process.env.ATHENA_LATEX_TEMPLATE_FILE;
 const selectedTemplate=templateFile?basename(templateFile):'article';
 const referenceQuote='const timeConstantSeconds = r * c;';
+const citeLibrary=process.env.ATHENA_CITE_LIBRARY==='1';
+const libraryClaim='Foreman-Mackey (2016) describes scatterplot matrices for multidimensional samples.';
+let libraryEdition;
 const sourceUrl='https://raw.githubusercontent.com/yanaire/athena/feefe81e49211151549b793b4ff029c2d797fe7d/runtime/rc-worker.mjs';
 const sha= 'feefe81e49211151549b793b4ff029c2d797fe7d';
 let visitedUrl,rc,markdown,sections,guiCalls=0,interrupted=false;
@@ -83,8 +86,8 @@ async function respond({coordinator,input,outputs}){
   if(coordinator){
     const file=JSON.parse(input.match(/\{"fileId":"[^"]+","name":"circuit.json"\}/)[0]).fileId;
     if(n===0)return call('plan_research',{objective:title,stages:['Read method','Sample transient','Validate against analytical response'],acceptanceCriteria:['Each of the five computed voltages must match 1-exp(-t/RC) within 1e-12 V.']});
-    if(n===1)return call('spawn_agent',{title:'Read the reference implementation',prompt:'Use the connected page reader to inspect the RC reference.',fileIds:[]});
-    if(n===2)return call('spawn_agent',{title:'Calculate the step response',prompt:'Run calculate_rc_response on the attached circuit.',fileIds:[file]});
+    if(n===1)return call('spawn_agent',{role:'literature',title:'Read the reference implementation',prompt:'Use the connected page reader to inspect the RC reference.',fileIds:[]});
+    if(n===2)return call('spawn_agent',{role:'experiment',title:'Calculate the step response',prompt:'Run calculate_rc_response on the attached circuit.',fileIds:[file]});
     if(n===3)return call('save_research_draft',{heading:'Introduction',text:intro});
     if(n===4)return call('save_research_draft',{heading:'Methods',text:method});
     if(n===5)return call('wait_for_agents',{});
@@ -96,7 +99,7 @@ async function respond({coordinator,input,outputs}){
     if(n===8)return call('request_review',{missionId:JSON.parse(outputs[0]).id,evidenceIds:[JSON.parse(outputs[7]).id],question:'Independently calculate all voltages from the input and check the absolute errors.'});
     if(n===9)return call('wait_for_agents',{});
     if(n===10)return call('record_experiment_table',{artifactId:result.id,path:['samples'],condition:'sampled times'});
-    if(n===11)return call('prepare_research_paper',{reviewId:JSON.parse(outputs[8]).review.id,artifactIds:[result.id],inputIds:[file],title,template:selectedTemplate,outline:headings});
+    if(n===11)return call('prepare_research_paper',{reviewId:JSON.parse(outputs[8]).review.id,artifactIds:[result.id],inputIds:[file],title,template:selectedTemplate,outline:headings,...(citeLibrary?{librarySources:[{sourceId:libraryEdition.sourceId,version:libraryEdition.version,claim:libraryClaim}]}:{})});
     assert.ok(JSON.parse(outputs[11]).documentId,outputs[11]);return 'The verified circuit results have been handed to the manuscript workflow.';
   }
   if(input.includes('Review assignment: ')){
@@ -127,7 +130,11 @@ async function respond({coordinator,input,outputs}){
       'Claims: calculated every voltage independently and found a maximum absolute error of '+maxError+' V.',
       'Citations: checked the scope of the reference implementation.','Figures: checked all five tabulated outputs and their units.'],findings:[]});
   }
-  if(input.includes('connected page reader'))return n?'Read the pinned reference page and saved the response.':call('call_external_mcp',{serverId:'page-reader/browser',tool:'read_method_page',arguments:{}});
+  if(input.includes('connected page reader')){
+    if(citeLibrary&&!n)return call('search_research_literature',{mode:'doi',term:'10.21105/joss.00024'});
+    if(citeLibrary){libraryEdition=JSON.parse(outputs[0]).saved[0];assert.ok(libraryEdition.original);}
+    return n>(citeLibrary?1:0)?'Read the pinned reference page and saved the response.':call('call_external_mcp',{serverId:'page-reader/browser',tool:'read_method_page',arguments:{}});
+  }
   if(input.includes('Run calculate_rc_response'))return n?'Published all five computed conditions.':call('calculate_rc_response',{});
   const sources=parser(input,'Sources: ');
   if(n<sources.length)return call('read_file',{fileId:sources[n].fileId});
@@ -136,25 +143,29 @@ async function respond({coordinator,input,outputs}){
   const finding='At one time constant, the predicted output was '+rc.samples.find(s=>s.timeSeconds===rc.timeConstantSeconds).outputVolt.toFixed(4)+' V.';
   const series=sources.find(s=>s.title==='rc-response.json').sourceId;
   const figure='![Simulated voltage across five sampling times](athena-plot:'+series+'/timeSeconds/outputVolt)';
-  sections=[intro,method+'\nThe reference implementation defines the time constant as resistance times capacitance.',finding+'\n\n'+table+'\n\n'+figure,'The ideal first-order model omits tolerances, noise and loading. These values are simulated.'].map((text,i)=>({heading:headings[i],text}));
+  sections=[intro,method+'\nThe reference implementation defines the time constant as resistance times capacitance.',finding+'\n\n'+table+'\n\n'+figure,'The ideal first-order model omits tolerances, noise and loading. These values are simulated.'+(citeLibrary?' '+libraryClaim:'')].map((text,i)=>({heading:headings[i],text}));
   markdown='# '+title+'\n\n'+sections.map(s=>'## '+s.heading+'\n'+s.text).join('\n\n');
   if(input.includes('Return only a JSON array'))return JSON.stringify(sections);
   if(n===sources.length)return call('publish_manuscript',{text:markdown,links:[
     {kind:'claim',quote:finding,sourceId:sources.find(s=>s.title==='rc-response.json').sourceId,excerpt:String(rc.samples[2].outputVolt),locator:'samples[2].outputVolt'},
-    {kind:'citation',quote:'defines the time constant as resistance times capacitance',sourceId:sources.find(s=>s.title.startsWith('Visited page')).sourceId,excerpt:referenceQuote,locator:'calculate(text)'}]});
+    {kind:'citation',quote:'defines the time constant as resistance times capacitance',sourceId:sources.find(s=>s.title.startsWith('Visited page')).sourceId,excerpt:referenceQuote,locator:'calculate(text)'},...(citeLibrary?[{kind:'citation',quote:libraryClaim,sourceId:libraryEdition.sourceId,excerpt:'using a scatterplot matrix',locator:'Summary, p. 1'}]:[])]});
   return 'Published the revision and evidence links.';
 }
+const projectFolder=await mkdtemp(join(tmpdir(),'athena-circuit-project-'));
+await promisify(execFile)('git',['-C',projectFolder,'init','-q','-b','main']);
 const fixture=await createFixture(respond);
 const {rpc}=fixture;
 try{
   const provider=await rpc('registerCompatibleEndpoint',[{name:'Controlled research provider',endpoint:fixture.providerEndpoint}]);
   const profile=await rpc('saveModelProfile',[{provider:provider.id,modelId:'browser-fixture',name:'Research test model',thinkingLevel:'off'}]);
+  const specialist=await rpc('saveModelProfile',[{provider:provider.id,modelId:'paper-reader',name:'Research specialist',thinkingLevel:'off'}]);
+  for(const role of ['verification','writer','editor','reviewer'])await rpc('setWorkerModelPreference',[{role,profileId:specialist.id,thinkingLevel:'off'}]);
   await page.goto(fixture.origin);await page.bringToFront();
   await page.waitForFunction(()=>window.AthenaApp?.getState().workspace.taskManagerConnected);
   await page.getByRole('button',{name:'Add project'}).click();
   mark('project');if(screencast)await pause(700);
   await page.locator('#ac-project-name').fill('Circuit response study');
-  await page.locator('#ac-project-folder').fill(resolve(fileURLToPath(new URL('../../..',import.meta.url))));
+  await page.locator('#ac-project-folder').fill(projectFolder);
   await pause(screencast?1700:500);
   await page.locator('#ac-dialog-primary').click();
   await page.waitForFunction(()=>window.AthenaApp?.getState().workspace.sessionBound);
@@ -177,7 +188,7 @@ try{
   await page.locator('#ac-prompt-input').fill(prompt);
   await pause(screencast?2100:600);mark('send');await page.getByRole('button',{name:'Send message',exact:true}).click();
   if(screencast){
-    await page.locator('.ac-flow-stages summary').first().waitFor({timeout:15000});
+    await page.locator('.ac-flow-stages summary').first().waitFor({timeout:45000});
     assert.ok((await page.locator('.ac-flow-stages').innerText()).includes('Planned'));
     mark('live');
   }
@@ -236,9 +247,19 @@ try{
   const probe={projectId:project,sessionId:session,runId:status.runId,artifactId:status.tables[0].artifactId,version:status.tables[0].version};
   const pinned=await rpc('researchTableInputs',[probe]);assert.deepEqual(JSON.parse(pinned.inputs[0].excerpt),config);
   await assert.rejects(rpc('researchTableInputs',[{...probe,version:'other-version'}]),/recorded experiment table/);
+  for(const role of ['writer','editor','reviewer']){
+    const attempts=complete.attempts.filter(a=>a.workerRole===role);
+    assert.ok(attempts.length,role);
+    assert.ok(attempts.every(a=>a.model.profileId===specialist.id&&a.model.source==='role'),role);
+  }
   assert.equal(complete.run.model.profileId,profile.id);assert.equal(status.model.profileId,profile.id);
   assert.ok(receipt.text.includes('athena-plot:'));assert.ok((await readFile(join(evidence,'manuscript.tex'),'utf8')).includes('\\begin{picture}'));
   if(templateFile)assert.ok((await readFile(join(evidence,'manuscript.tex'),'utf8')).startsWith((await readFile(templateFile,'utf8')).split('\n')[0]));
+  if(citeLibrary){
+    assert.ok(receipt.evidence.some(s=>s.sourceId===libraryEdition.sourceId&&s.version===libraryEdition.version));
+    const pdfText=(await promisify(execFile)('pdftotext',[join(evidence,'manuscript.pdf'),'-'])).stdout;
+    assert.match(pdfText,/Foreman-Mackey/);assert.match(pdfText.replace(/\s+/g,''),/10\.21105\/joss\.00024/);
+  }
   assert.ok(receipt.evidence.length>=3);assert.equal(receipt.review.status,'approved');assert.equal(status.stages.filter(s=>s.status==='Succeeded').length,7);
   await fixture.stopHost();await fixture.startHost();await page.reload();await page.waitForFunction(()=>window.AthenaApp?.getState().workspace.sessionBound);
   const restored=await flow();assert.equal(restored.version,status.version);
@@ -250,7 +271,7 @@ try{
   assert.equal(edit.review.status,'unreviewed');assert.ok(!edit.compilation);
   await assert.rejects(rpc('compilePaper',[{projectId:project,documentId:status.documentId,version:edit.version}]),/approved revision/);
   assert.deepEqual(errors,[]);
-  await writeFile(join(evidence,'acceptance.json'),JSON.stringify({markers,model:'Controlled local Pi provider',template:selectedTemplate,templateClass:receipt.compilation.template,native:false,keptModelAcrossHandoff:complete.run.model.profileId===status.model.profileId,changedNextSelectionDuringRun:switched,viewedPreliminaryDraft:viewedDraft,source:visitedUrl,base:sha,completed:status.stages,pdfSha256:receipt.compilation.pdf.sha256,version:status.version,session,attemptCount:before.length,nativeGuiToolCalls:guiCalls,interruptedReviewResumed:interrupted,restartAndRevisionChecks:true},null,2));
+  await writeFile(join(evidence,'acceptance.json'),JSON.stringify({markers,model:'Controlled local Pi provider',libraryEdition,template:selectedTemplate,templateClass:receipt.compilation.template,native:false,keptModelAcrossHandoff:complete.run.model.profileId===status.model.profileId,changedNextSelectionDuringRun:switched,viewedPreliminaryDraft:viewedDraft,source:visitedUrl,base:sha,completed:status.stages,pdfSha256:receipt.compilation.pdf.sha256,version:status.version,session,attemptCount:before.length,nativeGuiToolCalls:guiCalls,interruptedReviewResumed:interrupted,restartAndRevisionChecks:true},null,2));
   console.log('Verified research workflow:',evidence);
 }catch(err){await page.screenshot({path:join(evidence,'error.png')}).catch(()=>{});console.error('Page errors:',errors,'\nVisible:',(await page.locator('body').innerText()).slice(-2800));throw err;}
-finally{await context.close();await browser.close();await fixture.close();mcp.closeAllConnections();mcp.close();}
+finally{await context.close();await browser.close();await fixture.close();mcp.closeAllConnections();mcp.close();await rm(projectFolder,{recursive:true,force:true});}

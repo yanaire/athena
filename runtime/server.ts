@@ -57,7 +57,7 @@ async function initialize() {
   for (const entry of profiles.compatibleProviders()) await providers.mountCompatible(entry);
   const manager = new TaskManager({ dataDir: directory, externalCredentials: credentials, models: {
     resolve: (conversation, project) => profiles.resolve(conversation, project),
-    pin: model => providers.pin(model), requireProfile: id => { profiles.get(id); },
+    roleModels:()=>profiles.roleModels(), pin: model => providers.pin(model), requireProfile: id => { profiles.get(id); },
   } });
   await manager.initialize();
   const web = new URL('../athena-backend-handoff/athena-codex-ui/', import.meta.url);
@@ -114,7 +114,7 @@ function revisionArg(value:unknown):number|undefined {
   if (typeof value!=='number' || !Number.isSafeInteger(value) || value<0) throw new TypeError('Expected the current settings revision.');
   return value;
 }
-const profileList = async () => ({ profiles: profiles.list(), appDefaultProfileId: profiles.appDefaultProfileId,
+const profileList = async () => ({ profiles: profiles.list().map(p=>({...p,supportedLevels:profiles.supportedLevels(p)})), workerRoles:profiles.workerPreferences(), appDefaultProfileId: profiles.appDefaultProfileId,
   credentialMode: 'local_file', credentialMigration: await migration.status(), hostModel, accountStates:(await providers.chatGPTAccounts()).map(({authRef,state,planUsage})=>({authRef,state,planUsage})) });
 const connectionState = () => connections?.getState() ?? { status: hostModel ? 'configured' : 'disconnected', defaultModel: hostModel, verification: { status: 'not_checked' } };
 let credentialWrite = false;
@@ -138,7 +138,7 @@ async function rpc(method: string, args: unknown[]) {
   switch (method) {
     case 'bibliographyHistory':case 'authorizeSearch':case 'executeSearch':case 'cancelSearch':case 'addSearchSource':
     case 'listPapers':case 'createPaper':case 'addPaperSource':case 'getDocument':case 'saveDocument':
-    case 'researchFlow':case 'researchTableInputs':case 'resumeResearch':case 'compilePaper':case 'exportPaper':case 'paperDetails':case 'setPaperOutline':case 'startPaper':
+    case 'listLibrarySources':case 'searchAndSavePapers':case 'researchFlow':case 'researchTableInputs':case 'resumeResearch':case 'compilePaper':case 'exportPaper':case 'paperDetails':case 'setPaperOutline':case 'startPaper':
       if(!object(input))throw new TypeError('Expected manuscript request.');
       return manager.paperRequest(method,input);
     case 'chooseProjectFolder': if(!desktop)throw Error('Use the local path field in browser mode.');return chooseProjectFolder();
@@ -248,6 +248,11 @@ async function rpc(method: string, args: unknown[]) {
       profiles.remove(id, second);
       return { removed: true };
     }
+    case 'setWorkerModelPreference': {
+      if(!object(input))throw new TypeError('Choose a worker role.');
+      profiles.setWorkerPreference(string(input.role),idOrNull(input.profileId),idOrNull(input.thinkingLevel));
+      return profileList();
+    }
     case 'setAppModelProfile': profiles.setAppDefault(idOrNull(input)); return profileList();
     case 'setProjectModelProfile': return manager.setProjectProfile(string(input), idOrNull(second));
     case 'setConversationModelProfile': return manager.setConversationProfile(string(input), idOrNull(second));
@@ -328,7 +333,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
       const artifact = /^\/api\/artifacts\/([\w-]+)\/([\w-]+)$/.exec(url.pathname);
       if (artifact?.[1] && artifact[2]) {
         const { bytes, name, mimeType } = await manager.artifactDownload(artifact[1], artifact[2]);
-        res.writeHead(200, { 'Content-Type': mimeType, 'Content-Length': bytes.length,
+        res.writeHead(200, { 'Content-Type': mimeType, 'Content-Length': bytes.length, 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff',
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }).end(bytes);
         return;
       }

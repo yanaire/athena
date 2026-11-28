@@ -141,7 +141,7 @@ flowchart TD
     A --> U
 ```
 
-The browser-development UI can also connect directly to the local Node host. TaskManager owns scheduling, file grants, run state and artifact publication; the official Pi SDK owns the independent parent/child model sessions and their JSONL histories. The model selection is fixed for a run and its children.
+The browser-development UI can also connect directly to the local Node host. TaskManager owns scheduling, file grants, run state and artifact publication; the official Pi SDK owns the independent parent/child model sessions and their JSONL histories. Settings → Models & connections can assign a saved model and reasoning level to each worker role. TaskManager freezes those choices with the coordinator's model for each run.
 
 | Layer | Technology |
 | :--- | :--- |

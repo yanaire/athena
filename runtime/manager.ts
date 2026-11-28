@@ -22,6 +22,8 @@ import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensio
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
 import { Bibliography } from './bibliography.ts';
 import { CrossrefProvider, type BibliographicProvider } from './crossref.ts';
+import type { RoleModels, WorkerRole } from './worker-roles.ts';
+import { ProjectLibrary, type PaperAcquisition } from './project-library.ts';
 import { projectFolder } from './project-folder.ts';
 import { template, readTemplate } from './typesetting.ts';
 import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
@@ -45,13 +47,15 @@ export interface ManagedPiSession {
 }
 export type PiSessionFactory = (options: PiSessionOptions) => Promise<ManagedPiSession>;
 type ModelResolver = {
+  roleModels?():RoleModels;
   resolve(conversation: string | null | undefined, project: string | null | undefined): ModelReference | null;
   pin(model: ModelReference): Promise<PiModelSelection>;
   requireProfile(id: string): void;
 };
 export type TaskManagerOptions = { readonly dataDir: string; readonly createPiSession?: PiSessionFactory; readonly models?: ModelResolver;
-  readonly bibliographyProvider?: BibliographicProvider; readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
+  readonly acquirePaper?:PaperAcquisition; readonly bibliographyProvider?: BibliographicProvider; readonly externalCredentials?: Pick<CredentialStore, 'read' | 'modify' | 'delete'> };
 export type Run = {
+  readonly roleModels?:RoleModels;
   readonly id: string; readonly projectId: string; readonly sessionId: string;
   readonly requestId: string; readonly taskId: string; readonly title: string;
   readonly status: Status; readonly startedAt: number | null; readonly endedAt: number | null;
@@ -107,6 +111,11 @@ export class TaskManager implements AthenaTaskManager {
   readonly #factory: PiSessionFactory;
   readonly #models: ModelResolver | undefined;
   readonly #pins = new Map<string, PiModelSelection>();
+  readonly #workerPins = new Map<string, Map<WorkerRole, PiModelSelection>>();
+  #releasePins(runId:string){
+    this.#pins.delete(runId);
+    this.#workerPins.delete(runId);
+  }
   readonly #runtimeModels = new WeakMap<ManagedPiSession, ModelReference>();
   readonly #listeners = new Set<(snapshot: WorkspaceSnapshot) => void>();
   readonly #piListeners = new Set<(sessionId: string, event: PiEvent) => void>();
@@ -117,6 +126,7 @@ export class TaskManager implements AthenaTaskManager {
   readonly #papers: Papers;
   readonly #shutdown=new AbortController();
   readonly #manualCompiles=new Set<Promise<unknown>>();
+  readonly #library:ProjectLibrary;
   readonly #bibliography: Bibliography;
   readonly #paperStarting=new Set<string>();
   readonly #research: ResearchLedger;
@@ -149,6 +159,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#storage = new Storage(options.dataDir);
     this.#extensions = new ExtensionStore(this.#storage);
     this.#papers=new Papers(this.#storage);
+    this.#library=new ProjectLibrary(this.#storage,this.#papers,this.#directory,options.acquirePaper);
     this.#bibliography=new Bibliography(this.#storage,this.#papers,options.bibliographyProvider??new CrossrefProvider());
     this.#research = new ResearchLedger(this.#storage);
     this.#externalCredentials = options.externalCredentials;
@@ -254,13 +265,13 @@ export class TaskManager implements AthenaTaskManager {
   #executionEnabled(projectId: string): boolean {
     return this.#access.available && (this.#storage.project(projectId)?.offlineAnalysis ?? this.#enabledProjects.has(projectId));
   }
-  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId)) {
+  async #make(projectId:string, sessionDir:string, role:PiOrchestration['role'], sessionFile?:string, selection?:PiModelSelection, extensions = this.#extensions.pin(projectId),workerRole?:WorkerRole) {
     let runtime: ManagedPiSession;
     // Pi may execute tools from a single model response concurrently. Bind each call at entry,
     // and serialize its manager effects (including spawn then join) in SDK call order.
     let chain = Promise.resolve();
     const executionEnabled = this.#executionEnabled(projectId);
-    runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,
+    runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,workerRole,
       executionEnabled, extensions, researchWorkflow:!!this.#storage.project(projectId)?.researchWorkflow,
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
@@ -281,7 +292,7 @@ export class TaskManager implements AthenaTaskManager {
   #load(s: AgentSession, selection?: PiModelSelection, extensions?: ExtensionPin): Promise<ManagedPiSession> {
     const runtime = this.#registry.get(s.id); if (runtime) return Promise.resolve(runtime);
     const loading = this.#loading.get(s.id); if (loading) return loading;
-    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions).then(value => {
+    const promise = this.#make(s.projectId,s.sessionDir,s.role,s.sessionFile,selection,extensions,s.workerRole).then(value => {
       if (value.sessionId !== s.id) { this.#registry.delete(value.sessionId); value.close(); throw new ManagerError('SESSION_ID_MISMATCH','Unexpected Pi identity.'); }
       return value;
     }).finally(()=>this.#loading.delete(s.id));
@@ -403,7 +414,16 @@ export class TaskManager implements AthenaTaskManager {
       inputs.push({title:f.name,sourceId:source.sourceId,version:source.version});
       evidence.push({sourceId:source.sourceId,version:source.version});
     }
-    if(!flow.pages?.length&&!citations.length&&!inputs.length)throw Error('Supply the reviewed source of the method or data: a visited page, Crossref record, or granted research input.');
+    const retained:NonNullable<NonNullable<Paper['workflow']>['references']>=[];
+    for(const item of Array.isArray(args.librarySources)?args.librarySources:[]){
+      if(!object(item))throw new ManagerError('SOURCE_DENIED','Select a project library edition.');
+      const version=text(item.version,'Source version');
+      const {entry}=this.#library.read(a.projectId,text(item.sourceId,'Library source'),version);
+      const claim=bounded(item.claim,'claim',512);
+      retained.push({sourceId:entry.sourceId,url:entry.url,retrievedAt:entry.retrievedAt,coverage:entry.coverage,claim});
+      if(!evidence.some(s=>s.sourceId===entry.sourceId))evidence.push({sourceId:entry.sourceId,version});
+    }
+    if(!retained.length&&!flow.pages?.length&&!citations.length&&!inputs.length)throw Error('Supply the reviewed source of the method or data: a visited page, Crossref record, or granted research input.');
     signal.throwIfAborted();
     const pageRefs=flow.pages?.map(p=>({url:p.url,retrievedAt:p.retrievedAt,coverage:p.coverage,claim:p.claim,sourceId:p.sourceId}))??[];
     const doiRefs=citations.map(c=>{
@@ -412,10 +432,21 @@ export class TaskManager implements AthenaTaskManager {
       return {url:'https://doi.org/'+origin.providerId,retrievedAt:origin.retrievedAt,coverage:origin.hasAbstract?'metadata and abstract':'metadata',...c};
     });
     const d=this.#papers.create(a.projectId,{title:args.title,goal:flow.input.slice(0,4096),outline,evidence},
-      {runId:a.runId,sessionId:a.sessionId,reviewId:review.id,template:style,tables,...(layout&&attached?{layout:{preamble:layout.preamble,name:attached.name,version:attached.versionId!}}:{}),references:[...pageRefs,...doiRefs]},
-      doc=>this.#saveFlow({...flow,documentId:doc.id,handoff:fingerprint,citations,inputs}));
+      {runId:a.runId,sessionId:a.sessionId,reviewId:review.id,template:style,tables,...(layout&&attached?{layout:{preamble:layout.preamble,name:attached.name,version:attached.versionId!}}:{}),references:[...pageRefs,...doiRefs,...retained]},
+      doc=>this.#saveFlow({...this.#flow(a.runId)!,documentId:doc.id,handoff:fingerprint,citations:[...citations,...retained.map(r=>({sourceId:r.sourceId,claim:r.claim}))],inputs}));
     this.#commit(()=>this.#journal.event(a,'research_handoff','Pinned experiment sources for manuscript.'));
     return {documentId:d.id,sources:evidence};
+  }
+  async #searchAndSave(project:string,session:string,id:string,signal:AbortSignal,execution?:{runId:string;taskId:string;attemptId:string;toolId:string}){
+    const result=await this.#bibliography.execute(project,session,id,signal,execution);
+    const saved=[];
+    for(const record of result.records){
+      signal.throwIfAborted();
+      const source=this.#bibliography.add(project,session,id,record.doi);
+      const entry=await this.#library.savePaper(project,source,signal);
+      saved.push({sourceId:entry.sourceId,version:entry.version,doi:entry.doi,coverage:entry.coverage,file:entry.note,original:entry.original?.file,detail:entry.detail});
+    }
+    return {...result,saved};
   }
   #continueFlow(run:Run) {
     const flow=this.#flow(run.id);
@@ -493,6 +524,7 @@ export class TaskManager implements AthenaTaskManager {
     const recorded=new Set([...(flow.tables??[]).map(t=>t.artifactId),...reviews.flatMap(r=>r.targets.filter(t=>t.kind==='artifact').map(t=>t.id))]);
     const experiments=processes.filter(p=>!p.job.externalMcp||artifacts.some(f=>f.processId===p.id&&recorded.has(f.id)));
     const searches=this.#bibliography.list(project,session).filter(s=>flow.searchIds.includes(s.id));
+    const retained=paper?.workflow?.references?.filter(ref=>flow.citations?.some(c=>c.sourceId===ref.sourceId))??[];
     const succeeded=reviews.findLast(r=>r.verdict==='supported'&&r.executionStatus==='succeeded');
     const states=(status:string|undefined)=>status==='cancelled'||status==='paused'||status==='interrupted'?'Stopped':status==='failed'||status==='timed_out'?'Failed':
       status==='running'||status==='queued'||status==='blocked'?'Running':'Waiting for input';
@@ -500,8 +532,8 @@ export class TaskManager implements AthenaTaskManager {
     const phase=(title:string,status:string,taskId?:string,description?:string)=>({title,status,taskId,description});
     const stages=[
       phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission&&[mission.objective,...mission.acceptanceCriteria].join('\n')),
-      phase('Sources',flow.pages?.length||flow.inputs?.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
-        [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...(flow.pages??[]).map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
+      phase('Sources',flow.pages?.length||flow.inputs?.length||retained.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
+        [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...[...(flow.pages??[]),...retained].map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
       phase('Experiment',experiments.some(p=>p.status==='succeeded'&&artifacts.some(f=>f.processId===p.id))?'Succeeded':experiments.length?states(experiments.at(-1)?.status):upcoming,experiments.at(-1)?.taskId),
       phase('Verify results',succeeded?'Succeeded':reviews.length?states(reviews.at(-1)?.executionStatus):upcoming,reviews.at(-1)?.reviewer?.taskId,reviews.at(-1)?.verdict),
       phase('Manuscript',current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',writing?.attempts.find(t=>t.role==='Edit manuscript')?.taskId,writing?.error||flow.error),
@@ -531,6 +563,13 @@ export class TaskManager implements AthenaTaskManager {
       if(method==='executeSearch')return this.#bibliography.execute(project,session,searchId);
       if(method==='cancelSearch')return this.#bibliography.cancel(project,session,searchId);
       return this.#bibliography.add(project,session,searchId,args.doi);
+    }
+    if(method==='listLibrarySources')return this.#library.uiSources(project,this.#active!);
+    if(method==='searchAndSavePapers'){
+      const session=text(args.sessionId,'Conversation');
+      if(session!==this.#active||!this.#storage.project(project)?.researchWorkflow)throw new ManagerError('SEARCH_DENIED','Open a research project conversation.');
+      const search=this.#bibliography.prepare(project,session,{mode:args.mode,term:args.term,pages:1,requestId:args.requestId});
+      return this.#searchAndSave(project,session,search.id,this.#shutdown.signal);
     }
     if(method==='researchFlow')return this.#flowReport(project,text(args.sessionId,'Conversation'),args.runId);
     if(method==='researchTableInputs'){
@@ -659,7 +698,7 @@ export class TaskManager implements AthenaTaskManager {
       const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId}:{title:role,prompt,requestId},signal,next=>{
         // Called inside the existing child admission transaction.
         const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
-      },!!prior||!!previous&&a.requestId.startsWith('resume:'));
+      },!!prior||!!previous&&a.requestId.startsWith('resume:'),role==='Draft sections'?'writer':'editor');
       const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
       const row=joined.tasks[0];if(!row||row.status!=='succeeded')throw new ManagerError('PAPER_CHILD_FAILED',role+' did not succeed.');
       return row;
@@ -713,7 +752,7 @@ export class TaskManager implements AthenaTaskManager {
         const task=await this.#dispatch(a,prior?'send_to_agent':'spawn_agent',review.id,{...assignment,artifactIds,fileIds:a.fileIds,requestId:review.id},signal,next=>{
           this.#research.registerReviewer(a,review.id,next);
           const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role:name,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
-        },!!prior);
+        },!!prior,'reviewer');
         const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
         const checked=this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId}).reviews.find(row=>row.id===review.id);
         if(joined.tasks[0]?.status!=='succeeded'||checked?.state!=='completed'||!checked.verdict)throw new ManagerError('PAPER_NO_REVIEW','Reviewer did not submit a structured verdict.');
@@ -1088,7 +1127,26 @@ export class TaskManager implements AthenaTaskManager {
     this.#extensions.assertPinAvailable(extensions);
     const first=!onAccept&&this.#storage.project(session.projectId)?.researchWorkflow;
     if(first&&!this.#executionEnabled(session.projectId))throw new ManagerError('EXECUTION_DISABLED',this.#access.available?'Enable offline analysis in this project.':this.#access.reason);
+    const roleModels:RoleModels=original?{...original.roleModels}:{...this.#models?.roleModels?.()};
     let selection = original ? (original.model?.profileId?original.model:null) : this.#models?.resolve(session.profileId, this.#storage.project(session.projectId)?.defaultProfileId) ?? null;
+    const workerPins=new Map<WorkerRole,PiModelSelection>();
+    // Freeze credential identity and reasoning before admitting the run or any child.
+    if(Object.keys(roleModels).length&&this.#models){
+      this.#busy=true;
+      try{
+        const resolved=new Map<string,PiModelSelection>();
+        for(const role of Object.keys(roleModels) as WorkerRole[]){
+          const reference=roleModels[role]!,key=canonical(reference);
+          const pin=resolved.get(key)??await this.#models.pin(reference);
+          if(original && ((reference.authRef && reference.authRef!==pin.authRef)||(reference.endpoint && reference.endpoint!==pin.endpoint))){
+            throw new ManagerError('MODEL_UNAVAILABLE','Restore the original account and endpoint for the '+role+' role.');
+          }
+          resolved.set(key,pin);
+          workerPins.set(role,pin);
+          roleModels[role]={...reference,...(pin.endpoint?{endpoint:pin.endpoint}:{}),...(pin.authRef?{authRef:pin.authRef}:{})};
+        }
+      }finally{this.#busy=false;}
+    }
     let pin: PiModelSelection | undefined;
     if (selection && this.#models) {
       this.#busy = true;
@@ -1126,7 +1184,7 @@ export class TaskManager implements AthenaTaskManager {
     if(original && canonical(original.model)!==canonical(selection??this.#model(runtime)))throw Error('The original model and reasoning selection is unavailable.');
     const run: Run = { id: randomUUID(), projectId: session.projectId, sessionId: session.id, requestId,
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
-      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions };
+      status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions,...(Object.keys(roleModels).length?{roleModels}:{}) };
     const fileIds=Array.isArray(command.fileReferences)?command.fileReferences.filter(object).map(ref=>text(ref.id,'File ID')):[];
     const a=this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
       parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds,selection ?? undefined);
@@ -1138,6 +1196,7 @@ export class TaskManager implements AthenaTaskManager {
       this.#storage.putReceipt({sessionId:session.id,requestId,fingerprint,state:'accepted',response});
     });
     if (pin) this.#pins.set(run.id, pin);
+    if(workerPins.size)this.#workerPins.set(run.id,workerPins);
     this.#schedule(a,runtime);
     return response;
   }
@@ -1148,14 +1207,14 @@ export class TaskManager implements AthenaTaskManager {
   #schedule(a:Attempt,runtime:ManagedPiSession) {
     if (this.#closed) return;
     if (!pending(this.#storage.record<Attempt>('attempt', a.id)?.status ?? 'ready')) {
-      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#releasePins(a.runId);
       return;
     }
     // Snapshot listeners can request cancellation synchronously during acceptance.
     // Honor that newer decision before starting either of the durable retry turns.
     if (this.#storage.record<Run>('run', a.runId)?.cancellationRequested) {
       this.#commit(() => this.#journal.transition(a, 'cancelled', 'Run cancelled before this queued attempt started.'));
-      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      if (!pending(this.#storage.record<Run>('run', a.runId)?.status ?? 'ready')) this.#releasePins(a.runId);
       return;
     }
     const controller=new AbortController();
@@ -1233,7 +1292,7 @@ export class TaskManager implements AthenaTaskManager {
           }
         }
       }
-      if (!this.#closed && !pending(this.#storage.record<Run>('run',a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
+      if (!this.#closed && !pending(this.#storage.record<Run>('run',a.runId)?.status ?? 'ready')) this.#releasePins(a.runId);
     }
   }
   #children(a:Context) {return this.#storage.records<TaskRow>('task',a.sessionId).filter(t=>t.runId===a.runId && t.parentTaskId===a.taskId);}
@@ -1334,7 +1393,7 @@ export class TaskManager implements AthenaTaskManager {
           prompt: this.#reviewPrompt(review),
           fileIds:[...new Set(review.targets.filter(target=>target.kind==='file').map(target=>target.id))],
           artifactIds:[...new Set(review.targets.filter(target=>target.kind==='artifact').map(target=>target.id))],
-        },signal,next=>this.#research.registerReviewer(a,review.id,next));
+        },signal,next=>this.#research.registerReviewer(a,review.id,next),false,'verification');
         result={review:this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId}).reviews.find(item=>item.id===review.id),task}; break;
       }
       default: throw new ManagerError('TOOL_DENIED','This research operation is unavailable.');
@@ -1359,9 +1418,17 @@ export class TaskManager implements AthenaTaskManager {
       if(!paperId||a.kind==='reconciliation')throw new ManagerError('PAPER_DENIED','Start a manuscript from the project workspace.');
       return name==='compose_manuscript'?this.#composePaper(a,paperId,args,signal):this.#publishPaper(a,paperId,raw,args,signal);
     }
+    if(name==='search_project_library'||name==='read_project_paper'){
+      if(paperId||a.workerRole==='verification'||!this.#storage.project(a.projectId)?.researchWorkflow)throw new ManagerError('SOURCE_DENIED','Open a research project.');
+      if(name==='search_project_library')return this.#library.search(a.projectId,bounded(args.query,'search query',300),12);
+      const {entry,source}=this.#library.read(a.projectId,text(args.sourceId,'Source'),text(args.version,'Version'));
+      const offset=args.offset??0;
+      if(typeof offset!=='number'||!Number.isSafeInteger(offset)||offset<0)throw new ManagerError('INVALID_INPUT','Choose a valid text offset.');
+      return {entry,text:source.content.slice(offset,offset+12000),nextOffset:offset+12000<source.content.length?offset+12000:null};
+    }
     if(['prepare_research_paper','search_research_literature','save_research_draft','record_browser_source','record_experiment_table'].includes(name)){
       const flow=this.#flow(a.runId);
-      if(!flow||a.parentTaskId||paperId)throw Error('This tool belongs to the research coordinator.');
+      if(!flow||a.parentTaskId&&!(name==='search_research_literature'&&a.workerRole==='literature')||paperId)throw Error('This tool belongs to the research coordinator.');
       this.#requireCoordinatorWrites(a);
       if(name==='prepare_research_paper')return this.#prepareResearchPaper(a,args,signal);
       if(name==='record_experiment_table'){
@@ -1378,7 +1445,7 @@ export class TaskManager implements AthenaTaskManager {
         const table={artifactId:row.id,version:target.version,condition:bounded(args.condition,'condition label',128),count:data.length,rows,path:args.path};
         flow.tables??=[];flow.tables=flow.tables.filter(t=>t.artifactId!==row.id);
         if(flow.tables.length>=16)throw Error('Experiment table limit reached.');
-        flow.tables.push(table);signal.throwIfAborted();this.#commit(()=>this.#saveFlow(flow));return table;
+        flow.tables.push(table);signal.throwIfAborted();this.#commit(()=>this.#saveFlow({...this.#flow(a.runId)!,tables:flow.tables}));return table;
       }
       if(name==='record_browser_source'){
         const row=this.#artifact(a,args.artifactId),target=await this.#researchTarget(a,{kind:'artifact',id:row.id});
@@ -1397,10 +1464,11 @@ export class TaskManager implements AthenaTaskManager {
         // Preserve the immutable raw receipt as the source; keep the quoted scope and use alongside it.
         const source=this.#papers.saveSource(a.projectId,'Visited page: '+parsed.hostname,JSON.stringify(payload),'full_text',target);
         const page={sourceId:source.sourceId,version:source.version,url,retrievedAt,claim,coverage:(typeof payload.result?.structuredContent?.coverage==='string'?payload.result.structuredContent.coverage.slice(0,512)+' · ':'')+'Returned passage: '+excerpt};
+        this.#library.savePassage(a.projectId,page,source,excerpt);
         flow.pages??=[];
         if(!flow.pages.some(x=>x.sourceId===page.sourceId&&x.claim===claim)){
           if(flow.pages.length>=6)throw Error('Page citation limit reached.');
-          flow.pages.push(page);this.#commit(()=>this.#saveFlow(flow));
+          flow.pages.push(page);this.#commit(()=>this.#saveFlow({...this.#flow(a.runId)!,pages:flow.pages}));
         }
         return page;
       }
@@ -1413,7 +1481,7 @@ export class TaskManager implements AthenaTaskManager {
       const search=this.#bibliography.prepare(a.projectId,a.sessionId,{...args,pages:1,requestId:toolId(a,raw)});
       if(!flow.searchIds.includes(search.id))flow.searchIds.push(search.id);
       this.#commit(()=>this.#saveFlow(flow));
-      return this.#bibliography.execute(a.projectId,a.sessionId,search.id,signal,{...context(a),toolId:toolId(a,raw)});
+      return this.#searchAndSave(a.projectId,a.sessionId,search.id,signal,{...context(a),toolId:toolId(a,raw)});
     }
     if(paperId){
       if(!['read_file','read','submit_review'].includes(name))throw new ManagerError('PAPER_DENIED','Use the assigned manuscript stage.');
@@ -1472,7 +1540,7 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('RECOVERY_READ_ONLY', 'Manual recovery preserves completed work. The coordinator may only inspect child results and produce the final answer.');
     }
   }
-  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal,onAccepted?:(attempt:Attempt)=>void,resumeChild=false):Promise<Accepted>{
+  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal,onAccepted?:(attempt:Attempt)=>void,resumeChild=false,assignedRole?:WorkerRole):Promise<Accepted>{
     const requestId=text(args.requestId??raw,'Request ID');
     const id=hash(canonical([a.sessionId,a.runId,a.taskId,name,requestId]));
     const kind=name==='spawn_agent'?'spawn':'send';
@@ -1492,6 +1560,10 @@ export class TaskManager implements AthenaTaskManager {
         throw new ManagerError('INVALID_INPUT','Grants must be a bounded list of distinct IDs.');
       return arg;
     };
+    if(args.role!==undefined&&!['literature','experiment','worker'].includes(String(args.role)))throw new ManagerError('INVALID_ROLE','Choose a general, literature or experiment worker.');
+    const role=previous?.workerRole??assignedRole??(args.role as WorkerRole|undefined)??'worker';
+    const selected=this.#storage.record<Run>('run',a.runId)?.roleModels?.[role];
+    const model=previous?.model??selected??a.model;
     const fileIds=select(args.fileIds,previous?.fileIds??a.fileIds);
     if(fileIds.some(id=>!a.fileIds.includes(id)))throw new ManagerError('GRANT_DENIED','Cannot transfer an input outside the parent grants.');
     const artifactGrants=select(args.artifactIds,previous?.artifactGrants??[]);
@@ -1509,7 +1581,7 @@ export class TaskManager implements AthenaTaskManager {
       const tasks=this.#children(a).filter(t=>t.status==='succeeded'&&t.title===title);
       for(const task of tasks){
         const saved=this.#storage.record<Attempt>('attempt',task.attemptId);
-        if(saved?.prompt===prompt &&
+        if(saved?.prompt===prompt && (saved.workerRole??'worker')===role &&
           canonical(saved.fileIds)===canonical(fileIds)&&canonical(saved.artifactGrants??[])===canonical(artifactGrants))
           return {taskId:task.id,parentTaskId:a.taskId,agentSessionId:task.agentSessionId,attemptId:saved.id,status:task.status};
       }
@@ -1519,18 +1591,21 @@ export class TaskManager implements AthenaTaskManager {
     this.#commit(()=>this.#storage.putRecord(kind,reservation));
     const sessionDir=join(this.#directory,'agents',randomUUID());
     const storedAgent=child&&resumeChild?this.#storage.record<AgentSession>('agent_session',child.agentSessionId):undefined;
-    const runtime=storedAgent?await this.#retryRuntime(storedAgent,a.model??null,this.#pins.get(a.runId),true,this.#runExtensions(a)):
-      child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId),this.#runExtensions(a));
+    const pin=selected&&model&&this.#models?(this.#workerPins.get(a.runId)?.get(role)??await this.#models.pin(model)):this.#pins.get(a.runId);
+    if(selected&&pin&&((model?.authRef&&model.authRef!==pin.authRef)||(model?.endpoint&&model.endpoint!==pin.endpoint)))
+      throw new ManagerError('MODEL_UNAVAILABLE','Restore the original account and endpoint for the '+role+' role.');
+    const runtime=storedAgent?await this.#retryRuntime(storedAgent,model??null,pin,true,this.#runExtensions(a)):
+      child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,pin,this.#runExtensions(a),role);
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
-    if(a.model)this.#validateModel(runtime,a.model);
+    if(model)this.#validateModel(runtime,model);
     signal.throwIfAborted();
     this.#requireCoordinatorWrites(a);
     if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
-    const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds,a.model),artifactGrants};
+    const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds,model),artifactGrants,workerRole:role};
     const response={taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId,attemptId:next.id,status:next.status};
     this.#commit(()=>{
       if(!child)this.#storage.putRecord('agent_session',{projectId:a.projectId,sessionId:a.sessionId,id:runtime.sessionId,
-        role:'child',sessionDir,sessionFile:runtime.sessionFile,...(a.model?{model:a.model}:{})} satisfies AgentSession);
+        role:'child',workerRole:role,sessionDir,sessionFile:runtime.sessionFile,...(model?{model}:{})} satisfies AgentSession);
       this.#journal.accept(next,title);
       // A reviewer must be bound to its durable identity before the scheduler
       // can run its first tool. The binding shares the acceptance transaction.
@@ -1745,6 +1820,11 @@ export class TaskManager implements AthenaTaskManager {
   }
   async artifactDownload(conversationId:string,artifactId:string){
     this.#assertReady();
+    const library=/^library-([a-f0-9]{64})$/.exec(artifactId);
+    if(library){
+      if(conversationId!==this.#active)throw new ManagerError('SOURCE_DENIED','Open the project conversation to download its paper.');
+      return this.#library.original(this.#session(conversationId).projectId,library[1]!);
+    }
     const file=this.#storage.record<ArtifactRow>('artifact',artifactId);
     if(!file)return this.#papers.download(conversationId,artifactId);
     if(file.sessionId!==conversationId)throw new ManagerError('ARTIFACT_DENIED','Artifact is outside this conversation.');
@@ -1839,7 +1919,7 @@ export class TaskManager implements AthenaTaskManager {
       // Old run definitions and credential references must be available before
       // admitting a retry; live project settings cannot replace them.
       for (const server of extensions.servers) await this.#externalToken(server.verification.credentialRef);
-      let pin = this.#pins.get(source.run.id);
+      let pin = source.previous.workerRole&&source.run.roleModels?.[source.previous.workerRole]?this.#workerPins.get(source.run.id)?.get(source.previous.workerRole):this.#pins.get(source.run.id);
       const managedModel = Boolean(model?.profileId);
       const refresh = !pending(source.run.status) || (!pin && Boolean(this.#models && managedModel));
       if (!pin && this.#models && model && managedModel) {
@@ -1849,14 +1929,16 @@ export class TaskManager implements AthenaTaskManager {
       currentSource();
       const childRuntime = await this.#retryRuntime(source.agent, model, pin, refresh, extensions);
       currentSource();
-      const rootRuntime = await this.#retryRuntime({ ...source.session, sessionId: source.session.id, role: 'parent' }, model, pin, refresh, extensions);
+      const parentModel=source.run.model;
+      const parentPin=canonical(parentModel)===canonical(model)?pin:this.#pins.get(source.run.id)??(parentModel?.profileId&&this.#models?await this.#models.pin(parentModel):undefined);
+      const rootRuntime = await this.#retryRuntime({ ...source.session, sessionId: source.session.id, role: 'parent' }, parentModel, parentPin, refresh, extensions);
       const current = currentSource();
       for (const fileId of current.previous.fileIds) this.#upload(current.previous, fileId);
       let next: Attempt = { ...this.#attempt({ ...context(current.previous) }, options.requestId, current.previous.prompt, current.previous.fileIds, model ?? undefined),
-        artifactGrants: current.previous.artifactGrants, retryOfAttemptId: current.previous.id };
+        workerRole:current.previous.workerRole, artifactGrants: current.previous.artifactGrants, retryOfAttemptId: current.previous.id };
       const pendingReconciliation = this.#storage.records<Attempt>('attempt', current.session.id).find(a => a.runId === current.run.id && a.taskId === current.root.id && a.kind === 'reconciliation' && pending(a.status) && this.#executing.get(a.agentSessionId)?.id !== a.id);
       const reconciliation: Attempt = pendingReconciliation ?? { ...this.#attempt({ ...context(current.rootAttempt) }, 'reconcile:' + options.requestId,
-        'Reconcile the manually retried child with the preserved results of this request.', current.rootAttempt.fileIds, model ?? undefined), kind: 'reconciliation' };
+        'Reconcile the manually retried child with the preserved results of this request.', current.rootAttempt.fileIds, parentModel ?? undefined), kind: 'reconciliation' };
       const response: RetryTaskResult = { taskId, parentTaskId: current.root.id, agentSessionId: childRuntime.sessionId, attemptId: next.id,
         runId: current.run.id, status: 'queued', reconciliationAttemptId: reconciliation.id };
       this.#commit(() => {
@@ -1876,7 +1958,7 @@ export class TaskManager implements AthenaTaskManager {
         this.#journal.event(next, 'task_retry_accepted', 'Manual retry accepted; previous attempts and successful sibling results are preserved.');
         this.#journal.event(reconciliation, 'run_reopened', 'Manual recovery queued a read-only coordinator reconciliation.');
       });
-      if (pin) this.#pins.set(current.run.id, pin);
+      if (parentPin) this.#pins.set(current.run.id,parentPin);
       this.#schedule(next, childRuntime);
       if (!pendingReconciliation) this.#schedule(reconciliation, rootRuntime);
       return response;
@@ -1940,7 +2022,7 @@ export class TaskManager implements AthenaTaskManager {
     await this.#bibliography.close();
     await this.#jobs.close();
     for(const runtime of this.#registry.values())runtime.close();
-    this.#registry.clear();
+    this.#registry.clear();this.#pins.clear();this.#workerPins.clear();
     this.#storage.transaction(()=>{
       for(const s of this.#storage.sessions())this.#interrupt(s.id,'Host closed before execution settled.');
       this.#storage.advanceRevision();

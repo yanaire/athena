@@ -1,8 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { fetchBytes, journalArchive } from './open-papers.ts';
 import { hash, object } from './orchestration.ts';
 
 export type SearchSpec = {mode:'query'|'doi'; term:string; pages:number};
-export type Candidate = {doi:string; title:string; abstract:string; links:string[]; raw:Record<string,unknown>; rawSha256:string};
+export type Candidate = {provider?:string;doi:string; title:string; abstract:string; links:string[]; raw:Record<string,unknown>; rawSha256:string};
 export interface BibliographicProvider {
   readonly id:string;
   retrieve(spec:SearchSpec, signal:AbortSignal, page:(records:Candidate[], retrievedAt:string)=>void):Promise<void>;
@@ -51,6 +52,21 @@ export class CrossrefProvider implements BibliographicProvider {
         const url=new URL('https://api.crossref.org/works'+(spec.mode==='doi'?'/'+encodeURIComponent(canonicalDoi(spec.term)):''));
         if(spec.mode==='query'){url.searchParams.set('query.bibliographic',spec.term);url.searchParams.set('rows','5');url.searchParams.set('offset',String(index*5));}
         this.next=Date.now()+spacing;
+        const archive=spec.mode==='doi'&&journalArchive(spec.term);
+        if(archive){
+          const sourceUrl=archive+'.crossref.xml';
+          const bytes=await fetchBytes(sourceUrl,signal,64000,this.transport);
+          const article=/<journal_article\b[^>]*>([\s\S]*?)<\/journal_article>/.exec(bytes.toString('utf8'))?.[1]??'';
+          const plain=(v:string)=>v.replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim();
+          const tag=(v:string,key:string)=>plain(new RegExp('<'+key+'(?:\\s[^>]*)?>([\\s\\S]*?)</'+key+'>').exec(v)?.[1]??'');
+          const doi=tag(article,'doi'),title=tag(article,'title');
+          if(doi.toLowerCase()!==spec.term||!title)throw new SearchError('malformed');
+          const authors=Array.from(article.matchAll(/<person_name\b[^>]*contributor_role="author"[^>]*>([\s\S]*?)<\/person_name>/g),m=>({given:tag(m[1]!,'given_name'),family:tag(m[1]!,'surname')}));
+          const year=tag(article,'year');
+          const record=candidate({DOI:doi,title:[title],author:authors,'container-title':['Journal of Open Source Software'],
+            issued:{'date-parts':year?[[Number(year)]]:[]},link:[{URL:archive+'.pdf'}],sourceUrl,depositSha256:hash(bytes)});
+          page([{...record,provider:'Open Journals Crossref deposit'}],new Date().toISOString());return;
+        }
         const response=await this.transport(url,{headers:{Accept:'application/json','User-Agent':'Athena-Bibliography/1.0'},signal,redirect:'error'});
         const interval=/^(\d+(?:\.\d+)?)s$/i.exec(response.headers.get('x-rate-limit-interval')??'');
         const limit=Number(response.headers.get('x-rate-limit-limit'));

@@ -8,7 +8,7 @@ import type { ResearchReview, ResearchTarget } from './research.ts';
 type Ref = {sourceId:string;version:string};
 export interface PaperSource extends Ref {
   projectId:string; title:string; content:string; level:'metadata'|'abstract'|'full_text'; sha256:string;
-  origin?: ResearchTarget | {provider:string;providerId:string;query:string;retrievedAt:string;raw:unknown;rawSha256:string;hasAbstract:boolean;fullTextLinks:string[];fullTextAcquired:false};
+  origin?: ResearchTarget | {provider:string;providerId:string;query:string;retrievedAt:string;raw:unknown;rawSha256:string;hasAbstract:boolean;fullTextLinks:string[];fullTextAcquired:boolean};
 }
 export type PaperLink = {kind:'claim'|'citation'|'figure'; quote:string; sourceId:string; excerpt:string;
   locator:string; manuscriptOffset?:number;sourceOffset?:number; variable?:string;unit?:string;transformation?:string;caption?:string};

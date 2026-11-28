@@ -33,7 +33,7 @@ export async function createFixture(researchResponder) {
   const provider = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/v1/models') {
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ data: [{ id: 'browser-fixture' }] })); return;
+      response.end(JSON.stringify({ data: [{ id: 'browser-fixture' }, ...(researchResponder ? [{ id: 'paper-reader' }] : [])] })); return;
     }
     try {
       assert.equal(request.url, '/v1/chat/completions');
@@ -43,9 +43,9 @@ export async function createFixture(researchResponder) {
       const input = text(wire.messages[lastUserIndex]?.content);
       const outputs = wire.messages.slice(lastUserIndex + 1).filter(message => message.role === 'tool').map(message => text(message.content));
       const coordinator = wire.tools.some(tool => tool.function.name === 'spawn_agent');
-      calls.push({ role: coordinator ? 'parent' : 'child', toolResults: outputs.length });
+      calls.push({ ...(researchResponder ? {model:wire.model} : {}), role: coordinator ? 'parent' : 'child', toolResults: outputs.length });
       let next, before = '';
-      if (researchResponder) next=await researchResponder({coordinator,input,outputs});
+      if (researchResponder) next=await researchResponder({coordinator,input,outputs,model:wire.model});
       else if (coordinator && input.startsWith(prompts.cancel)) {
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         const closed = once(response, 'close');

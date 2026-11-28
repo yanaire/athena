@@ -333,7 +333,7 @@
  function requestProject(){
   const requestId=crypto.randomUUID();let created=null;
   const enabled=Boolean(workspaceStore.getState().capabilities?.createProject);
-  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label><input type="checkbox" id="ac-research-mode" checked> Run research with offline analysis, public Crossref searches and manuscript typesetting</label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
+  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label><input type="checkbox" id="ac-research-mode" checked> Run research, save papers to the project’s Athena Library folder and typeset the manuscript</label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
    const name=q('#ac-project-name').value.trim();if(!name)return;
    q('#ac-dialog-primary').disabled=true;
    try{
@@ -723,7 +723,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  surfaces=window.AthenaSurfaces.mount(q('#ac-surface-slot'),{files,icons,toast,onResearch:tab=>openPanel(tab||'results'),onWorkspace:(view,selection)=>openWorkspace(view,selection),onAgents:()=>openWorkspace('timeline'),onClose:()=>closePanel()});
  workspaceViews=window.AthenaWorkspaceViews.mount(q('#ac-workbench-slot'),{store:workspaceStore,records,icons,toast,onNavigate:(view,selection)=>openWorkspace(view,selection),onApproval:openApproval});
  knowledge=window.AthenaKnowledge.mount(q('#ac-knowledge-slot'),{icons,toast,hosted,onUseSource(item){
-  const snippet='['+item.title+']\n'+String(item.excerpt||'');
+  const snippet='['+item.title+']'+(item.metadata?.persistence==='host'?' · sourceId '+item.id+' · version '+item.metadata.sourceVersion:'')+'\n'+String(item.excerpt||'');
   composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+snippet);
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();
   toast(item.title+' excerpt added to the draft.');

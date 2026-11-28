@@ -1376,6 +1376,13 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .amp-profile-form .amp-actions { margin-top: 12px; }
 #athena-codex .amp-root[data-busy="true"] .amp-profile-actions .ams-button[disabled], #athena-codex .amp-root[data-busy="true"] [data-amp-profile-save][disabled] { opacity: .6; }
 
+#athena-codex .amp-live-roles [data-legacy-role-routing]{display:none}
+#athena-codex .amp-worker-row{display:grid;grid-template-columns:minmax(105px,1fr) minmax(135px,1.4fr) minmax(100px,1fr);align-items:center;gap:8px;margin:8px 0}
+#athena-codex .amp-worker-row select{width:100%;min-width:0}
+@media(max-width:600px){#athena-codex .amp-worker-row{grid-template-columns:1fr 1fr}.amp-worker-row strong{grid-column:1/-1}}
+
+#athena-codex #ast-worker-models-slot:not(:empty) > section:not([hidden]) { margin: 0 0 22px; }
+
 /* Project knowledge panel. Sized for a 300 px side slot without horizontal overflow. */
 #athena-codex .akn-root { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: #fffefa; color: #43493a; font-size: 12px; line-height: 1.6; }
 #athena-codex .akn-heading { padding: 22px 18px 15px; flex: none; }
@@ -8405,7 +8412,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
           ${field('endpoint', 'Endpoint base URL', 'url', 'Credentials and query parameters are not stored in endpoint URLs.', 'autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="2048" placeholder="http://localhost:11434/v1" required')}
           ${field('defaultModel', 'App default model', 'text', 'Used for new conversations unless the project or conversation selects another model.', 'autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="160" placeholder="your-model-id" required')}
         </section>
-        <section class="ams-section" data-ams-execution-section aria-labelledby="${prefix}routing-title">
+        <section class="ams-section" data-ams-execution-section data-legacy-role-routing aria-labelledby="${prefix}routing-title">
           <div class="ams-section-title"><h3 id="${prefix}routing-title">Role routing</h3><span>02</span></div>
           <p class="ams-section-copy">Leave a role blank to inherit the default model.</p>
           <div class="ams-routes">
@@ -8803,8 +8810,13 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         <p class="ams-section-copy" role="status" data-amp-migration-status hidden></p>
         <button type="button" class="ams-btn cursor-interaction" data-amp-import-credentials hidden>Approve import from Keychain</button>
 
+        <section class="amp-section" data-amp-routing hidden aria-labelledby="amp-routing-title">
+          <h3 id="amp-routing-title">Worker models</h3>
+          <p class="ams-section-copy">Choose a saved profile and reasoning level for each role. Changes apply to the next research request.</p>
+          <div data-amp-roles></div>
+        </section>
         <section class="amp-section" aria-labelledby="amp-providers-title">
-          <div class="ams-section-title"><h3 id="amp-providers-title">Provider credentials</h3><span>01</span></div>
+          <div class="ams-section-title"><h3 id="amp-providers-title">Provider credentials</h3></div>
           <p class="ams-section-copy">Search the providers registered by the installed Pi SDK. Sign-in methods come from the SDK and Athena's provider policy.</p>
           <label class="amp-search">${icon('search')}<input type="search" data-amp-provider-search placeholder="Search providers" aria-label="Search providers" autocomplete="off" spellcheck="false"></label>
           <div class="amp-list" role="list" data-amp-providers></div>
@@ -8823,7 +8835,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         </section>
 
         <section class="amp-section" aria-labelledby="amp-catalog-title">
-          <div class="ams-section-title"><h3 id="amp-catalog-title">Model catalog</h3><span>02</span></div>
+          <div class="ams-section-title"><h3 id="amp-catalog-title">Model catalog</h3></div>
           <p class="ams-section-copy">The catalog lists models registered in the SDK. Eligibility marks the models your credentials can select. Only an explicit profile verification probes a live inference.</p>
           <div class="amp-catalog-bar">
             <select class="ams-input cursor-interaction" data-amp-catalog-provider aria-label="Catalog provider"></select>
@@ -8844,7 +8856,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         </section>
 
         <section class="amp-section" aria-labelledby="amp-profiles-title">
-          <div class="ams-section-title"><h3 id="amp-profiles-title">Saved model profiles</h3><span>03</span></div>
+          <div class="ams-section-title"><h3 id="amp-profiles-title">Saved model profiles</h3></div>
           <p class="amp-section-copy" data-amp-profiles-intro></p>
           <div class="amp-list" role="list" data-amp-profiles></div>
           <p class="amp-error" role="alert" data-amp-profiles-error hidden></p>
@@ -8869,6 +8881,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       </div>`;
     const root = slot.querySelector('.amp-root');
     const q = selector => root.querySelector(selector);
+    const routingPanel = q('[data-amp-routing]');
+    const roleList = q('[data-amp-roles]');
+    const routingSlot = slot.closest('[role="tabpanel"]')?.querySelector('#ast-worker-models-slot');
+    routingSlot?.appendChild(routingPanel);
     const listNode = key => q('[data-amp-' + key + ']');
 
     const workspace = () => options.getWorkspace?.() || {};
@@ -9053,7 +9069,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     async function loadList() {
       await call('list', () => adapter.listModelProfiles(), result => {
         list = {
-          profiles: rows(result?.profiles),
+          profiles: rows(result?.profiles), workerRoles:rows(result?.workerRoles),
           appDefaultProfileId: idOf(result?.appDefaultProfileId),
           credentialMode: idOf(result?.credentialMode),
           credentialMigration: idOf(result?.credentialMigration),
@@ -9357,6 +9373,34 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         <button type="button" class="ams-button cursor-interaction amp-danger" data-amp-action="delete" data-amp-profile-id="${escapeHTML(profile.id)}">${icon('trash-2')}Delete</button>
       </div>`;
     }
+    let roleSignature='';
+    function renderWorkerRoles(){
+      const panel=routingPanel,roles=rows(list.workerRoles);
+      panel.hidden=!adapter?.setWorkerModelPreference||!roles.length;
+      slot.closest('.ast-content')?.classList.toggle('amp-live-roles',!panel.hidden);
+      if(panel.hidden)return;
+      const inherited=profileById(currentSession()?.profileId) || profileById(currentProject()?.defaultProfileId) || profileById(list.appDefaultProfileId) || list.hostModel;
+      const signature=JSON.stringify([roles,inherited,list.profiles.map(p=>[p.id,p.name,p.modelId,p.thinkingLevel,p.supportedLevels]),at('worker-role')]);
+      if(roleSignature===signature)return;
+      roleSignature=signature;
+      const option=(value,label,selected)=>'<option value="'+escapeHTML(value)+'"'+(selected?' selected':'')+'>'+escapeHTML(label)+'</option>';
+      roleList.innerHTML=roles.map(r=>{
+        const profile=list.profiles.find(p=>p.id===r.profileId),disabled=at('worker-role')?' disabled':'';
+        const models=option('',inherited?.modelId?'Inherit · '+inherited.modelId:'Inherit conversation',!profile)+list.profiles.map(p=>option(p.id,p.name+' · '+p.modelId,p.id===r.profileId)).join('');
+        const levels=profile?(option('','Profile · '+profile.thinkingLevel,r.thinkingLevel===null)+(profile.supportedLevels||[profile.thinkingLevel]).map(l=>option(l,LEVEL_LABELS[l]||l,r.thinkingLevel===l)).join('')):option('',inherited?.thinkingLevel?'Inherit · '+inherited.thinkingLevel:'Inherit conversation',true);
+        return '<div class="amp-worker-row"><strong>'+escapeHTML(r.label)+'</strong><select class="ams-input" data-role-profile="'+escapeHTML(r.role)+'" aria-label="'+escapeHTML(r.label)+' model"'+disabled+'>'+models+'</select><select class="ams-input" data-role-level="'+escapeHTML(r.role)+'" aria-label="'+escapeHTML(r.label)+' reasoning"'+(!profile||disabled?' disabled':'')+'>'+levels+'</select></div>';
+      }).join('');
+    }
+    listen(roleList,'change',event=>{
+      const control=event.target,role=control.dataset.roleProfile||control.dataset.roleLevel;
+      const row=list.workerRoles?.find(r=>r.role===role);
+      if(!row||!adapter?.setWorkerModelPreference)return;
+      const profileId=control.dataset.roleProfile?control.value||null:row.profileId;
+      const thinkingLevel=control.dataset.roleLevel?control.value||null:null;
+      void call('worker-role',()=>adapter.setWorkerModelPreference({role,profileId,thinkingLevel}),result=>{
+        list.workerRoles=rows(result.workerRoles);
+      });
+    });
     function renderProfiles() {
       const intro = q('[data-amp-profiles-intro]');
       const hostModel = list.hostModel;
@@ -9483,6 +9527,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (destroyed) return;
       root.hidden = !adapter;
       root.dataset.ampMounted = String(Boolean(adapter));
+      renderWorkerRoles();
       if (!adapter) return;
       renderProviders();
       renderCatalog();
@@ -9618,11 +9663,15 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
           const profile = profileById(profileId);
           return profile ? { name: profile.name, provider: profile.provider, modelId: profile.modelId, thinkingLevel: profile.thinkingLevel } : null;
         };
-        const runModel = snapshot?.run?.model;
+        const runModel = snapshot?.run?.id && snapshot.run.model;
+        const app = label(list.appDefaultProfileId) || list.hostModel || null;
+        const projectProfile = project?.defaultProfileId ? label(project.defaultProfileId) : null;
+        const effective = projectProfile || project?.defaultModel || app;
+        const inherited = value => value ? 'Inherit · '+(value.name || value.modelId || value.id) : null;
         return {
-          appDefault: label(list.appDefaultProfileId) || list.hostModel || null,
-          projectDefault: project && idOf(project.defaultProfileId) ? label(project.defaultProfileId) || 'Profile ' + project.defaultProfileId : null,
-          conversation: session && idOf(session.profileId) ? label(session.profileId) || 'Profile ' + session.profileId : null,
+          appDefault: app,
+          projectDefault: project && idOf(project.defaultProfileId) ? projectProfile || 'Profile ' + project.defaultProfileId : project ? inherited(app) : null,
+          conversation: session && idOf(session.profileId) ? label(session.profileId) || 'Profile ' + session.profileId : session ? inherited(effective) || 'Inherit project default' : null,
           runLocked: runModel ? { name: runModel.name || runModel.modelId || runModel.id, provider: runModel.provider, modelId: runModel.modelId || runModel.id, thinkingLevel: runModel.thinkingLevel } : null
         };
       },
@@ -9635,6 +9684,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         destroyed = true; generation++; owners.clear();
         clearTimeout(flowTimer); clearTimeout(providerSearchTimer);
         controller.abort();
+        routingPanel.remove();
         root.remove();
       }
     };
@@ -9978,7 +10028,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       <header class="akn-heading">
         <div class="akn-heading-top"><span class="akn-eyebrow">PROJECT LIBRARY</span><span class="akn-count" data-akn-total></span></div>
         <h2 id="${prefix}title">Knowledge</h2>
-        <p>Keep useful material close to the work.</p><p class="akn-project-scope" data-akn-project></p>
+        <p class="akn-project-scope" data-akn-project></p>
         <div class="akn-top-actions">
           <button type="button" class="akn-button akn-import-button cursor-interaction" data-akn-action="import">${icon('upload')}<span data-akn-import-label>Import files</span></button>
           <button type="button" class="akn-button cursor-interaction" data-akn-action="add-note" aria-expanded="false" aria-controls="${prefix}note-form">${icon('plus')}Add note</button>
@@ -9988,7 +10038,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       </header>
       <div class="akn-toolbar">
         <label class="akn-search"><span class="akn-sr-only">Search sources</span>${icon('search')}<input type="search" name="knowledge-search" placeholder="Search titles and text…" autocomplete="off" spellcheck="false"><button type="button" class="akn-search-clear cursor-interaction" data-akn-action="clear-search" aria-label="Clear source search" hidden>${icon('x')}</button></label>
-        <div class="akn-filters"><label class="akn-filter-label"><span class="akn-sr-only">Source type</span><select class="akn-filter cursor-interaction" aria-label="Source type"><option value="all">All sources</option><option value="documents">Documents</option><option value="notes">Notes</option><option value="datasets">Datasets</option></select></label><button type="button" class="akn-pinned-filter cursor-interaction" data-akn-action="pinned-filter" aria-pressed="false">${icon('pin')}Pinned</button></div>
+        <button type="button" class="akn-button" data-akn-find-papers hidden>Search and save papers</button><div class="akn-filters"><label class="akn-filter-label"><span class="akn-sr-only">Source type</span><select class="akn-filter cursor-interaction" aria-label="Source type"><option value="all">All sources</option><option value="documents">Documents</option><option value="notes">Notes</option><option value="datasets">Datasets</option></select></label><button type="button" class="akn-pinned-filter cursor-interaction" data-akn-action="pinned-filter" aria-pressed="false">${icon('pin')}Pinned</button></div>
       </div>
       <div class="akn-scroll">
         <form class="akn-note-form" id="${prefix}note-form" aria-labelledby="${prefix}note-title" novalidate hidden>
@@ -10026,8 +10076,27 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       notice.hidden = !message;
       notice.dataset.tone = tone;
     }
+    let searchingPapers=false;
+    const findPapers=q('[data-akn-find-papers]');
+    listen(findPapers,'click',async()=>{
+      const term=searchInput.value.trim(),project=projectId,bound=serviceEpoch;
+      if(!term){showNotice('Enter a public research topic or DOI.');searchInput.focus();return;}
+      if(searchingPapers||!service?.canSearch?.(project))return;
+      searchingPapers=true;findPapers.disabled=true;showNotice('Searching public literature…');
+      try{
+        const result=await service.searchAndSave({projectId:project,term,mode:/^10\.\d{4,9}\//i.test(term)?'doi':'query',requestId:crypto.randomUUID()});
+        if(destroyed||bound!==serviceEpoch||project!==projectId)return;
+        await refreshSources();
+        if(destroyed||bound!==serviceEpoch||project!==projectId)return;
+        if(result.saved?.length){query='';searchInput.value='';filter='documents';filterSelect.value=filter;selectedId=result.saved[0].sourceId;renderCollection();}
+        showNotice((result.saved?.length||0)+' paper editions saved.'+(result.error?' Crossref: '+result.error:''));
+      }catch(e){if(bound===serviceEpoch&&project===projectId)showNotice(e.message,'warning');}
+      finally{searchingPapers=false;findPapers.disabled=false;}
+    });
     function refreshStorageNote() {
+      findPapers.hidden=!service?.canSearch?.(projectId);
       storageNote.textContent = service ? 'Project file storage is connected. Each source shows whether its original was stored. Extraction and review are separate steps.' : storageMode === 'local' ? 'Files stay in this session. Notes and pins are saved for this project on this device. Original-file storage and PDF extraction are not connected.' : 'Storage is unavailable. Project files, notes, and pins stay in this session. Original-file storage and PDF extraction are not connected.';
+      if(service?.listSources&&service?.searchAndSave)storageNote.textContent='Research papers are saved in the project’s Athena Library folder and can be cited across its conversations.';
       q('[data-akn-project]').textContent = 'Project · ' + projectId;
     }
     function persist() {
@@ -10079,8 +10148,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         ${isPdf ? '<div class="akn-pdf-note">' + icon('info') + '<p>' + (source.extraction.status === 'ready' ? 'Extracted text is available for this version. PDF preview and extraction do not establish that its contents are correct or reviewed.' : service ? 'Native PDF preview only. Extraction status: ' + escape(source.extraction.status.replaceAll('_', ' ')) + '. Previewing a file does not read or understand its contents.' : 'Native PDF preview only. Text extraction, OCR, and indexing are not available. Previewing a file does not read or understand its contents.') + '</p></div><div class="akn-pdf-preview"></div>' + (source.text ? '<div class="akn-preview-heading"><h4>Extracted text</h4><span>Review: ' + escape(source.review.status.replaceAll('_', ' ')) + '</span></div><pre class="akn-text-preview" tabindex="0">' + escape(previewText) + '</pre>' + (source.text.length > 16000 ? '<p class="akn-truncated">Showing the first 16,000 characters. Search includes the full extracted text.</p>' : '') : '') : '<div class="akn-preview-heading"><h4>' + (source.format === 'CSV' ? 'CSV preview' : 'Text preview') + '</h4><span>Plain text</span></div><pre class="akn-text-preview" tabindex="0">' + escape(previewText) + '</pre>' + (source.text && source.text.length > 16000 ? '<p class="akn-truncated">Showing the first 16,000 characters. Search includes the full text.</p>' : '')}
         <div class="akn-source-actions"><button type="button" class="akn-button akn-primary cursor-interaction" data-akn-action="use-source">${icon('corner-down-left')}${!source.text ? 'Use file details in chat' : 'Use excerpt in chat'}</button>${source.artifactId && typeof options.onOpenArtifact === 'function' ? '<button type="button" class="akn-button cursor-interaction" data-akn-action="open-artifact">' + icon('arrow-up-right') + 'Open example artifact</button>' : ''}</div>
         ${!source.text ? '' : '<p class="akn-excerpt-hint">Adds up to 1,600 characters to the composer for your review. The exact source and version stay attached as metadata.</p>'}
-        ${!source.isSample ? '<div class="akn-service-actions"><button type="button" class="akn-button cursor-interaction" data-akn-action="store-original" ' + (!serviceAvailable('storeSource') || source.persistence === 'host' || sourceOperations.has(source.id) ? 'disabled' : '') + '>' + icon('hard-drive-upload') + (source.persistence === 'host' ? 'Original stored' : 'Store original') + '</button>' + (isPdf ? '<button type="button" class="akn-button cursor-interaction" data-akn-action="extract-text" ' + (!serviceAvailable('extractSource') || source.persistence !== 'host' || sourceOperations.has(source.id) || ['queued', 'extracting'].includes(source.extraction.status) ? 'disabled' : '') + '>' + icon('text-search') + 'Extract text</button>' : '') + '</div><p class="akn-service-note">' + (service ? 'Storage, extraction, and review require separate confirmations from the project service.' : 'Connect project storage to preserve original files beyond this session.') + '</p>' : ''}
-        ${source.isSample ? '' : '<button type="button" class="akn-remove-button cursor-interaction" data-akn-action="remove">' + icon('trash-2') + 'Remove source</button>'}`;
+        ${source.paperCoverage ? '<p class="akn-service-note">'+escape(source.paperCoverage)+' · '+escape(source.originalLocation.label)+'</p>'+(source.paperDetail?'<p>'+escape(source.paperDetail)+'</p>':'')+(source.originalUri?'<a class="akn-button" href="'+escape(source.originalUri)+'" download>Download original</a>':'') : !source.isSample ? '<div class="akn-service-actions"><button type="button" class="akn-button cursor-interaction" data-akn-action="store-original" ' + (!serviceAvailable('storeSource') || source.persistence === 'host' || sourceOperations.has(source.id) ? 'disabled' : '') + '>' + icon('hard-drive-upload') + (source.persistence === 'host' ? 'Original stored' : 'Store original') + '</button>' + (isPdf ? '<button type="button" class="akn-button cursor-interaction" data-akn-action="extract-text" ' + (!serviceAvailable('extractSource') || source.persistence !== 'host' || sourceOperations.has(source.id) || ['queued', 'extracting'].includes(source.extraction.status) ? 'disabled' : '') + '>' + icon('text-search') + 'Extract text</button>' : '') + '</div><p class="akn-service-note">' + (service ? 'Storage, extraction, and review require separate confirmations from the project service.' : 'Connect project storage to preserve original files beyond this session.') + '</p>' : ''}
+        ${source.isSample || source.paperCoverage ? '' : '<button type="button" class="akn-remove-button cursor-interaction" data-akn-action="remove">' + icon('trash-2') + 'Remove source</button>'}`;
       if (isPdf) {
         const container = detail.querySelector('.akn-pdf-preview');
         const url = fileVersions.get(source.id) === source.sourceVersion ? blobUrls.get(source.id) : null;
@@ -10210,9 +10279,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const validExtraction = ['not_requested', 'queued', 'extracting', 'ready', 'failed', 'unsupported'].includes(value.extraction?.status) && String(value.extraction.version) === version;
       const validReview = ['unreviewed', 'in_review', 'approved', 'changes_requested'].includes(value.review?.status) && String(value.review.version) === version;
       if (value.extraction?.status === 'ready' && (!validExtraction || typeof value.text !== 'string')) throw new Error('Extraction was reported as ready without text for this source version.');
-      return sourceDefaults({ id: value.sourceId, title: value.title, text: typeof value.text === 'string' ? value.text : '', kind: value.kind, format: String(value.format || 'TEXT').toUpperCase(), origin: 'host', isSample: false, sessionOnly: false, pinned: false, size: value.size || null, createdAt: value.createdAt || '', order: -Date.now(), sourceVersion: version, originalLocation: { ...value.originalLocation }, persistence: 'host', extraction: validExtraction ? { ...value.extraction } : { status: 'not_requested', version }, review: validReview ? { ...value.review } : { status: 'unreviewed', version } }, expectedProject);
+      return sourceDefaults({ id: value.sourceId, title: value.title, text: typeof value.text === 'string' ? value.text : '', kind: value.kind, format: String(value.format || 'TEXT').toUpperCase(), origin: 'host', isSample: false, sessionOnly: false, pinned: false, size: value.size || null, createdAt: value.createdAt || '', order: -Date.now(), sourceVersion: version, originalLocation: { ...value.originalLocation }, persistence: 'host', paperCoverage:value.coverage, paperDetail:value.detail, originalFile:value.originalFile, originalUri: /^\/api\/artifacts\/[\w-]+\/library-[a-f0-9]{64}$/.test(value.originalUri || '') ? value.originalUri : null, extraction: validExtraction ? { ...value.extraction } : { status: 'not_requested', version }, review: validReview ? { ...value.review } : { status: 'unreviewed', version } }, expectedProject);
     }
-    function mergeHostSource(value, expectedId = null) {
+    function mergeHostSource(value, expectedId = null, render = true) {
       const next = checkedHostSource(value, projectId, expectedId), existing = sources.find(item => item.id === next.id);
       if (!existing) sources.push(next);
       else {
@@ -10222,7 +10291,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         }
         Object.assign(existing, next, { pinned: existing.pinned, origin: existing.origin, order: existing.order, versions });
       }
-      renderCollection(); refreshStorageNote(); return next;
+      if (render) { renderCollection(); refreshStorageNote(); }
+      return next;
     }
     async function refreshSources() {
       if (!serviceAvailable('listSources') || destroyed) return false;
@@ -10232,8 +10302,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         if (destroyed || bound !== serviceEpoch || scope !== projectEpoch || target !== service || project !== projectId) return false;
         if (!Array.isArray(result?.sources)) throw new Error('The source service did not return a project source list.');
         result.sources.forEach(value => checkedHostSource(value, project));
-        result.sources.forEach(value => mergeHostSource(value));
-        renderCollection(); return true;
+        result.sources.forEach(value => mergeHostSource(value, null, false));
+        refreshStorageNote(); renderCollection(); return true;
       } catch (error) {
         if (!destroyed && bound === serviceEpoch && scope === projectEpoch) showNotice(String(error?.message || error), 'warning');
         return false;
@@ -10385,6 +10455,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     const api = {
       open(settings = {}) {
         if (destroyed) return;
+        refreshStorageNote();if(service?.searchAndSave)void refreshSources();
         if (settings && typeof settings === 'object') {
           if (typeof settings.query === 'string') { query = settings.query; searchInput.value = query; }
           if (typeof settings.sourceId === 'string' && sources.some(source => source.id === settings.sourceId)) {
@@ -11870,7 +11941,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
               <div class="ast-workspace-illustration" aria-hidden="true"><span class="ast-mini-sidebar"></span><span class="ast-mini-chat"><i></i><i></i><i></i><b></b></span><span class="ast-mini-panel"></span></div>
               <p class="ast-workspace-caption">Drag a panel edge to adjust its width. Double-click the edge to reset it.</p>
             </section>
-            <section class="ast-panel" tabindex="0" id="ast-panel-models" role="tabpanel" aria-labelledby="ast-tab-models" hidden><div id="ast-model-settings-slot"></div><div id="ast-provider-profiles-slot"></div></section>
+            <section class="ast-panel" tabindex="0" id="ast-panel-models" role="tabpanel" aria-labelledby="ast-tab-models" hidden><div id="ast-worker-models-slot"></div><div id="ast-model-settings-slot"></div><div id="ast-provider-profiles-slot"></div></section>
             <section class="ast-panel" tabindex="0" id="ast-panel-pi" role="tabpanel" aria-labelledby="ast-tab-pi" hidden><div id="ast-pi-workbench-slot"></div></section>
             <section class="ast-panel" tabindex="0" id="ast-panel-connections" role="tabpanel" aria-labelledby="ast-tab-connections" hidden>
               <div class="ast-section-heading"><h2>Connections</h2><p>Tools and skills available in the composer.</p></div>
@@ -11979,7 +12050,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const mode = section === 'appearance' ? (sessionOnly ? 'session' : 'automatic') : (section === 'models' || section === 'execution' && !window.AthenaHosted) ? 'explicit' : 'host';
       q('.ast-footer').dataset.saveMode = mode;
       const messages = {
-        models: 'Model changes require Save settings. Connection checks are separate.',
+        models: window.AthenaHosted ? 'Worker assignments save when selected and apply to the next run.' : 'Model changes require Save settings. Connection checks are separate.',
         execution: window.AthenaHosted ? 'The host controls execution policy for this project.' : 'Role preferences require Save settings. Runtime controls apply to the current session.',
         tools: 'Package changes apply to new runs. Tool controls reflect the current runtime.',
         files: 'Files and history are stored only when the project host confirms the write.',
@@ -13764,7 +13835,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  function requestProject(){
   const requestId=crypto.randomUUID();let created=null;
   const enabled=Boolean(workspaceStore.getState().capabilities?.createProject);
-  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label><input type="checkbox" id="ac-research-mode" checked> Run research with offline analysis, public Crossref searches and manuscript typesetting</label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
+  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label><input type="checkbox" id="ac-research-mode" checked> Run research, save papers to the project’s Athena Library folder and typeset the manuscript</label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
    const name=q('#ac-project-name').value.trim();if(!name)return;
    q('#ac-dialog-primary').disabled=true;
    try{
@@ -14154,7 +14225,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  surfaces=window.AthenaSurfaces.mount(q('#ac-surface-slot'),{files,icons,toast,onResearch:tab=>openPanel(tab||'results'),onWorkspace:(view,selection)=>openWorkspace(view,selection),onAgents:()=>openWorkspace('timeline'),onClose:()=>closePanel()});
  workspaceViews=window.AthenaWorkspaceViews.mount(q('#ac-workbench-slot'),{store:workspaceStore,records,icons,toast,onNavigate:(view,selection)=>openWorkspace(view,selection),onApproval:openApproval});
  knowledge=window.AthenaKnowledge.mount(q('#ac-knowledge-slot'),{icons,toast,hosted,onUseSource(item){
-  const snippet='['+item.title+']\n'+String(item.excerpt||'');
+  const snippet='['+item.title+']'+(item.metadata?.persistence==='host'?' · sourceId '+item.id+' · version '+item.metadata.sourceVersion:'')+'\n'+String(item.excerpt||'');
   composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+snippet);
   closePanel(false);if(!q('#ac-conversation').inert)composer.focus();
   toast(item.title+' excerpt added to the draft.');
