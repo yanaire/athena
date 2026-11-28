@@ -18,6 +18,7 @@ const browser=await chromium.launch({executablePath:process.env.ATHENA_CHROMIUM|
 const context=await browser.newContext({viewport:{width:1440,height:900},recordVideo:{dir:evidence,size:{width:1440,height:900}}});
 const videoStart=Date.now(),markers=[];
 const mark=step=>markers.push({step,seconds:(Date.now()-videoStart)/1000});
+const preliminaryObserved=Promise.withResolvers();
 const screencast=process.env.ATHENA_SCREENCAST==='1';
 const page=await context.newPage(),errors=[];
 page.on('pageerror',e=>errors.push(e.message));
@@ -32,6 +33,7 @@ const templateFile=process.env.ATHENA_LATEX_TEMPLATE_FILE;
 const selectedTemplate=templateFile?basename(templateFile):'article';
 const referenceQuote='const timeConstantSeconds = r * c;';
 const citeLibrary=process.env.ATHENA_CITE_LIBRARY==='1';
+const selectInputs=process.env.ATHENA_HANDOFF_CASE==='inputs';
 const libraryClaim='Foreman-Mackey (2016) describes scatterplot matrices for multidimensional samples.';
 let libraryEdition;
 const sourceUrl='https://raw.githubusercontent.com/yanaire/athena/feefe81e49211151549b793b4ff029c2d797fe7d/runtime/rc-worker.mjs';
@@ -90,7 +92,7 @@ async function respond({coordinator,input,outputs}){
     if(n===2)return call('spawn_agent',{role:'experiment',title:'Calculate the step response',prompt:'Run calculate_rc_response on the attached circuit.',fileIds:[file]});
     if(n===3)return call('save_research_draft',{heading:'Introduction',text:intro});
     if(n===4)return call('save_research_draft',{heading:'Methods',text:method});
-    if(n===5)return call('wait_for_agents',{});
+    if(n===5){if(!interrupt)await preliminaryObserved.promise;return call('wait_for_agents',{});}
     const joined=JSON.parse(outputs[5]).tasks;
     const result=joined.flatMap(t=>t.artifacts).find(a=>a.name==='rc-response.json'),ref=joined.flatMap(t=>t.artifacts).find(a=>a.name==='mcp-result.json');
     assert.ok(result&&ref,JSON.stringify(joined));
@@ -99,8 +101,18 @@ async function respond({coordinator,input,outputs}){
     if(n===8)return call('request_review',{missionId:JSON.parse(outputs[0]).id,evidenceIds:[JSON.parse(outputs[7]).id],question:'Independently calculate all voltages from the input and check the absolute errors.'});
     if(n===9)return call('wait_for_agents',{});
     if(n===10)return call('record_experiment_table',{artifactId:result.id,path:['samples'],condition:'sampled times'});
-    if(n===11)return call('prepare_research_paper',{reviewId:JSON.parse(outputs[8]).review.id,artifactIds:[result.id],inputIds:[file],title,template:selectedTemplate,outline:headings,...(citeLibrary?{librarySources:[{sourceId:libraryEdition.sourceId,version:libraryEdition.version,claim:libraryClaim}]}:{})});
-    assert.ok(JSON.parse(outputs[11]).documentId,outputs[11]);return 'The verified circuit results have been handed to the manuscript workflow.';
+    const prepare=pageSourceIds=>call('prepare_research_paper',{reviewId:JSON.parse(outputs[8]).review.id,artifactIds:[result.id],inputIds:[file],title,template:selectedTemplate,outline:headings,
+      ...(pageSourceIds?{pageSourceIds}:{}),...(citeLibrary?{librarySources:[{sourceId:libraryEdition.sourceId,version:libraryEdition.version,claim:libraryClaim}]}:{})});
+    if(n===11 && selectInputs)return prepare(['unknown-page']);
+    const first=selectInputs?12:11;
+    if(n===first){
+      if(selectInputs)assert.match(outputs[11],/visited page source IDs/);
+      const handoff=prepare(selectInputs?[]:undefined);
+      return [handoff,handoff];
+    }
+    assert.equal(n,first+2);
+    const receipt=JSON.parse(outputs[first]);assert.ok(receipt.documentId);assert.equal(JSON.parse(outputs[first+1]).documentId,receipt.documentId);
+    return 'The verified circuit results have been handed to the manuscript workflow.';
   }
   if(input.includes('Review assignment: ')){
     const {targets,reviewId}=parser(input,'Review assignment: ');
@@ -143,12 +155,12 @@ async function respond({coordinator,input,outputs}){
   const finding='At one time constant, the predicted output was '+rc.samples.find(s=>s.timeSeconds===rc.timeConstantSeconds).outputVolt.toFixed(4)+' V.';
   const series=sources.find(s=>s.title==='rc-response.json').sourceId;
   const figure='![Simulated voltage across five sampling times](athena-plot:'+series+'/timeSeconds/outputVolt)';
-  sections=[intro,method+'\nThe reference implementation defines the time constant as resistance times capacitance.',finding+'\n\n'+table+'\n\n'+figure,'The ideal first-order model omits tolerances, noise and loading. These values are simulated.'+(citeLibrary?' '+libraryClaim:'')].map((text,i)=>({heading:headings[i],text}));
+  sections=[intro,method+(selectInputs?'':'\nThe reference implementation defines the time constant as resistance times capacitance.'),finding+'\n\n'+table+'\n\n'+figure,'The ideal first-order model omits tolerances, noise and loading. These values are simulated.'+(citeLibrary?' '+libraryClaim:'')].map((text,i)=>({heading:headings[i],text}));
   markdown='# '+title+'\n\n'+sections.map(s=>'## '+s.heading+'\n'+s.text).join('\n\n');
   if(input.includes('Return only a JSON array'))return JSON.stringify(sections);
   if(n===sources.length)return call('publish_manuscript',{text:markdown,links:[
     {kind:'claim',quote:finding,sourceId:sources.find(s=>s.title==='rc-response.json').sourceId,excerpt:String(rc.samples[2].outputVolt),locator:'samples[2].outputVolt'},
-    {kind:'citation',quote:'defines the time constant as resistance times capacitance',sourceId:sources.find(s=>s.title.startsWith('Visited page')).sourceId,excerpt:referenceQuote,locator:'calculate(text)'},...(citeLibrary?[{kind:'citation',quote:libraryClaim,sourceId:libraryEdition.sourceId,excerpt:'using a scatterplot matrix',locator:'Summary, p. 1'}]:[])]});
+    ...(selectInputs?[]:[{kind:'citation',quote:'defines the time constant as resistance times capacitance',sourceId:sources.find(s=>s.title.startsWith('Visited page')).sourceId,excerpt:referenceQuote,locator:'calculate(text)'}]),...(citeLibrary?[{kind:'citation',quote:libraryClaim,sourceId:libraryEdition.sourceId,excerpt:'using a scatterplot matrix',locator:'Summary, p. 1'}]:[])]});
   return 'Published the revision and evidence links.';
 }
 const projectFolder=await mkdtemp(join(tmpdir(),'athena-circuit-project-'));
@@ -201,7 +213,7 @@ try{
     if(!interrupt&&!viewedDraft&&status?.sections?.length&&!status.documentId){
       await page.locator('[data-flow-tab="preview"]').click();
       await page.getByText('Draft · awaiting review',{exact:true}).first().waitFor({timeout:5000});
-      mark('draft');await pause(screencast?2400:1100);await page.locator('[data-flow-tab="progress"]').click();viewedDraft=true;mark('verification');
+      preliminaryObserved.resolve();mark('draft');await pause(screencast?2400:1100);await page.locator('[data-flow-tab="progress"]').click();viewedDraft=true;mark('verification');
     }
     if(nextModel&&status?.runId&&!switched){
       await rpc('setConversationModelProfile',[session,nextModel.id]);switched=true;
@@ -260,7 +272,10 @@ try{
     const pdfText=(await promisify(execFile)('pdftotext',[join(evidence,'manuscript.pdf'),'-'])).stdout;
     assert.match(pdfText,/Foreman-Mackey/);assert.match(pdfText.replace(/\s+/g,''),/10\.21105\/joss\.00024/);
   }
-  assert.ok(receipt.evidence.length>=3);assert.equal(receipt.review.status,'approved');assert.equal(status.stages.filter(s=>s.status==='Succeeded').length,7);
+  const catalog=await rpc('listPapers',[{projectId:project}]);assert.equal(catalog.documents.length,1);
+  const reviewed=JSON.parse(await readFile(join(evidence,'review.json'),'utf8'));
+  assert.equal(reviewed.evidence.some(s=>s.title.startsWith('Visited page')), !selectInputs);
+  assert.ok(receipt.evidence.length>=(selectInputs?2:3));assert.equal(receipt.review.status,'approved');assert.equal(status.stages.filter(s=>s.status==='Succeeded').length,7);
   await fixture.stopHost();await fixture.startHost();await page.reload();await page.waitForFunction(()=>window.AthenaApp?.getState().workspace.sessionBound);
   const restored=await flow();assert.equal(restored.version,status.version);
   const uniqueRoles=complete.tasks.filter(t=>t.title==='Edit manuscript'||t.title==='Draft sections').map(t=>t.id);
@@ -274,4 +289,4 @@ try{
   await writeFile(join(evidence,'acceptance.json'),JSON.stringify({markers,model:'Controlled local Pi provider',libraryEdition,template:selectedTemplate,templateClass:receipt.compilation.template,native:false,keptModelAcrossHandoff:complete.run.model.profileId===status.model.profileId,changedNextSelectionDuringRun:switched,viewedPreliminaryDraft:viewedDraft,source:visitedUrl,base:sha,completed:status.stages,pdfSha256:receipt.compilation.pdf.sha256,version:status.version,session,attemptCount:before.length,nativeGuiToolCalls:guiCalls,interruptedReviewResumed:interrupted,restartAndRevisionChecks:true},null,2));
   console.log('Verified research workflow:',evidence);
 }catch(err){await page.screenshot({path:join(evidence,'error.png')}).catch(()=>{});console.error('Page errors:',errors,'\nVisible:',(await page.locator('body').innerText()).slice(-2800));throw err;}
-finally{await context.close();await browser.close();await fixture.close();mcp.closeAllConnections();mcp.close();await rm(projectFolder,{recursive:true,force:true});}
+finally{preliminaryObserved.resolve();await context.close();await browser.close();await fixture.close();mcp.closeAllConnections();mcp.close();await rm(projectFolder,{recursive:true,force:true});}

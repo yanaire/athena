@@ -525,6 +525,11 @@ export class TaskManager implements AthenaTaskManager {
     const review=this.#research.snapshot(a).reviews.find(r=>r.id===args.reviewId&&r.requestedBy.runId===a.runId);
     if(review?.state!=='completed'||review.executionStatus!=='succeeded'||review.verdict!=='supported')
       throw new ManagerError('REVIEW_REQUIRED','Join a successful independent review of these experiment outputs first.');
+    const visited=flow.pages??[], selected=args.pageSourceIds;
+    if(selected!==undefined && (!Array.isArray(selected)||selected.length>6||new Set(selected).size!==selected.length||
+      selected.some(id=>typeof id!=='string'||!visited.some(page=>page.sourceId===id))))
+      throw new ManagerError('SOURCE_DENIED','Select distinct visited page source IDs recorded for this research request.');
+    const pages=selected===undefined?visited:visited.filter(page=>selected.includes(page.sourceId));
     const attachments=a.fileIds.map(id=>this.#storage.record<StoredFile>('file',id)).filter(f=>f?.name.toLowerCase().endsWith('.tex'));
     const attached=attachments.find(f=>f?.name===args.template);
     const layout=attached?readTemplate(this.#upload(a,attached.id).bytes.toString('utf8')):undefined;
@@ -532,7 +537,7 @@ export class TaskManager implements AthenaTaskManager {
     if(!Array.isArray(args.artifactIds)||!args.artifactIds.length||args.artifactIds.length>8)throw Error('Select one to eight reviewed experiment outputs.');
     const evidence=[];
     const tables:NonNullable<NonNullable<Paper['workflow']>['tables']>=[];
-    const upstreamPages=new Set((flow.pages??[]).map(p=>this.#papers.source(a.projectId,p.sourceId).origin).flatMap(o=>o&&'kind' in o?[o.id]:[]));
+    const upstreamPages=new Set(visited.map(p=>this.#papers.source(a.projectId,p.sourceId).origin).flatMap(o=>o&&'kind' in o?[o.id]:[]));
     for(const id of args.artifactIds) {
       const target=await this.#researchTarget(a,{kind:'artifact',id:text(id,'Artifact ID')});
       if(!review.targets.some(t=>canonical(t)===canonical(target)))throw Error('The review does not cover this exact artifact.');
@@ -543,7 +548,7 @@ export class TaskManager implements AthenaTaskManager {
       const table=flow.tables?.find(t=>t.artifactId===target.id&&t.version===target.version);
       if(table)tables.push({sourceId:source.sourceId,version:source.version,path:table.path});
     }
-    for(const page of flow.pages??[])if(!evidence.some(s=>s.sourceId===page.sourceId))evidence.push({sourceId:page.sourceId,version:page.version});
+    for(const page of pages)if(!evidence.some(s=>s.sourceId===page.sourceId))evidence.push({sourceId:page.sourceId,version:page.version});
     const citations:NonNullable<ResearchFlow['citations']>=[];
     for(const cite of Array.isArray(args.citations)?args.citations:[]) {
       if(!object(cite)||!flow.searchIds.includes(String(cite.searchId)))throw Error('Bibliography source belongs to a different research request.');
@@ -569,9 +574,10 @@ export class TaskManager implements AthenaTaskManager {
       retained.push({sourceId:entry.sourceId,url:entry.url,retrievedAt:entry.retrievedAt,coverage:entry.coverage,claim});
       if(!evidence.some(s=>s.sourceId===entry.sourceId))evidence.push({sourceId:entry.sourceId,version});
     }
-    if(!retained.length&&!flow.pages?.length&&!citations.length&&!inputs.length)throw Error('Supply the reviewed source of the method or data: a visited page, Crossref record, or granted research input.');
+    if(!retained.length&&!pages.length&&!citations.length&&!inputs.length)throw Error('Supply the reviewed source of the method or data: a visited page, Crossref record, or granted research input.');
     signal.throwIfAborted();
-    const pageRefs=flow.pages?.map(p=>({url:p.url,retrievedAt:p.retrievedAt,coverage:p.coverage,claim:p.claim,sourceId:p.sourceId}))??[];
+    if(evidence.length>8)throw new ManagerError('INVALID_EVIDENCE','Select at most eight source editions across results, inputs, visited pages and bibliography. Use pageSourceIds to choose visited pages.');
+    const pageRefs=pages.map(p=>({url:p.url,retrievedAt:p.retrievedAt,coverage:p.coverage,claim:p.claim,sourceId:p.sourceId}));
     const doiRefs=citations.map(c=>{
       const origin=this.#papers.source(a.projectId,c.sourceId).origin;
       if(!origin||!('provider' in origin))throw Error('Expected a Crossref source.');
@@ -819,7 +825,7 @@ export class TaskManager implements AthenaTaskManager {
       }
       const {fileReferences}=await this.stageFiles(sessionId,sources.map((s,i)=>({name:'source-'+(i+1)+'.txt',mimeType:'text/plain',data:Buffer.from(s.content).toString('base64')})));
       const flow=original&&this.#flow(original.id);
-      const contextDraft=flow?'\nPreliminary sections: '+JSON.stringify(flow.drafts)+'\nCitations and uses: '+JSON.stringify([...(flow.citations??[]),...(flow.pages??[])]):'';
+      const contextDraft=flow?'\nPreliminary sections: '+JSON.stringify(flow.drafts)+'\nCitations and uses: '+JSON.stringify([...(flow.citations??[]),...(flow.pages??[]).filter(page=>d.evidence.some(ref=>ref.sourceId===page.sourceId))]):'';
       const message='Manuscript '+mode+' request. Objective: '+d.goal+'\n'+(mode==='outline'?'Inspect the selected sources and call compose_manuscript with an outline of 1–8 headings.':'Call compose_manuscript with {} to execute the approved outline: '+JSON.stringify(d.outline))+
         '\nReport the returned manuscript status. Source titles and coverage: '+JSON.stringify(sources.map(s=>[s.title,s.level]))+contextDraft;
       const response=await this.#prompt(session,runtime,{type:'prompt',id:'paper:'+id+':'+requestId,message,fileReferences},a=>{

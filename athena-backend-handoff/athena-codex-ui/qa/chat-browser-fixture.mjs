@@ -94,9 +94,9 @@ export async function createFixture(researchResponder, { hostNodeArgs = [], mode
         response.write(frame({ role: 'assistant', content: before }));
         await delay(650); // Observe a live streamed message before the tool call arrives.
       }
-      const delta = typeof next === 'string' ? { role: 'assistant', content: next } : { role: 'assistant', tool_calls: [{
-        index: 0, id: 'call_' + randomUUID(), type: 'function', function: { name: next.name, arguments: JSON.stringify(next.args) },
-      }] };
+      const delta = typeof next === 'string' ? { role: 'assistant', content: next } : { role: 'assistant', tool_calls: (Array.isArray(next)?next:[next]).map((call,index)=>({
+        index, id: 'call_' + randomUUID(), type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) },
+      })) };
       if(streamSections && typeof next==='string' && input.includes('Return only a JSON array')){
         // Leave enough time for two host checkpoint polls of incomplete JSON.
         const first=Math.floor(next.length/3),second=2*first;
