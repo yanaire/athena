@@ -123,6 +123,10 @@ async function changeCredentials<T>(action: () => Promise<T>): Promise<T> {
 async function rpc(method: string, args: unknown[]) {
   const [input, second] = args;
   switch (method) {
+    case 'listPapers':case 'createPaper':case 'addPaperSource':case 'getDocument':case 'saveDocument':
+    case 'exportPaper':case 'paperDetails':case 'setPaperOutline':case 'startPaper':
+      if(!object(input))throw new TypeError('Expected manuscript request.');
+      return manager.paperRequest(method,input);
     case 'getSnapshot': return manager.getSnapshot();
     case 'getExtensions': return manager.getExtensions(string(input));
     case 'installPlugin': return manager.installPlugin(string(input),second,revisionArg(args[2]));
@@ -319,7 +323,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, draining: boolea
         case '/favicon.ico': res.writeHead(204).end(); return;
         case '/api/bootstrap': {
           const snapshot = manager.getSnapshot();
-          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'model_profiles', ...(desktop && nativeBrowserAvailable() ? ['system_web_links'] : []), ...(desktop && nativeBrowserAvailable() && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
+          json(200, { snapshot, execution:snapshot.execution, cursor: feed.cursor, connection: connectionState(), capabilities: [...manager.capabilities, 'manuscripts', 'model_profiles', ...(desktop && nativeBrowserAvailable() ? ['system_web_links'] : []), ...(desktop && nativeBrowserAvailable() && providers.oauth ? ['native_oauth_browser'] : [])], piCapabilities: manager.piCapabilities, inputContract: manager.inputContract }); return;
         }
         case '/api/events': {
           res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });

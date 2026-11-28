@@ -193,6 +193,10 @@
         modelProfiles = modelProfilesAdapter();
         if (modelProfiles) app.attachModelProfiles?.(modelProfiles);
         app.attachWebAddressOpener?.(capabilities?.includes('system_web_links') ? address => rpc('openWebAddress', [address]) : null);
+        if(capabilities.includes('manuscripts')){
+          app.attachResearchService?.({documents:{getDocument:req=>rpc('getDocument',[req]),saveDocument:req=>rpc('saveDocument',[req])}});
+          app.attachPaperService?.((method,request)=>rpc(method,[request]));
+        }
         app.attachExtensions?.(extensionsAdapter());
         if (snapshot.sessionId) app.attachPiTransport(transport(snapshot.sessionId));
         await app.refreshPi();

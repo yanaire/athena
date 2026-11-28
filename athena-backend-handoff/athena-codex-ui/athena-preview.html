@@ -2548,6 +2548,8 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
 #athena-codex .arr-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media(pointer: coarse) { #athena-codex .arr-actions button, #athena-codex .arr-revision-row select { min-height: 44px; } }
 
+.ac-paper-project label,.ac-paper-project summary {display:block;margin:8px 0;font-weight:600}.ac-paper-project select,.ac-paper-project textarea,.ac-paper-project input {display:block;width:100%;box-sizing:border-box;font:inherit}.ac-paper-project button {margin:3px;padding:5px 9px}.ac-paper-project pre {white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}.ac-paper-project [hidden]{display:none}
+
 #athena-codex .ac-pi-transcript { display: flex; flex-direction: column; gap: 18px; }
 #athena-codex .ac-pi-transcript[hidden] { display: none; }
 #athena-codex .ac-stream-message { margin: 0; }
@@ -2771,6 +2773,20 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
           <button class="ac-button cursor-interaction" data-open="manuscript"><i data-lucide="file-pen-line" aria-hidden="true"></i>View linked manuscript</button>
         </section>
         <section class="ac-panel-body" id="ac-view-manuscript" role="tabpanel" aria-labelledby="ac-tab-manuscript" hidden>
+          <section id="ac-paper-project" class="ac-paper-project" aria-label="Manuscript workspace" hidden>
+            <h2>Manuscripts</h2><label>Project manuscripts<select data-paper="documents"></select></label>
+            <details><summary>New manuscript and sources</summary>
+              <label>Source file<input data-paper="file" type="file" accept=".txt,.md,.csv,.json"></label><button data-paper-action="add-file">Add text source</button>
+              <label>Published data<select data-paper="artifacts"></select></label><button data-paper-action="add-result">Add result as source</button>
+              <label>Title<input data-paper="title" maxlength="256"></label><label>Research objective<textarea data-paper="goal"></textarea></label>
+              <label>Source material<select data-paper="sources" multiple size="4"></select></label><button data-paper-action="create">Create manuscript</button>
+            </details>
+            <div data-paper="existing" hidden><p data-paper="goal-display"></p><label>Section headings, one per line<textarea data-paper="outline"></textarea></label>
+              <div><button data-paper="plan" data-paper-action="plan">Generate outline</button><button data-paper-action="save-outline">Save outline</button>
+              <button data-paper="write" data-paper-action="write">Write and review</button><button data-paper="cancel" data-paper-action="cancel">Cancel run</button></div>
+              <pre data-paper="progress" role="status"></pre><label>Stored revision<select data-paper="versions"></select></label>
+              <p data-paper="assessment" role="status"></p><button data-paper-action="preview">Preview revision</button><button data-paper-action="md">Export Markdown</button><button data-paper-action="json">Export review manifest</button>
+            </div><p data-paper="notice" role="status"></p></section>
           <div id="ac-document-revisions"></div>
           <div class="ac-document-toolbar"><span id="ac-document-status">Draft v1 · saved</span><button class="ac-text-button cursor-interaction" data-action="edit-manuscript" id="ac-edit-manuscript"><i data-lucide="pencil" aria-hidden="true"></i>Edit</button></div>
           <article class="ac-document" id="ac-document"><div class="ac-eyebrow">RESEARCH NOTE</div><h2>RC low-pass filter:<br>frequency response validation</h2><p class="ac-doc-meta">Biosignal circuits · Dongmin<br>Sample manuscript linked to baseline v1</p><h3>Purpose</h3><p>Verify the frequency response of an ideal RC circuit and compare its cutoff frequency with the analytical value.</p><h3>Method</h3><p>A 1 kΩ resistor and a 100 nF capacitor were used. The AC response was analyzed from 10 Hz to 100 kHz.</p><h3>Results</h3><button class="ac-cited-claim cursor-interaction" data-action="open-claim">The cutoff frequency was 1.592 kHz, with a relative error of approximately 0.03% against the theoretical value of 1.5915 kHz.<i data-lucide="link" aria-hidden="true"></i></button><p>This is within the predefined 1% tolerance.</p><h3>Scope and limitations</h3><p>This analysis excludes real component tolerances, non-ideal behavior, and measurement equipment effects.</p></article>
@@ -6426,7 +6442,7 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
       if (existing && (existing.text !== revision.text || JSON.stringify(existing.evidence) !== JSON.stringify(revision.evidence))) throw new Error('A stored version cannot replace different text or evidence.');
       if (existing) { existing.persistence = 'host'; existing.originalLocation = revision.originalLocation; existing.review = revision.review; }
       else doc.versions.push(revision);
-      if (!doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
+      if ((!input.currentVersion || input.currentVersion === revision.version) && !doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
         doc.currentVersion = revision.version; doc.selectedVersion = revision.version; doc.title = revision.title;
         doc.draft = { text: revision.text, baseVersion: revision.version, dirty: false };
       }
@@ -6449,7 +6465,10 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     async function saveDocument(id) {
       if (!available('saveDocument')) return operation(id, 'saveDocument', () => {});
       const version = commitDraft(id), documentId = id;
-      const storedVersion = record(id).versions.filter(item => item.persistence === 'host').at(-1)?.version || null;
+      const versions = record(id).versions;
+      let base = version;
+      while (base && base.persistence !== 'host') base = versions.find(item => item.version === base.baseVersion);
+      const storedVersion = base?.version || null;
       return operation(id, 'saveDocument', async (target, project) => {
         const result = await target.saveDocument({ projectId: project, documentId, ...copy(version), expectedCurrentVersion: storedVersion });
         // Validate the epoch before committing a delayed response into the store.
@@ -6459,6 +6478,11 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
     async function loadDocument(id, version) {
       const result = await operation(id, 'getDocument', (target, project) => target.getDocument({ projectId: project, documentId: id, ...(version == null ? {} : { version: String(version) }) }));
       if (result?.documentId !== id || version != null && String(result?.version) !== String(version)) throw new Error('The document service returned a different document or revision.');
+      if (result.currentVersion && result.currentVersion !== result.version && !getDocument(id)?.versions.some(v => v.version === result.currentVersion)) {
+        const current = await operation(id, 'getDocument', (target, project) => target.getDocument({projectId:project,documentId:id}));
+        if (current.documentId !== id || current.projectId !== result.projectId) throw new Error('The current manuscript changed scope.');
+        acceptDocument(current);
+      }
       return acceptDocument(result);
     }
     async function exportPDF(id, value) {
@@ -6702,6 +6726,120 @@ lucide.createIcons({icons});\``);if(typeof c>"u")throw new Error("`createIcons()
   }
   window.AthenaResearchBoard = Object.freeze({ mount });
 })();
+
+</script>
+<script>
+// The host owns project documents, source versions, progress and exports.
+window.AthenaManuscripts = {mount(root, options) {
+  const controller=new AbortController(), listeners={signal:controller.signal};
+  const q = name => root.querySelector('[data-paper="'+name+'"]');
+  let service, project, session, selected='', generation=0, detailGeneration=0, detail, timer, dirtyOutline=false;
+  let catalog={documents:[],sources:[]}, snapshot, starting=false;
+  function option(value,label){const el=document.createElement('option');el.value=value;el.textContent=label;return el;}
+  function choices(el,items,placeholder){
+    const previous=el.value;
+    el.replaceChildren(option('',placeholder),...items.map(([id,title])=>option(id,title)));
+    if(items.some(([id])=>id===previous))el.value=previous;
+  }
+  function call(method,args={}){return service(method,{projectId:project,...args});}
+  function notice(error){q('notice').textContent=String(error?.message||error);}
+  async function refresh(){
+    if(!service||!project)return;
+    const epoch=generation, next=await call('listPapers'); if(epoch!==generation)return;
+    catalog=next;
+    choices(q('documents'),catalog.documents.map(d=>[d.id,d.title]),'Select a manuscript');
+    q('documents').value=selected;
+    const checked=new Set(Array.from(q('sources').selectedOptions||[]).map(o=>o.value));
+    q('sources').replaceChildren(...catalog.sources.map(s=>option(s.sourceId,s.title+' · '+s.level)));
+    for(const o of q('sources').options)o.selected=checked.has(o.value);
+  }
+  async function assessment(){
+    const version=q('versions').value,id=selected,epoch=generation;
+    if(!version){q('assessment').textContent='';return;}
+    const v=await call('getDocument',{documentId:id,version});
+    if(epoch!==generation||id!==selected||q('versions').value!==version)return;
+    q('assessment').textContent=[v.assessment?.verdict||'Unreviewed',...(v.issues||[]),...(v.assessment?.findings||[])].join(' · ');
+  }
+  async function details(preferredVersion){
+    clearTimeout(timer);if(!selected)return;
+    const token=++detailGeneration,epoch=generation,d=await call('paperDetails',{documentId:selected});
+    if(epoch!==generation||token!==detailGeneration||d.id!==selected)return;
+    detail=d;q('goal-display').textContent=d.goal;
+    if(!dirtyOutline&&document.activeElement!==q('outline'))q('outline').value=d.outline.join('\n');
+    const versions=d.versions.map((v,i)=>[v,'Revision '+(i+1)]);
+    if(JSON.stringify(versions)!==q('versions').dataset.signature){
+      const previous=q('versions').dataset.signature&&q('versions').value;
+      choices(q('versions'),versions,'Select a revision');q('versions').value=previous&&d.versions.includes(previous)?previous:d.versions.at(-1)||'';
+      q('versions').dataset.signature=JSON.stringify(versions);
+    }
+    if(preferredVersion!==undefined)q('versions').value=d.versions.includes(preferredVersion)?preferredVersion:'';
+    const r=d.runs.at(-1);
+    q('progress').textContent=r?[r.stage+' · '+r.executionStatus,...r.sections.map(s=>'Draft saved · '+s.heading),
+      ...r.reviews.flatMap(v=>[v.verdict,...v.checks,...v.findings]),r.error].filter(Boolean).join('\n'):'Ready';
+    const live=r&&['queued','running','blocked'].includes(r.executionStatus);
+    q('cancel').disabled=!live;q('write').disabled=live||!d.outline.length;q('plan').disabled=!!live;
+    await assessment();if(epoch!==generation||token!==detailGeneration)return;
+    if(live)timer=setTimeout(()=>details().catch(notice),1000);
+  }
+  function reset(){
+    generation++;detailGeneration++;clearTimeout(timer);selected='';detail=null;dirtyOutline=false;
+    root.querySelectorAll('input,textarea').forEach(el=>{el.value='';});q('existing').hidden=true;
+    q('progress').textContent='';q('notice').textContent='';q('versions').dataset.signature='';
+    q('documents').replaceChildren();q('sources').replaceChildren();
+    root.hidden=!project||!service;if(!root.hidden)refresh().catch(notice);
+  }
+  async function choose(id){
+    selected=id;detail=null;dirtyOutline=false;detailGeneration++;q('existing').hidden=!id;q('versions').dataset.signature='';
+    await details();
+    if(id===selected&&detail?.versions.length)await options.open(id,detail.versions.at(-1));
+  }
+  root.addEventListener('change',e=>{
+    if(e.target===q('documents'))choose(e.target.value).catch(notice);
+    if(e.target===q('versions')&&e.target.value){assessment().catch(notice);options.open(selected,e.target.value);}
+  },listeners);
+  q('outline').addEventListener('input',()=>{dirtyOutline=true;},listeners);
+  root.addEventListener('click',async e=>{
+    const button=e.target.closest('[data-paper-action]');if(!button||button.disabled||!service)return;
+    const action=button.dataset.paperAction, epoch=generation,id=selected;
+    button.disabled=true;
+    try {
+      if(action==='add-file'){
+        const file=q('file').files[0];if(!file||file.size>240000)throw Error('Choose a UTF-8 text file up to 240 KB.');
+        const text=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());if(epoch!==generation)return;
+        await call('addPaperSource',{title:file.name,text});
+      } else if(action==='add-result'){await call('addPaperSource',{artifactId:q('artifacts').value});}
+      else if(action==='create'){
+        const ids=Array.from(q('sources').selectedOptions).map(o=>o.value);
+        const evidence=catalog.sources.filter(s=>ids.includes(s.sourceId)).map(({sourceId,version})=>({sourceId,version}));
+        const d=await call('createPaper',{title:q('title').value,goal:q('goal').value,evidence});
+        if(epoch!==generation)return;await choose(d.id);
+      } else if(action==='save-outline'){
+        await call('setPaperOutline',{documentId:id,outline:q('outline').value.split('\n').filter(s=>s.trim())});dirtyOutline=false;
+      } else if(action==='write'||action==='plan'){
+        if(starting)return;if(dirtyOutline)throw Error('Save the edited outline first.');
+        starting=true;
+        try {await call('startPaper',{sessionId:session,documentId:id,requestId:crypto.randomUUID(),mode:action==='plan'?'outline':'write'});}
+        finally{starting=false;}
+      } else if(action==='cancel'){await options.cancel(detail.runs.at(-1).id);}
+      else if(action==='preview'){if(q('versions').value)await options.open(id,q('versions').value);}
+      else if(action==='md'||action==='json'){
+        const version=q('versions').value;if(!version)throw Error('Select a stored revision first.');
+        const receipt=await call('exportPaper',{documentId:id,version,format:action});if(epoch!==generation||selected!==id)return;
+        const a=document.createElement('a');a.href=receipt.uri;a.download=receipt.name;a.click();
+      }
+      if(generation!==epoch)return;await refresh();if(generation===epoch)await details();
+    } catch(error){if(epoch===generation)notice(error);}
+    finally{button.disabled=false;if(epoch===generation&&selected)details().catch(notice);}
+  },listeners);
+  return {attach(value){service=value;reset();},refresh,reload(version){details(version).catch(notice);},scope(s){
+    snapshot=s;
+    if(project!==s.projectId||session!==s.sessionId){project=s.projectId;session=s.sessionId;reset();}
+    const items=(snapshot.artifacts||[]).filter(a=>a.status==='ready').map(a=>[a.id,a.title]);
+    const signature=JSON.stringify(items);if(q('artifacts').dataset.signature!==signature){
+      choices(q('artifacts'),items,'Select a saved result');q('artifacts').dataset.signature=signature;
+    }
+  },destroy(){controller.abort();generation++;clearTimeout(timer);}};
+}};
 
 </script>
 <script>
@@ -13095,6 +13233,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  let piRuntime=null,piWorkbench=null,piRuntimeSubscription=null,piEventSubscription=null,piManualView=null,piSessionIdentity='',piCommandSignature='',piWidgetSignature='',piHistorySignature='',piSubmitting=false,piDraftOffer='',piDraftSeen='',piTurnEpoch=0,piSubmittedContext=null;
  const piManualTools=new Map(), sessionDrafts=new Map();
  const failedDrafts=[];
+ let paperPanel;
  let projectSignature='', activeProjectId='project-rc', activeDocumentId='research-note', requestedDocumentVersion=null, lifecyclePending=false, nativeSessionTransition=null;
  const activityHome=q('#aw-activity').parentElement,activityBefore=q('#aw-activity').nextElementSibling;
  const piPreviewTimers=new Set();
@@ -13255,15 +13394,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  function drawChart(){const el=q('#ac-response-chart');if(!el||q('#ac-research-panel').hidden||q('#ac-research-slot').hidden||q('#ac-view-results').hidden||q('#ac-result-response').hidden)return;const W=Math.max(230,Math.round(el.clientWidth||360)),H=220,L=42,R=22,T=25,B=42,pw=W-L-R,ph=H-T-B;const X=f=>L+(Math.log10(f)-1)/4*pw,Y=g=>T-g/40*ph;let line='',theory='';const fc=1/(2*Math.PI*1000*100e-9);for(let i=0;i<=120;i++){const f=10**(1+i/30),prefix=i?'L':'M';line+=prefix+X(f).toFixed(2)+' '+Y(-10*Math.log10(1+(f/1592)**2)).toFixed(2)+' ';theory+=prefix+X(f).toFixed(2)+' '+Y(-10*Math.log10(1+(f/fc)**2)).toFixed(2)+' ';}let svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Example RC frequency response: approximately minus 3 decibels at 1.592 kilohertz"><title>RC frequency response · example</title>';for(const g of [0,-10,-20,-30,-40])svg+='<line x1="'+L+'" y1="'+Y(g)+'" x2="'+(W-R)+'" y2="'+Y(g)+'" stroke="#e8e6dc" stroke-width=".7"/><text x="'+(L-9)+'" y="'+(Y(g)+4)+'" text-anchor="end" font-size="11" fill="#8d806c" font-family="Arial">'+g+'</text>';for(const [f,l] of (W<330?[[10,'10'],[1000,'1k'],[100000,'100k']]:[[10,'10'],[100,'100'],[1000,'1k'],[10000,'10k'],[100000,'100k']]))svg+='<text x="'+X(f)+'" y="'+(H-B+19)+'" text-anchor="middle" font-size="11" fill="#8d806c" font-family="Arial">'+l+'</text>';svg+='<text x="8" y="12" font-size="11" fill="#8d806c" font-family="Arial">Gain (dB)</text><text x="'+(W-R)+'" y="'+(H-3)+'" font-size="11" fill="#8d806c" text-anchor="end" font-family="Arial">Frequency (Hz)</text><path d="'+theory+'" fill="none" stroke="#a3a18f" stroke-width="4" opacity=".4"/><path d="'+line+'" fill="none" stroke="#c96442" stroke-width="2"/><line x1="'+X(1592)+'" x2="'+X(1592)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#c8bfaa" stroke-dasharray="3 4"/><circle cx="'+X(1592)+'" cy="'+Y(-3.0103)+'" r="3.7" fill="#c96442" stroke="#fff" stroke-width="1.5"/>';const ax=Math.min(X(1592)+7,W-94);svg+='<rect x="'+ax+'" y="'+(Y(-3.0103)+12)+'" width="76" height="29" rx="4" fill="#f3e9dd"/><text x="'+(ax+8)+'" y="'+(Y(-3.0103)+31)+'" font-size="11" fill="#8e624a" font-family="Arial">1.592 kHz</text></svg>';el.innerHTML=svg;}
  function mountDocumentToolbar(){
   recordToolbar?.destroy();
-  recordToolbar=window.AthenaResearchRecords.mountToolbar(q('#ac-document-revisions'),{store:records,documentId:activeDocumentId,icons,toast,onVersion(){requestedDocumentVersion=null;renderDocumentRecord();},onExport:downloadDocumentExport});
+  recordToolbar=window.AthenaResearchRecords.mountToolbar(q('#ac-document-revisions'),{store:records,documentId:activeDocumentId,icons,toast,onVersion(revision){requestedDocumentVersion=null;renderDocumentRecord();paperPanel?.reload(revision.version);},onExport:downloadDocumentExport});
  }
  async function openDocument(selection={}){
   state.documentEditing=false;q('#ac-document-editor').hidden=true;q('#ac-editor-label').hidden=true;q('#ac-document').hidden=false;q('#ac-edit-manuscript').innerHTML='<i data-lucide="pencil" aria-hidden="true"></i>Edit';
   if(selection.documentId)activeDocumentId=selection.documentId;
   requestedDocumentVersion=selection.version||selection.documentVersion||null;mountDocumentToolbar();
   try{
-   const doc=records.getDocument(activeDocumentId);
+   const id=activeDocumentId, version=requestedDocumentVersion, project=activeProjectId;
+   const doc=records.getDocument(id);
+   if(!doc && !selection.documentId)return;
    if(!doc||requestedDocumentVersion&&!doc.versions.some(item=>item.version===requestedDocumentVersion))await records.loadDocument(activeDocumentId,requestedDocumentVersion||undefined);
+   if(id!==activeDocumentId||version!==requestedDocumentVersion||project!==activeProjectId)return;
    if(requestedDocumentVersion)records.selectVersion(activeDocumentId,requestedDocumentVersion);
   }catch(error){toast(String(error.message||error));}
   renderDocumentRecord();
@@ -13301,6 +13443,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    composer.restoreDraft(sessionDrafts.get(snapshot.sessionId||'preview')||{value:'',attachments:[],mentions:[]});
   }
   const live=snapshot.mode==='runtime';root.dataset.workspaceMode=snapshot.mode;root.dataset.sessionBound=String(snapshot.sessionBound!==false);
+  paperPanel?.scope(snapshot);
+  if(live){q('#ac-doc-evidence').hidden=true;q('[data-action="export-manuscript"]').hidden=true;}
   surfaces?.setRuntimeMode?.(live);
   knowledge?.setRuntimeMode?.(live);
   for(const [key,value] of [['projectId',snapshot.projectId],['sessionId',snapshot.sessionId],['runId',snapshot.run?.id]])root.dataset[key]=value||'';
@@ -13308,7 +13452,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
   if(live&&activity.parentElement!==q('#ac-connected-activity'))q('#ac-connected-activity').appendChild(activity);
   if(!live&&activity.parentElement!==activityHome)activityHome.insertBefore(activity,activityBefore);
   const projectId=snapshot.projectId||(live?'unassigned-project':'project-rc');
-  if(projectId!==activeProjectId){activeProjectId=projectId;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
+  if(projectId!==activeProjectId){activeProjectId=projectId;activeDocumentId='research-note';requestedDocumentVersion=null;knowledge?.setProject(projectId);records?.setProject(projectId);renderDocumentRecord();}
   modelSettings?.setExecution(snapshot.execution || null);
   const m3Scopes=modelProfilesAdapter?providerProfiles?.resolveScopes(snapshot):null;
   modelSettings?.setModelScopes(m3Scopes||snapshot.modelScopes||{},{canEditProject:Boolean(snapshot.capabilities?.setProjectModel)});
@@ -13807,6 +13951,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
  chatModelPicker=window.AthenaChatModelPicker.mount(q('#ac-model-picker-slot'),{runtime:piRuntime,preferences:modelConfig,icons,announce,isBusy:()=>state.busy||piSubmitting||lifecyclePending||Boolean(nativeSessionTransition),isSessionBound:()=>workspaceStore.getState().sessionBound!==false,isUnavailable:()=>q('#ac-conversation').inert,beforeOpen(){composer.closeMenu?.();command?.close?.(false)},onOpenSettings(){piSession?openPi('model'):openSettings('models')}});
  workspaceStore.configure?.({parallelLimit:modelConfig.parallelLimit});
  piWorkbench=window.AthenaPiWorkbench.mount(q('#ast-pi-workbench-slot'),{runtime:piRuntime,icons,toast,onDraft:usePiDraft,onSectionChange:section=>settings?.routeRuntime(section),onModalChange(){overlay()}});
+ paperPanel=window.AthenaManuscripts?.mount(q('#ac-paper-project'),{open:(documentId,version)=>openDocument({documentId,version}),cancel:id=>workspaceStore.cancel(id)});
  mountDocumentToolbar();
  recordsOff=records.subscribe(renderDocumentRecord);
  workspaceOff=workspaceStore.subscribe(renderWorkspace);
@@ -13823,6 +13968,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   enterHostedMode:()=>workspaceStore.enterHostedMode(),
   reportHostError:message=>toast(String(message)),
   attachConnectionManager:adapter=>connectionManager.attach(adapter),detachConnectionManager:()=>connectionManager.detach(),
+  attachPaperService:service=>{paperPanel?.attach(service);paperPanel?.scope(workspaceStore.getState());},
   attachResearchService:adapter=>{records.attach(adapter.documents||adapter);knowledge.attachRecords(adapter.knowledge||adapter);return true;},detachResearchService:()=>{records.detach();knowledge.detachRecords();},
   loadDocument:(id,version)=>openDocument({documentId:id,version}),ensureDocument:document=>records.ensureDocument(document),
   createProject:input=>workspaceStore.createProject(input),createResearch,openResearchSession,setDemoMode:enabled=>workspaceStore.setDevelopment(enabled),
@@ -13832,7 +13978,7 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   attachExtensions:adapter=>{extensionService=adapter||null;extensions?.setService(extensionService);extensions?.setWorkspace();workspaceViews?.setResearchService(extensionService);},
   openSettings,closeSettings:()=>settings?.close(),openModelPicker:(kind='model')=>chatModelPicker?.open(kind),
   getState:()=>({...state,piActivity:piActivity?.getState(),reply:reply.getState(),piConnected:Boolean(piSession),piRuntime:piRuntime?.getState(),piWorkbench:piWorkbench?.getState(),modelPicker:chatModelPicker?.getState(),workspace:workspaceStore?.getState(),workspaceView:workspaceViews?.getState(),knowledge:knowledge?.getState(),records:records?.getState(),connections:connectionManager?.getState(),models:modelSettings?.getState(),extensions:extensions?.getState(),approval:workspaceChrome?.getState(),settings:settings?.getState(),settingsOpen:Boolean(settings?.isOpen()),surface:surfaces?.getState(),layout:layout?.getState(),document:q('#ac-document-editor').value,prompt:composer.getValue()}),submit,search,
-  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
+  destroy(){appDestroyed=true;clearPiPreview();piSessionUnsubscribe?.();piSubscription?.();piRuntimeSubscription?.();piEventSubscription?.();workspaceOff?.();connectionOff?.();recordsOff?.();recordToolbar?.destroy();paperPanel?.destroy();records?.destroy();connectionManager?.destroy();chatModelPicker?.destroy();piWorkbench?.destroy();piRuntime?.destroy();piManualView?.destroy();piManualTools.clear();piView?.destroy();piActivity?.destroy();workspaceChrome?.destroy();workspaceViews?.destroy();knowledge?.destroy();modelSettings?.destroy();providerProfiles?.destroy();extensions?.destroy();workspaceStore?.destroy();demoStore?.destroy();settings?.destroy();controller.abort();resize?.disconnect();layout?.destroy();surfaces?.destroy();clearTimeout(toastTimer);clearTimeout(reconcileTimer);composer.destroy();reply.destroy();taskList.destroy();command?.destroy();tooltips.destroy()}
  };
  window.dispatchEvent(new CustomEvent('athena:ready'));
 })();

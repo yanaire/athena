@@ -13,3 +13,5 @@
 #athena-codex .arr-error { margin: 8px 0 0; color: #9b413b; font-size: 10px; overflow-wrap: anywhere; }
 #athena-codex .arr-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media(pointer: coarse) { #athena-codex .arr-actions button, #athena-codex .arr-revision-row select { min-height: 44px; } }
+
+.ac-paper-project label,.ac-paper-project summary {display:block;margin:8px 0;font-weight:600}.ac-paper-project select,.ac-paper-project textarea,.ac-paper-project input {display:block;width:100%;box-sizing:border-box;font:inherit}.ac-paper-project button {margin:3px;padding:5px 9px}.ac-paper-project pre {white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}.ac-paper-project [hidden]{display:none}

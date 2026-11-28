@@ -70,7 +70,7 @@
       if (existing && (existing.text !== revision.text || JSON.stringify(existing.evidence) !== JSON.stringify(revision.evidence))) throw new Error('A stored version cannot replace different text or evidence.');
       if (existing) { existing.persistence = 'host'; existing.originalLocation = revision.originalLocation; existing.review = revision.review; }
       else doc.versions.push(revision);
-      if (!doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
+      if ((!input.currentVersion || input.currentVersion === revision.version) && !doc.draft.dirty && (!expected || doc.currentVersion === expected.version)) {
         doc.currentVersion = revision.version; doc.selectedVersion = revision.version; doc.title = revision.title;
         doc.draft = { text: revision.text, baseVersion: revision.version, dirty: false };
       }
@@ -93,7 +93,10 @@
     async function saveDocument(id) {
       if (!available('saveDocument')) return operation(id, 'saveDocument', () => {});
       const version = commitDraft(id), documentId = id;
-      const storedVersion = record(id).versions.filter(item => item.persistence === 'host').at(-1)?.version || null;
+      const versions = record(id).versions;
+      let base = version;
+      while (base && base.persistence !== 'host') base = versions.find(item => item.version === base.baseVersion);
+      const storedVersion = base?.version || null;
       return operation(id, 'saveDocument', async (target, project) => {
         const result = await target.saveDocument({ projectId: project, documentId, ...copy(version), expectedCurrentVersion: storedVersion });
         // Validate the epoch before committing a delayed response into the store.
@@ -103,6 +106,11 @@
     async function loadDocument(id, version) {
       const result = await operation(id, 'getDocument', (target, project) => target.getDocument({ projectId: project, documentId: id, ...(version == null ? {} : { version: String(version) }) }));
       if (result?.documentId !== id || version != null && String(result?.version) !== String(version)) throw new Error('The document service returned a different document or revision.');
+      if (result.currentVersion && result.currentVersion !== result.version && !getDocument(id)?.versions.some(v => v.version === result.currentVersion)) {
+        const current = await operation(id, 'getDocument', (target, project) => target.getDocument({projectId:project,documentId:id}));
+        if (current.documentId !== id || current.projectId !== result.projectId) throw new Error('The current manuscript changed scope.');
+        acceptDocument(current);
+      }
       return acceptDocument(result);
     }
     async function exportPDF(id, value) {

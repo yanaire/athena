@@ -1,0 +1,28 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
+import { Storage } from '../runtime/storage.ts';
+import { Papers, inspectLinks } from '../runtime/papers.ts';
+import { privateTestDirectory } from './platform-test-helpers.ts';
+
+test('paper source and version references are project-bound and missing evidence is retained', t=>{
+  const dir=privateTestDirectory(join(tmpdir(),'papers-')),db=new Storage(dir),p=new Papers(db);
+  t.after(()=>{db.close();rmSync(dir,{recursive:true,force:true});});
+  for(const id of ['one','two'])db.putProject({id,name:id});
+  const src=p.saveSource('one','Data','potential 19 mV');
+  const d=p.create('one',{title:'Study',goal:'Report voltage',evidence:[src]});
+  assert.throws(()=>p.source('two',src.sourceId));assert.throws(()=>p.paper('two',d.id));
+  assert.throws(()=>p.create('two',{title:'Foreign',goal:'Inspect',evidence:[src]}));
+  const v=p.save('one',d.id,{title:'Study',text:'Other data 10.1000/missing',expectedCurrentVersion:null,evidence:[src],review:{status:'approved'}});
+  assert.equal(v.review.status,'unreviewed');assert.equal(v.issues.length,2);
+  assert.throws(()=>p.version('two',d.id,v.version));assert.throws(()=>p.save('one',d.id,{...v,expectedCurrentVersion:null}),{code:'VERSION_CONFLICT'});
+  const target={kind:'artifact' as const,id:'data',projectId:'one',sessionId:'s',version:'v',sha256:src.sha256,bytes:15};
+  const body='Figure 1. Potential in volts.';
+  const figure={kind:'figure',quote:body,sourceId:src.sourceId,locator:'row 1',excerpt:'19 mV',caption:body,variable:'potential',unit:'V',transformation:'none'};
+  const invalid=inspectLinks([figure],body,[{...src,origin:target}]);
+  assert.ok(invalid.issues.some(i=>i.includes('unit')));
+  const corrected=inspectLinks([{...figure,unit:'mV'}],body,[{...src,origin:target}]);
+  assert.ok(!corrected.issues.some(i=>i.includes('unit')));
+});
