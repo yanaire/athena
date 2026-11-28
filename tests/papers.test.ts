@@ -26,3 +26,15 @@ test('paper source and version references are project-bound and missing evidence
   const corrected=inspectLinks([{...figure,unit:'mV'}],body,[{...src,origin:target}]);
   assert.ok(!corrected.issues.some(i=>i.includes('unit')));
 });
+
+test('older compiled editions retain their download while an updated renderer is available',t=>{
+  const dir=privateTestDirectory(join(tmpdir(),'paper-renderer-')),db=new Storage(dir),papers=new Papers(db);
+  t.after(()=>{db.close();rmSync(dir,{recursive:true,force:true});});
+  db.putProject({id:'project',name:'Project'});
+  const key='papers.v1:'+JSON.stringify(['project','typeset',JSON.stringify(['document','version'])]);
+  const pdf={id:'original',uri:'/api/artifacts/session/original'};
+  db.set(key,{state:'succeeded',template:'article',engine:'pdflatex',version:'version',pdf});
+  const historic=papers.compilation('project','document','version');
+  assert.ok(historic && 'updateAvailable' in historic && historic.updateAvailable);
+  assert.deepEqual(historic.pdf,pdf);
+});

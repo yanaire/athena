@@ -19,7 +19,8 @@ export type PaperRun = {revisionReviewId?:string;contextFileIds?:string[];sectio
   outline:string[];sections:{heading:string;text:string}[];attempts:{role:string;taskId:string;attemptId:string}[];
   versions:string[];reviews:ResearchReview[];uploads:{fileId:string;sourceId:string}[];error?:string};
 type Download = {id:string;name:string;uri:string;sha256:string;bytes:number;mimeType:string};
-type Compilation = {state:'running'|'succeeded'|'failed'|'stopped';version:string;template:Template;engine:string;error?:string;
+const rendererRevision=2;
+type Compilation = {state:'running'|'succeeded'|'failed'|'stopped';version:string;template:Template;engine:string;rendererRevision?:number;error?:string;refreshError?:string;
   tex?:Download;pdf?:Download;pages?:Download[];previewError?:string};
 export type Paper = {workflow?:{runId:string;sessionId:string;reviewId:string;template:Template;tables?:{sourceId:string;version:string;path:string[]}[];layout?:{preamble:string[];name:string;version:string};references?:{url:string;retrievedAt:string;coverage:string;claim:string;sourceId:string}[]};id:string;projectId:string;title:string;goal:string;evidence:Ref[];outline:string[];versions:string[];runs:PaperRun[]};
 function fail(code:string,message:string):never { throw new ManagerError(code,message); }
@@ -161,6 +162,7 @@ export class Papers {
   compilation(project:string,id:string,version:string) {
     const key=this.key(project,'typeset',JSON.stringify([id,version]));
     const row=this.db.get<Compilation>(key);
+    if(row?.state==='succeeded')return {...row,updateAvailable:row.rendererRevision!==rendererRevision};
     return row?.state==='running'&&!this.compiling.has(key)?{...row,state:'stopped' as const,error:'Host stopped before the PDF was saved.'}:row;
   }
   async compile(project:string,session:string,id:string,version:string,style:Template,signal:AbortSignal) {
@@ -169,10 +171,11 @@ export class Papers {
       v.assessment.requestedBy.sessionId!==session)fail('REVIEW_REQUIRED','Open the reviewing conversation and select its approved revision.');
     const key=this.key(project,'typeset',JSON.stringify([id,version]));
     const previous=this.compilation(project,id,version);
-    if(previous?.state==='succeeded' && previous.template===style)return previous;
+    if(previous?.state==='succeeded' && previous.template===style && previous.rendererRevision===rendererRevision)return previous;
     if(this.compiling.has(key))fail('RUN_BUSY','This revision is being typeset.');
-    const base={version,template:style,engine:'pdflatex'};
-    this.compiling.add(key);this.db.set(key,{...base,state:'running'});
+    const base={version,template:style,engine:'pdflatex',rendererRevision};
+    this.compiling.add(key);
+    if(previous?.state!=='succeeded')this.db.set(key,{...base,state:'running'});
     try {
       const workflow=this.paper(project,id).workflow;
       const refs=workflow?.references?.filter(ref=>v.links.some(l=>l.kind==='citation'&&l.sourceId===ref.sourceId)).map(ref=>{
@@ -213,7 +216,11 @@ export class Papers {
           previewError:result.previewError};
         this.db.set(key,row);return row;
       });
-    } catch(error){this.db.set(key,{...base,state:signal.aborted?'stopped':'failed',error:(error as Error).message});throw error;}
+    } catch(error){
+      const detail=(error as Error).message;
+      this.db.set(key,previous?.state==='succeeded'?{...previous,refreshError:detail}:{...base,state:signal.aborted?'stopped':'failed',error:detail});
+      throw error;
+    }
     finally{this.compiling.delete(key);}
   }
   download(session:string,id:string) {

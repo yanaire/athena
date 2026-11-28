@@ -7129,6 +7129,11 @@ window.AthenaResearchFlow={mount(root,options){
         const c=version.compilation;
         if(c?.state==='succeeded'){
           for(const file of [c.tex,c.pdf]){const a=el('a',file.name);a.href=file.uri;a.download=file.name;frag.append(a,document.createTextNode('  '));}
+          if(c.updateAvailable){
+            const updatePdf=button('Update typesetting',async()=>{updatePdf.disabled=true;await recover('compilePaper',{documentId:r.documentId,version:version.version});updatePdf.disabled=false;});
+            frag.append(updatePdf);
+            if(c.refreshError)frag.append(el('p',c.refreshError));
+          }
           frag.append(button('Review JSON',async()=>{try{const receipt=await call('exportPaper',{documentId:r.documentId,version:version.version,format:'json'});const a=el('a');a.href=receipt.uri;a.download=receipt.name;a.click();}catch(e){notice.textContent=e.message;}}));
           for(const [n,page] of (c.pages||[]).entries()){const img=el('img');img.src=page.uri;img.alt='Compiled PDF page '+(n+1);img.className='ac-flow-page';frag.append(img);}
           if(c.previewError)frag.append(el('p',c.previewError));
@@ -7155,7 +7160,7 @@ window.AthenaResearchFlow={mount(root,options){
     for(const detail of frag.querySelectorAll('details'))detail.open=expanded.get(disclosureKey(detail))===true;
     body.replaceChildren(frag);
   }
-  async function recover(method,args){try{await call(method,args);signature='';await update();}catch(e){notice.textContent=e.message;}}
+  async function recover(method,args){try{await call(method,args);signature='';versionState='';await update();}catch(e){versionState='';notice.textContent=e.message;}}
   async function update(){
     clearTimeout(timer);if(!scope||!service||requesting)return;
     const g=generation;requesting=true;
@@ -7165,7 +7170,7 @@ window.AthenaResearchFlow={mount(root,options){
       const fresh=lastStream && r?.runId===lastStream.runId && performance.now()-lastStream.received<1900;
       const ahead=fresh && (!r.liveDraft||lastStream.draft.updatedAt>r.liveDraft.updatedAt);
       displayDraft(ahead && !r.version?lastStream.draft:r?.liveDraft);
-      const revision=JSON.stringify([r?.version,r?.stages.slice(-2)]);
+      const revision=JSON.stringify([r?.version,r?.compilationReceipt,r?.stages.slice(-2)]);
       if(version?.version!==r?.version)version=null;
       function refresh(){
         if(viewSignature()!==signature)render();

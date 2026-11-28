@@ -771,6 +771,7 @@ export class TaskManager implements AthenaTaskManager {
       plan:mission && {missionId:mission.id, objective:mission.objective, stages:mission.stages, acceptanceCriteria:mission.acceptanceCriteria,
         coordinatorModel:flow.planMode ? run.model?.modelId : undefined},
       liveDraft:draft && (!current||drafting && pending(drafting.status))?{...draft,active:!!drafting && pending(drafting.status)}:undefined,
+      compilationReceipt:version?.compilation?.pdf?.id,
       sectionBriefs:writing?.sectionBriefs,
       experimentMission:study?{...study,...missionProgress(study)}:undefined,
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
