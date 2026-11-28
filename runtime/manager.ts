@@ -28,7 +28,7 @@ import { ProjectLibrary, type PaperAcquisition } from './project-library.ts';
 import { projectFolder } from './project-folder.ts';
 import { template, readTemplate } from './typesetting.ts';
 import { parseManuscriptJson, streamedManuscript, sectionBriefs, type ManuscriptDraft } from './manuscript-draft.ts';
-import { manuscriptSectionChecks, Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
+import { manuscriptSectionChecks, Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun, type PaperSource } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 import type { AttachmentMessage, HistoryEvent } from './history.ts';
@@ -76,6 +76,28 @@ type StoredFile = FileReference & {
 const planningTools = new Set(['plan_research','read','read_file','list_skills','load_skill','get_research_board',
   'search_project_library','read_project_paper','get_task','list_tasks','cancel_task','wait_for_agents']);
 const uploadBytes = 256 * 1024;
+// Versioned source bytes (including a browser's returned passage) are read through
+// the granted fileId. Prompts carry short labels and research uses for those files.
+function paperSourceDirectory(sources:readonly PaperSource[],fileIds:readonly string[],paper:Paper,flow?:ResearchFlow) {
+  const label=(value:string,limit:number)=>{
+    const line=value.replace(/[\s\u0000-\u001f]+/gu,' ').trim();
+    return line.length<=limit?line:line.slice(0,limit-1)+'…';
+  };
+  return JSON.stringify(sources.map((source,i)=>{
+    const refs=paper.workflow?.references?.filter(r=>r.sourceId===source.sourceId)??[];
+    const visit=flow?.pages?.find(p=>p.sourceId===source.sourceId);
+    const ref=refs[0]??visit;
+    const claims=refs.length?refs.map(r=>r.claim):[flow?.citations?.find(c=>c.sourceId===source.sourceId)?.claim??visit?.claim];
+    const uses=claims.filter((claim):claim is string=>!!claim).map(claim=>label(claim,192));
+    // Older browser records append up to 12,000 passage characters to coverage.
+    const coverage=ref?.coverage.split('Returned passage:',1)[0]?.replace(/\s*·\s*$/,'').trim()||
+      (visit?'Verified browser passage':source.level);
+    return {sourceId:source.sourceId,version:source.version,fileId:fileIds[i],title:label(source.title,160),coverage:label(coverage,96),
+      ...(ref?{retrievedAt:ref.retrievedAt,...(ref.url.length<=240?{url:ref.url}:{})}:{}),
+      ...(uses.length?{claims:uses}:{})};
+  }));
+}
+
 // Staged inputs must be independently readable UTF-8. Preserve the exact text when
 // a large brief or review record spans several files.
 function manuscriptContextFiles(name:string, value:string):StagedFileInput[] {
@@ -781,7 +803,19 @@ export class TaskManager implements AthenaTaskManager {
       sectionBriefs:paper && writing && (current??null)===(writing.versions.at(-1)??writing.baseVersion)?this.#papers.sectionPlan(paper,writing):undefined,
       experimentMission:study?{...study,...missionProgress(study)}:undefined,
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
-      sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
+      sources:version?.links.map(link=>{
+        const passage={quote:link.quote,locator:link.locator};
+        const pinned=version.evidence.find(ref=>ref.sourceId===link.sourceId);
+        if(pinned && link.sourceOffset!==-1 && link.manuscriptOffset!==-1){
+          try{
+            const source=this.#papers.source(project,pinned.sourceId);
+            if(source.version===pinned.version)return {...passage,source:source.origin};
+          }catch(error){
+            if(!(error instanceof ManagerError) || error.code!=='SOURCE_DENIED')throw error;
+          }
+        }
+        return {...passage,unresolved:true};
+      }),
       connections:run.extensions?.servers.map(s=>({name:s.definition.name,capability:s.definition.capability,checkedAt:s.verification.checkedAt,calls:processes.filter(p=>p.job.externalMcp?.serverId===s.id).map(p=>({tool:p.job.externalMcp!.tool,status:p.status})),tools:s.verification.tools.map(t=>t.name)}))??[],
       searches:searches.map(s=>({status:s.status,term:s.term})),canResume:!pending(latest.status)&&isLatest&&(!writing||(current??null)===(writing.versions.at(-1)??writing.baseVersion))&&(!paper||!writing||unfinishedRevision||(!version?.assessment&&writing.stage!=='insufficient_evidence')||writing.stage==='failed'&&version?.review.status!=='approved'),error:flow.error??latest.error};
   }
@@ -923,9 +957,10 @@ export class TaskManager implements AthenaTaskManager {
       if(mode==='write'&&JSON.stringify(userBrief).length>2048)files.push(...manuscriptContextFiles('user-research-brief.txt',userBrief));
       const {fileReferences}=await this.stageFiles(sessionId,files);
       const flow=original&&this.#flow(original.id);
-      const contextDraft=flow?'\nPreliminary sections: '+JSON.stringify(flow.drafts)+'\nCitations and uses: '+JSON.stringify([...(flow.citations??[]),...(flow.pages??[]).filter(page=>d.evidence.some(ref=>ref.sourceId===page.sourceId))]):'';
+      const contextDraft=flow?.drafts.length?'\nSaved preliminary sections: '+JSON.stringify(flow.drafts.map(s=>s.heading)):'';
+      const sourceDirectory=paperSourceDirectory(sources,fileReferences.map(f=>f.id),d,flow);
       const message='Manuscript '+mode+' request. Objective: '+d.goal+'\n'+(mode==='outline'?'Inspect the selected sources and call compose_manuscript with an outline of 1–8 headings.':'Call compose_manuscript with {} to execute the approved outline: '+JSON.stringify(d.outline))+
-        '\nReport the returned manuscript status. Source titles and coverage: '+JSON.stringify(sources.map(s=>[s.title,s.level]))+contextDraft;
+        '\nReport the returned manuscript status. Read granted source files for exact passages and URLs. Sources: '+sourceDirectory+contextDraft;
       const response=await this.#prompt(session,runtime,{type:'prompt',id:'paper:'+id+':'+requestId,message,fileReferences},a=>{
         const current=this.#papers.paper(project,id);
         if(JSON.stringify([current.evidence,current.outline,current.versions])!==JSON.stringify([d.evidence,d.outline,d.versions]))throw new ManagerError('VERSION_CONFLICT','Manuscript changed during start.');
@@ -968,8 +1003,7 @@ export class TaskManager implements AthenaTaskManager {
       protocol:study.contract.protocol,metricPath:study.contract.metricPath,target:study.contract.target,direction:study.contract.direction,
       status:study.status,measurements
     }):'';
-    const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:sourceFileIds[i],title:s.title,coverage:s.level,
-      ...upstream?.pages?.find(p=>p.sourceId===s.sourceId),claim:upstream?.citations?.find(c=>c.sourceId===s.sourceId)?.claim??upstream?.pages?.find(p=>p.sourceId===s.sourceId)?.claim})));
+    const description=paperSourceDirectory(sources,sourceFileIds,doc,upstream);
     // Reserve a fresh reviewer for a possible revision before reserving a literature session.
     const separatePlanner=this.#maxChildren>=5;
     const child=async(role:string,prompt:string,previous?:string,correcting=false)=>{

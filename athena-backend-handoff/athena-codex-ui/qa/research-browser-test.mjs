@@ -34,6 +34,11 @@ const selectedTemplate=templateFile?basename(templateFile):'article';
 const referenceQuote='const timeConstantSeconds = r * c;';
 const citeLibrary=process.env.ATHENA_CITE_LIBRARY==='1';
 const selectInputs=process.env.ATHENA_HANDOFF_CASE==='inputs';
+const longPages=process.env.ATHENA_HANDOFF_CASE==='long-pages';
+const recordedPages=[];
+const pageMarker='Archived page excerpt ';
+const longPassage=index=>(pageMarker+index+' '+referenceQuote+' ').repeat(500).slice(0,12000);
+let browserReads=0;
 const libraryClaim='Foreman-Mackey (2016) describes scatterplot matrices for multidimensional samples.';
 let libraryEdition;
 const sourceUrl='https://raw.githubusercontent.com/yanaire/athena/feefe81e49211151549b793b4ff029c2d797fe7d/runtime/rc-worker.mjs';
@@ -49,8 +54,9 @@ const parser=(input,marker)=>JSON.parse(input.split(marker)[1].split('\n')[0]);
 const upstream=process.env.ATHENA_PUBLIC_METHOD==='1';
 const mcp=createServer(async(req,res)=>{
   try{
-    if(req.method==='GET'&&req.url==='/method'){
-      res.writeHead(200,{'content-type':'text/plain'});res.end(await readFile(new URL('../../../runtime/rc-worker.mjs',import.meta.url)));return;
+    if(req.method==='GET'&&req.url.split('?')[0]==='/method'){
+      const index=new URL(req.url,'http://localhost').searchParams.get('edition');
+      res.writeHead(200,{'content-type':'text/plain'});res.end(index?longPassage(index):await readFile(new URL('../../../runtime/rc-worker.mjs',import.meta.url)));return;
     }
     if(req.method==='DELETE'){res.writeHead(202).end();return;}
     const chunks=[];for await(const chunk of req)chunks.push(chunk);
@@ -68,7 +74,8 @@ const mcp=createServer(async(req,res)=>{
       const result=await job;guiCalls++;reply({content:[{type:'text',text:JSON.stringify(result)}],structuredContent:result});return;
     }
     assert.equal(m.params.name,'read_method_page');
-    const response=await reference.goto(visitedUrl,{timeout:10000});assert.equal(response.status(),200);
+    const url=longPages?visitedUrl+'?edition='+(++browserReads):visitedUrl;
+    const response=await reference.goto(url,{timeout:10000});assert.equal(response.status(),200);
     const content=await reference.locator('body').innerText();
     assert.ok(content.includes(referenceQuote));
     reply({content:[{type:'text',text:content}],structuredContent:{url:reference.url(),retrievedAt:new Date().toISOString(),coverage:'Complete RC worker source file',text:content}});
@@ -88,6 +95,9 @@ async function respond({coordinator,input,outputs}){
   await pause(screencast?650:220);
   const n=outputs.length;
   if(coordinator&&input==='Separate research request')return 'Ready for another topic.';
+  if(longPages && (input.startsWith('Manuscript write request') || input.includes('Sources: '))){
+    assert.ok(input.length<32768,'A source manifest must fit the worker dispatch budget.');assert.ok(!input.includes(pageMarker));
+  }
   if(coordinator&&input.startsWith('Manuscript write request'))return n?'The manuscript review and publication have settled.':call('compose_manuscript',{});
   if(coordinator){
     const file=JSON.parse(input.match(/\{"fileId":"[^"]+","name":"circuit.json"\}/)[0]).fileId;
@@ -100,15 +110,17 @@ async function respond({coordinator,input,outputs}){
     const joined=JSON.parse(outputs[5]).tasks;
     const result=joined.flatMap(t=>t.artifacts).find(a=>a.name==='rc-response.json'),ref=joined.flatMap(t=>t.artifacts).find(a=>a.name==='mcp-result.json');
     assert.ok(result&&ref,JSON.stringify(joined));
+    const extraPages=longPages?2:0;
+    if(longPages&&n===6)return recordedPages.map(({artifactId,url,excerpt})=>call('record_browser_source',{artifactId,url,excerpt,claim:'The calculation defines its time constant as resistance times capacitance.'}));
     if(n===6)return call('record_browser_source',{artifactId:ref.id,url:visitedUrl,excerpt:referenceQuote,claim:'The calculation defines its time constant as resistance times capacitance.'});
-    if(n===7)return call('add_research_evidence',{missionId:JSON.parse(outputs[0]).id,title:'Five computed conditions',fileIds:[file],artifactIds:[result.id]});
-    if(n===8)return call('request_review',{missionId:JSON.parse(outputs[0]).id,evidenceIds:[JSON.parse(outputs[7]).id],question:'Independently calculate all voltages from the input and check the absolute errors.'});
-    if(n===9)return call('wait_for_agents',{});
-    if(n===10)return call('record_experiment_table',{artifactId:result.id,path:['samples'],condition:'sampled times'});
-    const prepare=pageSourceIds=>call('prepare_research_paper',{reviewId:JSON.parse(outputs[8]).review.id,artifactIds:[result.id],inputIds:[file],title,template:selectedTemplate,outline:headings,
+    if(n===7+extraPages)return call('add_research_evidence',{missionId:JSON.parse(outputs[0]).id,title:'Five computed conditions',fileIds:[file],artifactIds:[result.id]});
+    if(n===8+extraPages)return call('request_review',{missionId:JSON.parse(outputs[0]).id,evidenceIds:[JSON.parse(outputs[7+extraPages]).id],question:'Independently calculate all voltages from the input and check the absolute errors.'});
+    if(n===9+extraPages)return call('wait_for_agents',{});
+    if(n===10+extraPages)return call('record_experiment_table',{artifactId:result.id,path:['samples'],condition:'sampled times'});
+    const prepare=pageSourceIds=>call('prepare_research_paper',{reviewId:JSON.parse(outputs[8+extraPages]).review.id,artifactIds:[result.id],inputIds:[file],title,template:selectedTemplate,outline:headings,
       ...(pageSourceIds?{pageSourceIds}:{}),...(citeLibrary?{librarySources:[{sourceId:libraryEdition.sourceId,version:libraryEdition.version,claim:libraryClaim}]}:{})});
-    if(n===11 && selectInputs)return prepare(['unknown-page']);
-    const first=selectInputs?12:11;
+    if(n===11+extraPages && selectInputs)return prepare(['unknown-page']);
+    const first=(selectInputs?12:11)+extraPages;
     if(n===first){
       if(selectInputs)assert.match(outputs[11],/visited page source IDs/);
       const handoff=prepare(selectInputs?[]:undefined);
@@ -149,6 +161,15 @@ async function respond({coordinator,input,outputs}){
       'Citations: checked the scope of the reference implementation.','Figures: checked all five tabulated outputs and their units.'],findings:requestChanges?['State the numerical comparison tolerance.']:[]});
   }
   if(input.includes('connected page reader')){
+    if(longPages){
+      if(n<3)return call('call_external_mcp',{serverId:'page-reader/browser',tool:'read_method_page',arguments:{}});
+      for(const output of outputs){
+        const record=JSON.parse(output),page=record.result.result.structuredContent;
+        assert.equal(page.text.length,12000);
+        recordedPages.push({artifactId:record.artifactId,url:page.url,excerpt:page.text});
+      }
+      return 'Saved three separate browser receipts.';
+    }
     if(citeLibrary&&!n)return call('search_research_literature',{mode:'doi',term:'10.21105/joss.00024'});
     if(citeLibrary){libraryEdition=JSON.parse(outputs[0]).saved[0];assert.ok(libraryEdition.original);}
     return n>(citeLibrary?1:0)?'Read the pinned reference page and saved the response.':call('call_external_mcp',{serverId:'page-reader/browser',tool:'read_method_page',arguments:{}});
@@ -158,6 +179,14 @@ async function respond({coordinator,input,outputs}){
   if(revising && !n){editorStarted.resolve();await editorReleased.promise;}
   const sources=parser(input,'Sources: ');
   if(n<sources.length)return call('read_file',{fileId:sources[n].fileId});
+  if(longPages){
+    const pages=sources.map((source,i)=>({source,bytes:outputs[i]})).filter(row=>row.source.title.startsWith('Visited page'));
+    assert.equal(pages.length,3);
+    for(const {source,bytes} of pages){
+      const expected=recordedPages.find(p=>p.url===source.url);assert.ok(expected);assert.ok(bytes.includes(expected.excerpt));
+      assert.ok(source.claims.length);
+    }
+  }
   rc=JSON.parse(outputs[sources.findIndex(s=>s.title==='rc-response.json')]);
   const table='| Time (ms) | Output (V) |\n| --- | --- |\n'+rc.samples.map(s=>'| '+(1000*s.timeSeconds).toFixed(1)+' | '+s.outputVolt.toFixed(4)+' |').join('\n');
   const finding='At one time constant, the predicted output was '+rc.samples.find(s=>s.timeSeconds===rc.timeConstantSeconds).outputVolt.toFixed(4)+' V.';
