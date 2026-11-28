@@ -308,7 +308,7 @@ test('execution disabled preserves CSV evidence and observations after joining, 
 test('paper outlining, editorial revision, independent frozen reviews and exact exports survive restart', {timeout:90000}, async t=>{
   const directory=await realpath(privateTestDirectory(join(tmpdir(),'paper-integration-')));
   const sourceText='The reported voltage is 19 mV.',title='Voltage study';
-  let authorized='',sourceId='',round=0;const errors:string[]=[];
+  let authorized='',sourceId='',round=0,sectionPlanCalls=0;const errors:string[]=[];
   let held:ReturnType<typeof Promise.withResolvers<void>>|undefined, holdStage='';
   const server=createServer(async(request,response)=>{
     try {
@@ -320,8 +320,8 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
       let next:string|Call;
       if(parent(w)&&prompt.startsWith('Execute my approved bibliography search'))next=out.length?'Candidates ready.':{name:'run_bibliography_search',args:{searchId:authorized}};
       else if(parent(w))next=out.length?'Manuscript stage settled.':{name:'compose_manuscript',args:prompt.includes('Manuscript outline request')?{outline:['Results']}:{}};
-      else if(prompt.includes('Plan the literature synthesis'))next=JSON.stringify([{heading:'Results',purpose:'Compare the reported voltage.',sources:[1],visual:''}]);
-      else if(prompt.includes('Return only a JSON array'))next=JSON.stringify([{heading:'Results',text:sourceText}]);
+      else if(prompt.includes('Plan the literature synthesis'))next=JSON.stringify([{heading:'Results',purpose:'Compare the reported voltage.',sources:[++sectionPlanCalls===1?2:1],visual:''}]);
+      else if(prompt.includes('Return only a JSON array'))next=['```json',JSON.stringify([{heading:'Results',text:sourceText}]),'```'].join('\n');
       else if(prompt.includes('Use publish_manuscript')) {
         if(!out.length){round++;next={name:'publish_manuscript',args:{text:'# Results\n\n'+sourceText+'\nRevision '+round,
           links:[{kind:'claim',sourceId,quote:sourceText,excerpt:sourceText,locator:'line 1'}]}};}
@@ -367,6 +367,8 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
     const d=await call('paperDetails',{documentId});assert.deepEqual(d.outline,['Results'],JSON.stringify(snap.tools));
     if(mode==='write'){assert.equal(d.runs.at(-1).stage,'supported',JSON.stringify([d.runs.at(-1),snap.tools.map(t=>[t.name,t.status,t.logs.at(-1)?.text.slice(0,300)])]));
       assert.deepEqual(d.runs.at(-1).sectionBriefs[0].sources,[{sourceId,version:source.version}]);
+      const plans=d.runs.at(-1).attempts.filter((attempt:{role:string})=>attempt.role==='Plan manuscript evidence');
+      assert.equal(plans.length,2);assert.equal(plans[0].taskId,plans[1].taskId);assert.notEqual(plans[0].attemptId,plans[1].attemptId);
       assert.equal(snap.tasks.filter(t=>t.parentTaskId).length,4);assert.equal(snap.processes.length,2);}
   }
   const d=await call('paperDetails',{documentId}),r=d.runs.at(-1);assert.equal(r.reviews.length,2);

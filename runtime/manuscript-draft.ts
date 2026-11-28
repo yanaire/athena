@@ -18,6 +18,16 @@ export function sectionBriefs(input:unknown,outline:readonly string[],sources:re
   });
 }
 
+const jsonFence = /^```(?:json)?[ \t]*\r?\n/i;
+
+export function parseManuscriptJson(message:string|null):unknown {
+  let text=(message??'').trim();
+  if(jsonFence.test(text) && /\r?\n```$/.test(text))
+    text=text.replace(jsonFence,'').replace(/\r?\n```$/,'');
+  try { return JSON.parse(text); }
+  catch { throw Error('Return the complete manuscript stage as one valid JSON array.'); }
+}
+
 // Accept only the public manuscript fields in an assigned writer/editor message.
 // Reasoning, file contents, tool results and other tool calls never become a draft.
 export function streamedManuscript(role:'writer'|'editor',message:unknown,outline:readonly string[]):string|undefined {
@@ -28,7 +38,7 @@ export function streamedManuscript(role:'writer'|'editor',message:unknown,outlin
       return call.arguments.text.slice(0,120000)||undefined;
     return;
   }
-  const text=message.content.filter(p=>object(p)&&p.type==='text'&&typeof p.text==='string').map(p=>p.text).join('');
+  const text=message.content.filter(p=>object(p)&&p.type==='text'&&typeof p.text==='string').map(p=>p.text).join('').trimStart().replace(jsonFence,'');
   if (!text.trimStart().startsWith('[')||text.length>130000)return;
   const parsed=parseStreamingJson<unknown>(text);
   if(!Array.isArray(parsed))return;

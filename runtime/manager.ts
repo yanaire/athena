@@ -27,7 +27,7 @@ import type { RoleModels, WorkerRole } from './worker-roles.ts';
 import { ProjectLibrary, type PaperAcquisition } from './project-library.ts';
 import { projectFolder } from './project-folder.ts';
 import { template, readTemplate } from './typesetting.ts';
-import { streamedManuscript, sectionBriefs, type ManuscriptDraft } from './manuscript-draft.ts';
+import { parseManuscriptJson, streamedManuscript, sectionBriefs, type ManuscriptDraft } from './manuscript-draft.ts';
 import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
@@ -859,15 +859,15 @@ export class TaskManager implements AthenaTaskManager {
       ...upstream?.pages?.find(p=>p.sourceId===s.sourceId),claim:upstream?.citations?.find(c=>c.sourceId===s.sourceId)?.claim??upstream?.pages?.find(p=>p.sourceId===s.sourceId)?.claim})));
     // Reserve a fresh reviewer for a possible revision before reserving a literature session.
     const separatePlanner=this.#maxChildren>=5;
-    const child=async(role:string,prompt:string,previous?:string)=>{
+    const child=async(role:string,prompt:string,previous?:string,correcting=false)=>{
       signal.throwIfAborted();
       const prior=run().attempts.findLast(t=>t.role===role);
       if(prior){
         const finished=this.#storage.record<Attempt>('attempt',prior.attemptId);
-        if(finished?.status==='succeeded')return this.#summary(this.#child(a,prior.taskId));
+        if(finished?.status==='succeeded'&&!correcting)return this.#summary(this.#child(a,prior.taskId));
         previous=prior.taskId;
       }
-      const requestId='paper:'+a.runId+':'+role+':'+a.id;
+      const requestId='paper:'+a.runId+':'+role+':'+a.id+(correcting?':correct':'');
       update(r=>{r.stage=role;});
       const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId}:{title:role,prompt,requestId},signal,next=>{
         // Called inside the existing child admission transaction.
@@ -877,6 +877,16 @@ export class TaskManager implements AthenaTaskManager {
       const row=joined.tasks[0];if(!row||row.status!=='succeeded')throw new ManagerError('PAPER_CHILD_FAILED',role+' did not succeed.');
       return row;
     };
+    const structuredChild=async<T>(role:string,prompt:string,validate:(reply:unknown)=>T,previous?:string)=>{
+      let row=await child(role,prompt,previous);
+      try { return {taskId:row.taskId,value:validate(parseManuscriptJson(row.result))}; }
+      catch(error){
+        signal.throwIfAborted();
+        const detail=error instanceof Error?error.message:'Invalid manuscript stage response.';
+        row=await child(role,prompt+'\nCorrect your previous response. Validation: '+detail,row.taskId,true);
+        return {taskId:row.taskId,value:validate(parseManuscriptJson(row.result))};
+      }
+    };
     update(r=>{r.stage='planning';});
     try {
       const mission=this.#research.snapshot(a).missions.find(m=>m.runId===a.runId)??this.#research.plan(a,{objective:doc.goal,acceptanceCriteria:['Check claims, citations and figure data against exact sources.'],stages:doc.outline});
@@ -884,22 +894,22 @@ export class TaskManager implements AthenaTaskManager {
       const scholarly=sources.some(s=>s.origin && 'provider' in s.origin);
       let planner=run().attempts.find(t=>t.role==='Plan manuscript evidence')?.taskId;
       if(!briefs && (scholarly || args.sectionBriefs!==undefined)){
-        let raw=args.sectionBriefs;
-        if(!raw){
-          const planned=await child('Plan manuscript evidence','Plan the literature synthesis and visuals for this paper. Read relevant granted sources. Distinguish metadata from full text. Use sequential source numbers starting at 1. For each heading identify the comparison, finding or limitation and any useful plot, table or method diagram. Return a JSON array of {heading,purpose,sources:[numbers],visual:"description or empty string"}.\nSources: '+description+'\nOutline: '+JSON.stringify(doc.outline));
-          planner=planned.taskId;raw=JSON.parse(planned.result??'null');
+        const validate=(reply:unknown)=>sectionBriefs(reply,doc.outline,sources);
+        if(args.sectionBriefs!==undefined)briefs=validate(args.sectionBriefs);
+        else {
+          const planned=await structuredChild('Plan manuscript evidence','Plan the literature synthesis and visuals for this paper. Read relevant granted sources. Distinguish metadata from full text. Use sequential source numbers starting at 1. For each heading identify the comparison, finding or limitation and any useful plot, table or method diagram. Return a JSON array of {heading,purpose,sources:[numbers],visual:"description or empty string"}.\nSources: '+description+'\nOutline: '+JSON.stringify(doc.outline),validate);
+          planner=planned.taskId;briefs=planned.value;
         }
-        briefs=sectionBriefs(raw,doc.outline,sources);
         update(r=>{r.sectionBriefs=briefs;});
       }
       const briefContext=briefs?'\nSection evidence and visual plan: '+JSON.stringify(briefs):'';
       const revisionRoom=this.#maxChildren>=4;
       let sections=run().sections;
       if(!sections.length){
-        const writer=await child('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
+        const writer=await structuredChild('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
         trialContext+briefContext+(upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
-        '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline),separatePlanner?undefined:planner);
-        sections=sectionDrafts(JSON.parse(writer.result??'null'),doc.outline);
+        '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline),reply=>sectionDrafts(reply,doc.outline),separatePlanner?undefined:planner);
+        sections=writer.value;
         update(r=>{r.sections=sections;});
       }
       let editor:string|undefined,findings:string[]=[];

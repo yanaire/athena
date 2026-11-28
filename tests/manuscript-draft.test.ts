@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sectionBriefs,streamedManuscript } from '../runtime/manuscript-draft.ts';
+import { parseManuscriptJson,sectionBriefs,streamedManuscript } from '../runtime/manuscript-draft.ts';
 import { manuscriptTex } from '../runtime/typesetting.ts';
 const outline=['Methods','Results'];
 const msg=(...content:unknown[])=>({role:'assistant',content});
@@ -12,6 +12,13 @@ test('partial public section text is visible without emitting reasoning, readbac
   assert.equal(streamedManuscript('editor',msg(hidden,{type:'toolCall',name:'read_file',arguments:{text:'contents'}}),outline),undefined);
   assert.equal(streamedManuscript('editor',msg({type:'toolCall',name:'publish_manuscript',arguments:{text:'Revised result'}}),outline),'Revised result');
   assert.equal(streamedManuscript('writer',{role:'toolResult',content:[{type:'text',text:'sensitive'}]},outline),undefined);
+});
+test('fenced writer replies stream public sections while final validation requires complete JSON',()=>{
+  const json='[{"heading":"Methods","text":"Samples"}]';
+  assert.deepEqual(parseManuscriptJson('```json\n'+json+'\n```'),JSON.parse(json));
+  assert.throws(()=>parseManuscriptJson('```json\n'+json),/valid JSON/);
+  assert.throws(()=>parseManuscriptJson('Introduction\n'+json),/valid JSON/);
+  assert.equal(streamedManuscript('writer',msg({type:'text',text:'```json\n'+json.slice(0,-4)}),outline),'## Methods\nSample');
 });
 test('section briefs resolve only the selected source editions in the approved outline order',()=>{
   const ref={sourceId:'first',version:'v3'}, row={heading:'Methods',purpose:'Compare paired samples',sources:[1],visual:'Plot paired observations'};
