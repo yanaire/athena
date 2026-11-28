@@ -51,6 +51,50 @@
         return { ...tool, status, active: status === 'running', taskId: recorded.taskId, sessionId: recorded.sessionId };
       });
     }
+    const groups = new Map();
+    function arrange(parent, children) {
+      let cursor = parent.firstElementChild;
+      for (const node of children) {
+        if (node === cursor) cursor = cursor.nextElementSibling;
+        else parent.insertBefore(node, cursor);
+      }
+    }
+    function activityBlocks(ordered) {
+      const visible = [], kept = new Set();
+      let block = null;
+      for (const item of ordered) {
+        if (!item.activity && !['tool', 'handoff'].includes(item.entry.kind)) {
+          visible.push(item.node); block = null; continue;
+        }
+        const run = item.activity?.runId || item.entry?.athena?.runId || '';
+        if (!block || block.run !== run) {
+          const anchor = item.activity?.attemptId || item.activity?.key || item.entry?.toolId || item.entry?.athena?.attemptId || item.entry?.key;
+          const key = JSON.stringify([run, anchor]);
+          block = groups.get(key);
+          if (!block) {
+            const node = document.createElement('details'), summary = document.createElement('summary'), body = document.createElement('div');
+            node.className = 'ac-stream-activity'; summary.className = 'cursor-interaction';
+            body.className = 'ac-stream-steps'; node.append(summary, body);
+            block = { node, summary, body, run };
+            groups.set(key, block);
+          }
+          kept.add(key); visible.push(block.node);
+          block.children = []; block.statuses = [];
+        }
+        block.children.push(item.node);
+        block.statuses.push(item.activity ? item.node.querySelector('.aw-attempt-heading [data-status]')?.dataset.status : item.node.querySelector('[data-pi-status]')?.dataset.piStatus);
+      }
+      for (const [key, group] of groups) {
+        if (!kept.has(key)) { group.node.remove(); groups.delete(key); continue; }
+        arrange(group.body, group.children);
+        const state = group.statuses.includes('failed') ? 'Needs attention' : group.statuses.includes('blocked') ? 'Waiting for input'
+          : group.statuses.includes('running') ? 'Working' : group.statuses.some(s => ['stopped','cancelled'].includes(s)) ? 'Stopped' : '';
+        const count = group.children.length;
+        const label = ['Research activity', count + (count === 1 ? ' step' : ' steps'), state].filter(Boolean).join(' · ');
+        if (group.summary.textContent !== label) group.summary.textContent = label;
+      }
+      return visible;
+    }
     function layout() {
       if (destroyed) return;
       const arranged = entries.filter(entry => entry.kind === 'tool' || entry.text !== '' || entry.attachments?.length).map(entry => ({ entry, node: nodes.get(entry.key) })).filter(item => item.node);
@@ -67,11 +111,7 @@
         while (index < arranged.length && arranged[index].activity && arranged[index].activity.runId === item.runId && (arranged[index].activity.at ?? Infinity) <= (item.at ?? Infinity)) index++;
         arranged.splice(index, 0, { node: item.node, activity: item });
       }
-      let cursor = host.firstElementChild;
-      for (const item of arranged) {
-        if (item.node === cursor) cursor = cursor.nextElementSibling;
-        else host.insertBefore(item.node, cursor);
-      }
+      arrange(host, activityBlocks(arranged));
       host.hidden = !arranged.length && !error;
     }
     function withLayout(change) {
@@ -113,7 +153,10 @@
       generation++; entries = []; tools.clear(); pendingUser = null; liveOwner = null; liveKeys.clear(); lastObservedOrder = 0; error = null;
       for (const node of nodes.values()) node.remove();
       nodes.clear();
-      if (!keepActivities) { for (const item of activities.values()) item.node.remove(); activities.clear(); }
+      if (!keepActivities) {
+        for (const group of groups.values()) group.node.remove();
+        groups.clear();
+        for (const item of activities.values()) item.node.remove(); activities.clear(); }
       view.reset(); host.hidden = true;
     }
     function history(messages) {

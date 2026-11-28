@@ -227,24 +227,34 @@ try{
       assert.match(await handoff.textContent(),/Call compose_manuscript/);
       const card=page.locator('details[data-aw-attempt]').filter({has:page.locator('.aw-attempt-heading strong',{hasText:/^Review manuscript 1$/})}).last();
       const heading=card.locator(':scope > summary');
-      await heading.scrollIntoViewIfNeeded();
+      const activity=card.locator('xpath=ancestor::details[contains(@class,"ac-stream-activity")][1]');
+      const progress=activity.locator(':scope > summary');
+      await progress.scrollIntoViewIfNeeded();
+      assert.equal(await activity.getAttribute('open'),null);
+      assert.equal(await heading.isVisible(),false);
+      await page.screenshot({path:join(evidence,'activity-summary.png')});
+      await delay(1500);await progress.click();await heading.waitFor({state:'visible'});
       assert.equal(await card.getAttribute('open'),null);
       assert.equal(await card.locator('.aw-attempt-result').isVisible(),false);
       await page.screenshot({path:join(evidence,'activity-closed.png')});
       await delay(1100);await heading.focus();await heading.press('Enter');
-      const reads=card.locator('[data-pi-tool="read_file"]'),row=reads.first();
+      const reads=card.locator('[data-pi-tool="read_file"]');
+      const row=reads.filter({has:page.locator('[data-aw-log]',{hasText:'starting_bore_mm'})}).first();
+      await card.locator('.aw-agent-events').evaluate(el=>el.scrollIntoView({block:'center'}));
       await row.locator(':scope > summary').waitFor({state:'visible'});
       assert.equal(await row.locator('[data-aw-log]').isVisible(),false);
-      assert.equal(await reads.nth(1).getAttribute('open'),null);
+      assert.equal(await card.locator('[data-pi-tool="read_file"][open]').count(),0);
       await page.screenshot({path:join(evidence,'activity-list.png')});
       await delay(1100);await row.locator(':scope > summary').click();
       await row.locator('[data-aw-log]').waitFor({state:'visible'});
       assert.ok((await row.locator('[data-aw-log]').textContent()).trim());
-      assert.equal(await reads.nth(1).getAttribute('open'),null);
+      assert.equal(await card.locator('[data-pi-tool="read_file"][open]').count(),1);
+      await row.locator('[data-aw-log]').evaluate(el=>el.scrollIntoView({block:'center'}));
       await page.screenshot({path:join(evidence,'activity-result.png')});
       await delay(1100);await row.locator(':scope > summary').focus();await row.locator(':scope > summary').press('Space');
       assert.equal(await row.locator('[data-aw-log]').isVisible(),false);
       await heading.click();assert.equal(await row.isVisible(),false);
+      await progress.click();assert.equal(await heading.isVisible(),false);await delay(1300);
     }
 
   }

@@ -186,6 +186,8 @@
         if (!row) return false;
         const attempt = row.closest('[data-aw-attempt]');
         if (attempt) attempt.open = true;
+        const group = row?.closest('.ac-stream-activity');
+        if (group) group.open = true;
         row.open = true;
         row.querySelector('summary').focus({ preventScroll: true });
         row.scrollIntoView?.({ block: 'nearest' });
@@ -201,6 +203,8 @@
       const row = Array.from(all('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
       const attempt = row?.closest('[data-aw-attempt]');
       if (attempt) attempt.open = true;
+      const group = row?.closest('.ac-stream-activity');
+      if (group) group.open = true;
       const summary = row?.querySelector('summary');
       if (focusable(summary)) { summary.focus({ preventScroll: true }); summary.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); }
       return true;
