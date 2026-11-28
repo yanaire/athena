@@ -737,14 +737,19 @@ export class TaskManager implements AthenaTaskManager {
       }
       return row(upcoming);
     };
+    const writingActive=!!writing && !!written && pending(written.status);
+    const editing=writingActive && ['requested','planning','Plan manuscript evidence','Draft sections','Edit manuscript','Revise manuscript'].includes(writing.stage);
+    const reviewing=writingActive && writing.stage==='Independent review';
+    const editorTask=writing?.attempts.findLast(t=>t.role==='Revise manuscript'||t.role==='Edit manuscript')?.taskId;
     const stages=[
       phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission?.objective),
       phase('Sources',flow.pages?.length||flow.inputs?.length||retained.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
         [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...[...(flow.pages??[]),...retained].map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
       experimentStage(),
       phase('Verify results',succeeded?'Succeeded':reviews.length?states(reviews.at(-1)?.executionStatus):upcoming,reviews.at(-1)?.reviewer?.taskId,reviews.at(-1)?.verdict),
-      phase('Manuscript',current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',writing?.attempts.find(t=>t.role==='Edit manuscript')?.taskId,writing?.error||flow.error),
-      phase('Independent review',version&&version.review.status==='approved'?'Succeeded':version?.assessment?'Waiting for input':writing?.stage==='Independent review'?states(written?.status):'Planned',version?.assessment?.reviewer?.taskId,version?.assessment?.verdict),
+      phase('Manuscript',editing?'Running':current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',editorTask,writing?.error||flow.error),
+      phase('Independent review',reviewing?'Running':editing?'Planned':version?.review.status==='approved'?'Succeeded':version?.assessment?'Waiting for input':'Planned',
+        reviewing?writing.attempts.at(-1)?.taskId:version?.assessment?.reviewer?.taskId,editing||reviewing?undefined:version?.assessment?.verdict),
       phase('LaTeX',version?.compilation?.state==='succeeded'?'Succeeded':version?.compilation?.state==='stopped'?'Stopped':version?.compilation?states(version.compilation.state):'Planned',written?.taskId,version?.compilation?.error)
     ];
     const latest=written??run,checkpoint=this.#storage.record<TaskRow>('task',latest.taskId)?.attemptId;
@@ -845,10 +850,21 @@ export class TaskManager implements AthenaTaskManager {
     const mode=args.mode;
     if(mode!=='outline'&&mode!=='write')throw new ManagerError('INVALID_INPUT','Select outlining or writing.');
     const requestId=bounded(args.requestId,'request ID',128),d=this.#papers.paper(project,id);
+    const expected=args.expectedBaseVersion===undefined?undefined:text(args.expectedBaseVersion,'Reviewed revision');
     const old=d.runs.find(r=>r.requestId===requestId);
     if(old) {
-      if(old.mode!==mode||old.context.sessionId!==sessionId)throw new ManagerError('REQUEST_ID_CONFLICT','Start request changed.');
+      if(old.mode!==mode||old.context.sessionId!==sessionId||(expected!==undefined&&old.baseVersion!==expected))throw new ManagerError('REQUEST_ID_CONFLICT','Start request changed.');
       return {runId:old.id};
+    }
+    if(expected!==undefined){
+      if(mode!=='write'||d.versions.at(-1)!==expected||this.#papers.version(project,id,expected).assessment?.verdict!=='changes_required')
+        throw new ManagerError('VERSION_CONFLICT','Open the latest revision with requested changes.');
+      if(d.workflow){
+        const origin=this.#storage.record<Run>('run',d.workflow.runId);
+        if(d.workflow.sessionId!==sessionId||origin?.sessionId!==sessionId||origin.projectId!==project)
+          throw new ManagerError('SESSION_MISMATCH','Revise this manuscript in its original research conversation.');
+        original=origin;
+      }
     }
     if(this.#paperStarting.has(sessionId))throw new ManagerError('RUN_BUSY','Manuscript start is in progress.');
     this.#assertIdle();

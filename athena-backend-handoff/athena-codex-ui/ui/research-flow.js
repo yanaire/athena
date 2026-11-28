@@ -3,6 +3,7 @@ window.AthenaResearchFlow={mount(root,options){
   const el=(tag,txt)=>{const e=document.createElement(tag);if(txt!==undefined)e.textContent=txt;return e;};
   const button=(txt,action)=>{const b=el('button',txt);b.type='button';b.onclick=action;return b;};
   let service,snapshot,scope='',selectedRun='',generation=0,timer,signature='',tab='progress',report,version,versionState='',hostRun='',requesting=false;
+  let revisionRequest='',revisionError='';
   const listeners=new AbortController();
   const body=root.querySelector('[data-flow-body]'),notice=root.querySelector('[data-flow-notice]');
   const call=(method,args={})=>service(method,{projectId:snapshot.projectId,sessionId:snapshot.sessionId,...args});
@@ -25,7 +26,25 @@ window.AthenaResearchFlow={mount(root,options){
   function viewSignature(){
     const {liveDraft,...stable}=report||{};
     const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version,!!liveDraft]:stable;
-    return JSON.stringify([data,version?.version,version?.compilation,version?.review,tab]);
+    return JSON.stringify([data,version?.version,version?.compilation,version?.review,hostRun,revisionRequest,revisionError,tab]);
+  }
+  function revisionControls(r){
+    if(!version || version.version!==r.version || version.currentVersion!==r.version || version.assessment?.verdict!=='changes_required')return null;
+    const base=r.version,documentId=r.documentId,g=generation,group=el('section'),findings=el('ul');
+    group.append(el('strong','Independent review requested changes'));
+    for(const finding of version.assessment.findings||[])findings.append(el('li',finding));
+    if(findings.childElementCount)group.append(findings);
+    const revise=button('Revise from review',async()=>{
+      if(revisionRequest)return;
+      revisionRequest=base;revisionError='';render();
+      try{await call('startPaper',{documentId,mode:'write',expectedBaseVersion:base,requestId:'review:'+base});}
+      catch(e){if(g===generation)revisionError=e.message;}
+      finally{if(g===generation){revisionRequest='';render();await update();}}
+    });
+    revise.disabled=!!revisionRequest||['queued','running','blocked'].includes(snapshot?.run?.status);
+    group.append(revise);
+    if(revisionError){const error=el('p',revisionError);error.setAttribute('role','alert');group.append(error);}
+    return group;
   }
   function tableOrigin(r,table){
     const group=el('details'),summary=el('summary',table.count+' '+table.condition+' · result and inputs');
@@ -58,7 +77,7 @@ window.AthenaResearchFlow={mount(root,options){
     if(r.history.length>1){
       const history=el('select');history.setAttribute('aria-label','Research request');
       for(const entry of r.history){const opt=el('option',entry.title);opt.value=entry.runId;history.append(opt);}
-      history.value=r.runId;history.onchange=()=>{displayDraft(null);selectedRun=history.value;generation++;signature='';update();};frag.append(history);
+      history.value=r.runId;history.onchange=()=>{displayDraft(null);selectedRun=history.value;generation++;revisionRequest='';revisionError='';signature='';update();};frag.append(history);
     }
     if(tab==='progress'){
       const list=el('ol');list.className='ac-flow-stages';
@@ -107,6 +126,7 @@ window.AthenaResearchFlow={mount(root,options){
         if(stage.title==='Manuscript' && r.sectionBriefs?.length){
           for(const brief of r.sectionBriefs)details.append(el('p',brief.heading+' · '+brief.purpose+(brief.visual?' · '+brief.visual:'')));
         }
+        if(stage.title==='Independent review'){const controls=revisionControls(r);if(controls)details.append(controls);}
         if(stage.taskId)details.append(button('Worker, attempts and tools',()=>options.open('workflow',{taskId:stage.taskId})));
         li.append(details);list.append(li);
       }
@@ -155,6 +175,8 @@ window.AthenaResearchFlow={mount(root,options){
           if(c.previewError)frag.append(el('p',c.previewError));
         }else if(version.review.status==='approved'){
           frag.append(el('p',c?.error||'Waiting for LaTeX compilation.'),button('Typeset reviewed revision',()=>recover('compilePaper',{documentId:r.documentId,version:version.version})));
+        }else{
+          const controls=revisionControls(r);if(controls)frag.append(controls);
         }
         for(const table of r.tables||[]){if(r.sources?.some(s=>s.source?.id===table.artifactId&&s.source.version===table.version)){frag.append(tableOrigin(r,table));}}
         for(const src of r.sources||[]){if(src.source?.kind==='artifact')frag.append(button(src.quote+' · input and result',()=>options.open('workflow',{taskId:src.source.taskId})));}
@@ -209,6 +231,6 @@ window.AthenaResearchFlow={mount(root,options){
   },attach(fn){service=fn;if(scope)update();},scope(s){snapshot=s;const next=s.projects?.find(p=>p.id===s.projectId)?.researchWorkflow&&s.sessionId||'';
     const run=(s.run?.id||'')+' '+(s.run?.status||'');
     if(scope===next){if(scope&&hostRun!==run){hostRun=run;if(!report)render();if(!requesting)update();}return;}
-    hostRun=run;scope=next;selectedRun='';generation++;lastStream=null;displayDraft(null);report=null;version=null;signature='';versionState='';root.hidden=!scope;clearTimeout(timer);notice.textContent='';options.stage('');render();if(scope)update();},
+    hostRun=run;scope=next;selectedRun='';generation++;revisionRequest='';revisionError='';lastStream=null;displayDraft(null);report=null;version=null;signature='';versionState='';root.hidden=!scope;clearTimeout(timer);notice.textContent='';options.stage('');render();if(scope)update();},
     destroy(){listeners.abort();generation++;scope='';clearTimeout(timer);}};
 }};
