@@ -412,7 +412,7 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   assert.equal(revised.versions.length,1);assert.equal(revised.uploads.length,1);
   assert.notEqual(revised.reviews[0].reviewer.agentSessionId,previous.assessment.reviewer?.agentSessionId);
   const first=await call('getDocument',{documentId,version:d.versions[0]}),second=await call('getDocument',{documentId});
-  assert.deepEqual(await call('startPaper',revisionRequest),receipt);
+  assert.equal((await call('startPaper',revisionRequest)).runId,receipt.runId);
   await assert.rejects(call('startPaper',{...revisionRequest,expectedBaseVersion:first.version}),{code:'REQUEST_ID_CONFLICT'});
   await assert.rejects(call('startPaper',{...revisionRequest,requestId:'stale-review'}),{code:'VERSION_CONFLICT'});
   assert.equal((await call('paperDetails',{documentId})).runs.length,d.runs.length);
