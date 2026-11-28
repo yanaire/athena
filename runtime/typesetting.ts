@@ -42,6 +42,78 @@ function literal(text:string) {
     });
 }
 export type PaperReference = {url:string;retrievedAt:string;title?:string;authors?:string[];date?:string};
+function headingAt(lines:string[], index:number) {
+  const line=lines[index]!.replace(/^\uFEFF/,'');
+  const atx=/^ {0,3}(#{1,6})[ \t]+(.+?)\s*$/.exec(line);
+  if(atx)return {level:atx[1]!.length,text:atx[2]!.replace(/[ \t]+#+$/,'').trim(),size:1};
+  const underline=/^ {0,3}(=+|-+)\s*$/.exec(lines[index+1]??'');
+  if(underline && /\S/.test(line) && !/^\s*[|#]/.test(line))
+    return {level:underline[1]![0]==='='?1:2,text:line.trim(),size:2};
+}
+function headingName(text:string) {
+  return text.replace(/^(\*\*|__)(.+)\1$/,'$2').trim().replace(/:$/,'').toLowerCase();
+}
+function bibliographyHeading(text:string) {
+  return /^(references|bibliography|works cited|literature cited)$/.test(headingName(text));
+}
+function startsWithTitle(lines:string[], heading:NonNullable<ReturnType<typeof headingAt>>, next:number, title:string) {
+  if(bibliographyHeading(heading.text))return false;
+  if(heading.text===title)return true;
+  if(heading.level!==1 || /^(abstract|introduction|background|(?:materials and )?methods|methodology|results|discussion|conclusions?|appendix|acknowledg(e)?ments)$/.test(headingName(heading.text)))return false;
+  // A sequence of top-level sections can start a manuscript that has no authored title.
+  for(let i=next;i<lines.length;i++){
+    const following=headingAt(lines,i);
+    if(following)return following.level>1;
+  }
+  return true;
+}
+function referenceUrl(value:string) {
+  try {
+    const url=new URL(value);
+    if(url.protocol==='https:' || url.protocol==='http:')return url;
+  } catch { /* A prose citation can contain a bare DOI. */ }
+}
+function doiFromUrl(url:URL|undefined) {
+  if(url && /^(?:dx\.)?doi\.org$/i.test(url.hostname)){
+    try {return decodeURIComponent(url.pathname.slice(1)).toLowerCase();} catch {return undefined;}
+  }
+}
+// Strip sentence and Markdown-link punctuation without dropping balanced parentheses in identifiers.
+function identifierToken(text:string) {
+  const token=text.replace(/[.,;:]+$/,'');
+  const trailing=token.match(/\)+$/)?.[0].length??0;
+  if(!trailing)return token;
+  const extra=token.split(')').length-token.split('(').length;
+  return extra>0?token.slice(0,-Math.min(extra,trailing)):token;
+}
+function referenceIdentities(entry:string) {
+  const urls=Array.from(entry.matchAll(/https?:\/\/[^\s<>\[\]"*]+/gi),m=>referenceUrl(identifierToken(m[0])));
+  const dois=Array.from(entry.matchAll(/\b10\.\d{4,9}\/[^\s<>\[\]"*]+/gi),m=>identifierToken(m[0]).toLowerCase());
+  for(const url of urls){const doi=doiFromUrl(url);if(doi)dois.push(doi);}
+  return {urls:urls.map(url=>url?.href),dois};
+}
+function titleInEntry(entry:string,title:string) {
+  const plain=entry.normalize('NFKC').toLowerCase().replace(/[*_\x60]/g,'').replace(/\s+/g,' ');
+  const name=title.normalize('NFKC').toLowerCase().replace(/[*_\x60]/g,'').replace(/\s+/g,' ').trim().replace(/\.$/,'');
+  if(!name)return false;
+  const start=plain.indexOf(name);
+  return start>=0 && (start===0 || /[.,:;“"'()[\]\-]$/.test(plain.slice(0,start).trimEnd()))
+    && (start+name.length===plain.length || /[.,;:!?”"')\]]/.test(plain[start+name.length]!));
+}
+function missingReferences(refs:readonly PaperReference[], authored:string[]) {
+  if(!authored.length || !refs.length)return refs;
+  const entries=authored.join('\n').split(/\n\s*\n|\n(?=\s*(?:\[\d+\]|\d+[.)]\s|[-*+]\s))/)
+    .map(text=>({text,...referenceIdentities(text)}));
+  return refs.filter(ref=>{
+    const url=referenceUrl(ref.url),doi=doiFromUrl(url);
+    return !entries.some(entry=>{
+      if((doi && entry.dois.includes(doi)) || (url && entry.urls.includes(url.href)))return true;
+      // A title alone cannot distinguish two editions with different retained identifiers.
+      return !entry.dois.length && !entry.urls.length && ref.title && titleInEntry(entry.text,ref.title)
+        && !refs.some(other=>other.url!==ref.url && other.title?.toLowerCase()===ref.title!.toLowerCase());
+    });
+  });
+}
 export type DiagramSource = {sourceId:string;content:string};
 export type MeasuredSeries = {sourceId:string;rows:ReadonlyArray<Record<string,unknown>>};
 function evidenceBlock(kind:string, caption:string, series:MeasuredSeries, xKey:string, yKey:string) {
@@ -81,13 +153,38 @@ function evidenceBlock(kind:string, caption:string, series:MeasuredSeries, xKey:
 export function manuscriptTex(title:string, markdown:string, style:Template,references?:readonly PaperReference[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[],diagrams:readonly DiagramSource[]=[]) {
   const lines = markdown.split(/\r?\n/);
   const body:string[] = [];
+  const firstContent=lines.findIndex(line=>line.trim());
+  const authoredReferences:string[]=[];
+  const sourceDois=new Set(references?.map(ref=>doiFromUrl(referenceUrl(ref.url))));
+  let linkedDoi=false;
+  function referenceText(line:string) {
+    // Use only recognized DOI destinations with TeX-safe characters. Other text stays literal.
+    let start=0, rendered='';
+    for(const match of line.matchAll(/\b10\.\d{4,9}\/[^\s<>\[\]"*]+/gi)){
+      const doi=identifierToken(match[0]);
+      if(!/^[A-Za-z0-9./:_();-]+$/.test(doi) || !sourceDois.has(doi.toLowerCase()))continue;
+      rendered+=literal(line.slice(start,match.index))+'\\href{https://doi.org/'+doi+'}{'+literal(doi)+'}';
+      start=match.index+doi.length;
+      linkedDoi=true;
+    }
+    return rendered+literal(line.slice(start));
+  }
+  let referencesLevel=0, referencesEnd:number|undefined;
   let i=0;
   while(i<lines.length) {
+    const index=i;
+    const heading=headingAt(lines,i);
     const line=lines[i++]!;
-    const heading=/^(#{1,6})\s+(.+)/.exec(line);
     if(heading) {
-      if(body.length===0 && heading[2]===title) continue;
-      body.push('\\'+(heading[1]!.length<=2?'section':'subsection')+'*{'+literal(heading[2]!)+'}');
+      i=index+heading.size;
+      const bibliography=bibliographyHeading(heading.text);
+      if(index===firstContent && startsWithTitle(lines,heading,i,title)){
+        title=heading.text;
+        continue;
+      }
+      if(referencesLevel && heading.level<=referencesLevel){referencesEnd=body.length;referencesLevel=0;}
+      if(bibliography){referencesLevel=heading.level;authoredReferences.push('');}
+      body.push('\\'+(heading.level<=2?'section':'subsection')+'*{'+literal(heading.text)+'}');
     } else if(/^\|.*\|\s*$/.test(line) && /^\|[\s|:-]+\|\s*$/.test(lines[i]??'')) {
       const cells=(s:string)=>s.trim().slice(1,-1).split('|').map(v=>literal(v.trim()));
       const header=cells(line);
@@ -127,21 +224,29 @@ export function manuscriptTex(title:string, markdown:string, style:Template,refe
         continue;
       }
       throw Error('The manuscript references an unstaged figure. Supply a verified table or edit and review a revision with the figure resolved.');
-    } else body.push(literal(line));
+    } else {
+      if(referencesLevel)authoredReferences.push(line);
+      body.push(referencesLevel?referenceText(line):literal(line));
+    }
   }
-  if(references?.length){
-    body.push('\\section*{References}');
-    for(const r of references){
+  if(referencesLevel)referencesEnd=body.length;
+  const required=missingReferences(references??[],authoredReferences);
+  if(required.length){
+    const supplement=referencesEnd===undefined?['\\section*{References}']:[];
+    for(const r of required){
       const url=Array.from(r.url,c=>literal(c)+('/.-_'.includes(c)?'\\allowbreak{}':'')).join('');
       const byline=r.authors?.length?r.authors.slice(0,12).join(', ')+(r.authors.length>12?' et al.':''):'';
       const citation=[byline,r.date,r.title].filter(Boolean).map(part=>literal(String(part))).join('. ');
-      body.push('\\noindent '+(citation?citation+'. ':'')+url+' (accessed '+literal(r.retrievedAt.slice(0,10))+').\\par');
+      supplement.push('\\par\\noindent '+(citation?citation+'. ':'')+url+' (accessed '+literal(r.retrievedAt.slice(0,10))+').\\par');
     }
+    body.splice(referencesEnd??body.length,0,...supplement);
   }
   const front=style==='elsarticle-3p'
     ? ['\\documentclass[final,3p]{elsarticle}','\\begin{document}','\\begin{frontmatter}','\\title{'+literal(title)+'}','\\end{frontmatter}']
     : [style==='article'?'\\documentclass[11pt]{article}':style==='IEEEtran'?'\\documentclass[conference]{IEEEtran}':'\\documentclass[manuscript]{acmart}','\\title{'+literal(title)+'}','\\author{}','\\date{}','\\begin{document}','\\maketitle'];
   if(preamble)front.splice(0,1,...preamble);
+  if(linkedDoi && !front.some(line=>line.endsWith('{hyperref}')))
+    front.splice(front.indexOf('\\begin{document}'),0,'\\usepackage{hyperref}');
   return [...front,...body,'\\end{document}',''].join('\n');
 }
 export async function typeset(title:string,markdown:string,style:Template,signal:AbortSignal,references?:readonly PaperReference[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[],diagrams:readonly DiagramSource[]=[]) {
