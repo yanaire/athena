@@ -627,7 +627,7 @@ export class TaskManager implements AthenaTaskManager {
     const flow=this.#flow(flowRun.id);
     if(!flow)throw new ManagerError('CHECKPOINT_UNAVAILABLE','No research workflow for this request.');
     const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
-    const paperRun=paper?.runs.findLast(r=>r.context.sessionId===flowRun.sessionId);
+    const paperRun=paper?.runs.findLast(r=>r.mode==='write'&&r.context.sessionId===flowRun.sessionId);
     if(paper&&!paperRun&&flowRun.status==='succeeded')return this.#continueFlow(flowRun);
     const run=paperRun?this.#storage.record<Run>('run',paperRun.id):flowRun;
     if(!run||run.id!==this.#currentRun(flowRun.sessionId)?.id)throw new ManagerError('CHECKPOINT_UNAVAILABLE','Only the latest request can resume.');
@@ -688,7 +688,7 @@ export class TaskManager implements AthenaTaskManager {
     const mission=study?missions.find(m=>m.id===study.missionId):flow.planMode?missions.at(-1):missions[0];
     const reviews=board.reviews.filter(r=>r.requestedBy.runId===run.id);
     const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
-    const writing=paper?.runs.at(-1),written=writing&&this.#storage.record<Run>('run',writing.id);
+    const writing=paper?.runs.findLast(r=>r.mode==='write'&&r.context.sessionId===session),written=writing&&this.#storage.record<Run>('run',writing.id);
     const author=writing?.attempts.at(-1);
     const draft=author && (this.#draftStreams.get(author.attemptId)?.draft??this.#storage.get<ManuscriptDraft>('paper.draft:'+author.attemptId));
     const drafting=draft && this.#storage.record<Attempt>('attempt',draft.attemptId);
@@ -755,19 +755,25 @@ export class TaskManager implements AthenaTaskManager {
     const editing=writingActive && ['requested','planning','Plan manuscript evidence','Draft sections','Edit manuscript','Revise manuscript'].includes(writing.stage);
     const reviewing=writingActive && writing.stage==='Independent review';
     const editorTask=writing?.attempts.findLast(t=>t.role==='Revise manuscript'||t.role==='Edit manuscript')?.taskId;
+    const latest=written??run,checkpoint=this.#storage.record<TaskRow>('task',latest.taskId)?.attemptId;
+    const isLatest=this.#currentRun(session)?.id===latest.id;
+    // A stopped revision still displays its previously reviewed base until the
+    // editor publishes. That assessment belongs to the base, not this attempt.
+    const unfinishedRevision=!!writing?.revisionReviewId && !writing.versions.length && writing.baseVersion===current;
+    const revisionRecovery=unfinishedRevision && written && !pending(written.status) && checkpoint?
+      (isLatest?'resume':'restart'):undefined;
     const stages=[
       phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission?.objective),
       phase('Sources',flow.pages?.length||flow.inputs?.length||retained.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
         [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...[...(flow.pages??[]),...retained].map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
       experimentStage(),
       phase('Verify results',succeeded?'Succeeded':reviews.length?states(reviews.at(-1)?.executionStatus):upcoming,reviews.at(-1)?.reviewer?.taskId,reviews.at(-1)?.verdict),
-      phase('Manuscript',editing?'Running':current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',editorTask,writing?.error||flow.error),
+      phase('Manuscript',editing?'Running':revisionRecovery?states(writing?.stage==='failed'?'failed':written?.status):current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',editorTask,writing?.error||flow.error),
       phase('Independent review',reviewing?'Running':editing?'Planned':version?.review.status==='approved'?'Succeeded':version?.assessment?'Waiting for input':'Planned',
         reviewing?writing.attempts.at(-1)?.taskId:version?.assessment?.reviewer?.taskId,editing||reviewing?undefined:version?.assessment?.verdict),
       phase('LaTeX',version?.compilation?.state==='succeeded'?'Succeeded':version?.compilation?.state==='stopped'?'Stopped':version?.compilation?states(version.compilation.state):'Planned',written?.taskId,version?.compilation?.error)
     ];
-    const latest=written??run,checkpoint=this.#storage.record<TaskRow>('task',latest.taskId)?.attemptId;
-    return {history:history.map(r=>({runId:r.id,title:r.title})),checkpoint,runId:run.id,model:run.model,documentId:paper?.id,manuscriptRunId:writing?.id,version:current,
+    return {revisionRecovery,history:history.map(r=>({runId:r.id,title:r.title})),checkpoint,runId:run.id,model:run.model,documentId:paper?.id,manuscriptRunId:writing?.id,version:current,
       plan:mission && {missionId:mission.id, objective:mission.objective, stages:mission.stages, acceptanceCriteria:mission.acceptanceCriteria,
         coordinatorModel:flow.planMode ? run.model?.modelId : undefined},
       liveDraft:draft && (!current||drafting && pending(drafting.status))?{...draft,active:!!drafting && pending(drafting.status)}:undefined,
@@ -777,7 +783,7 @@ export class TaskManager implements AthenaTaskManager {
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
       sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
       connections:run.extensions?.servers.map(s=>({name:s.definition.name,capability:s.definition.capability,checkedAt:s.verification.checkedAt,calls:processes.filter(p=>p.job.externalMcp?.serverId===s.id).map(p=>({tool:p.job.externalMcp!.tool,status:p.status})),tools:s.verification.tools.map(t=>t.name)}))??[],
-      searches:searches.map(s=>({status:s.status,term:s.term})),canResume:!pending(latest.status)&&this.#currentRun(session)?.id===latest.id&&(!writing||(current??null)===(writing.versions.at(-1)??writing.baseVersion))&&(!paper||!writing||(!version?.assessment&&writing.stage!=='insufficient_evidence')||writing.stage==='failed'&&version?.review.status!=='approved'),error:flow.error??latest.error};
+      searches:searches.map(s=>({status:s.status,term:s.term})),canResume:!pending(latest.status)&&isLatest&&(!writing||(current??null)===(writing.versions.at(-1)??writing.baseVersion))&&(!paper||!writing||unfinishedRevision||(!version?.assessment&&writing.stage!=='insufficient_evidence')||writing.stage==='failed'&&version?.review.status!=='approved'),error:flow.error??latest.error};
   }
   paperCatalog(project:string) { this.#paperProject(project); return this.#papers.list(project); }
   #paperProject(project:string) {

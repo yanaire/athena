@@ -25,7 +25,7 @@ window.AthenaResearchFlow={mount(root,options){
   }
   function viewSignature(){
     const {liveDraft,...stable}=report||{};
-    const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version,!!liveDraft]:stable;
+    const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version,report.revisionRecovery,report.checkpoint,!!liveDraft]:stable;
     return JSON.stringify([data,version?.version,version?.compilation,version?.review,hostRun,revisionRequest,revisionError,tab]);
   }
   function revisionControls(r){
@@ -34,10 +34,16 @@ window.AthenaResearchFlow={mount(root,options){
     group.append(el('strong','Independent review requested changes'));
     for(const finding of version.assessment.findings||[])findings.append(el('li',finding));
     if(findings.childElementCount)group.append(findings);
-    const revise=button('Revise from review',async()=>{
-      if(revisionRequest)return;
+    const recovery=r.revisionRecovery;
+    if(recovery==='restart')group.append(el('p','Another request followed the interrupted revision. Start a new revision from this reviewed edition.'));
+    const revise=button(recovery==='resume'?'Resume revision':recovery==='restart'?'Restart revision':'Revise from review',async()=>{
+      if(revisionRequest||g!==generation)return;
       revisionRequest=base;revisionError='';render();
-      try{await call('startPaper',{documentId,mode:'write',expectedBaseVersion:base,requestId:'review:'+base});}
+      try{
+        if(recovery==='resume')await call('resumeResearch',{runId:r.runId,expectedAttemptId:r.checkpoint});
+        else await call('startPaper',{documentId,mode:'write',expectedBaseVersion:base,
+          requestId:'review:'+base+(recovery==='restart'?':'+r.manuscriptRunId:'')});
+      }
       catch(e){if(g===generation)revisionError=e.message;}
       finally{if(g===generation){revisionRequest='';render();await update();}}
     });
@@ -217,7 +223,7 @@ window.AthenaResearchFlow={mount(root,options){
         if(viewSignature()!==signature)render();
       }
       refresh();
-      if(r?.version&&revision!==versionState){
+      if(r?.version&&(!version||revision!==versionState)){
         const saved=await call('getDocument',{documentId:r.documentId,version:r.version});
         if(g!==generation)return;
         version=saved;versionState=revision;refresh();
