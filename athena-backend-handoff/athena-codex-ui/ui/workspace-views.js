@@ -311,7 +311,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const ids = [process.id, process.processId, process.taskId, process.attemptId, process.agentSessionId];
       const registered = window.AthenaResultFiles?.mcp(job.mcp);
       const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
-      const description = job.mcp ? [registered?.name || 'Engineering calculation', ['queued', 'running'].includes(process.status) && phase].filter(Boolean).join(' · ')
+      const description = job.codeMode ? 'Research comparison' : job.mcp ? [registered?.name || 'Engineering calculation', ['queued', 'running'].includes(process.status) && phase].filter(Boolean).join(' · ')
         : labels.text(job.program, 'Background process', ids);
       return '<button type="button" class="awv-link-row" data-awv-open-process="' + esc(process.id) + '" data-awv-focus="process-' + esc(process.id) + '">' + icon('square-terminal') + '<span>' + esc(description) + '</span><small>' + esc(label(process.status)) + '</small>' + icon('arrow-up-right') + '</button>';
     }

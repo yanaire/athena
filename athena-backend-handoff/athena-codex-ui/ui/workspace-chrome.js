@@ -3,7 +3,7 @@
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
-  const LABELS = { ready: 'Ready', queued: 'Queued', running: 'Working', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', cancelled: 'Stopped' };
+  const LABELS = { ready: 'Ready', queued: 'Queued', running: 'Running', paused: 'Paused', blocked: 'Waiting', succeeded: 'Complete', failed: 'Needs attention', cancelled: 'Stopped', timed_out: 'Timed out', interrupted: 'Interrupted', not_dispatched: 'Never started' };
 
   function mount(root, options) {
     const host = root.querySelector('#aw-activity');
@@ -137,7 +137,8 @@
     function toolEventHTML(tool, state, agent = null) {
       const task = state.tasks.find(item => item.id === tool.taskId) || (state.mode === 'runtime' ? { id: null, title: 'Session tool', status: tool.status } : null);
       if (!task) return '';
-      const latest = tool.logs[tool.logs.length - 1];
+      const name = tool.sdkToolName || tool.name;
+      const latest = ['discover_read_tools', 'call_read_tool', 'run_code'].includes(name) ? null : tool.logs[tool.logs.length - 1];
       const open = expandedTools.has(tool.id) || (agent && expanded.has(agent.id));
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
       const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
@@ -178,7 +179,8 @@
     function revealTool(selection = {}) {
       if (destroyed) return false;
       if (typeof selection === 'string') selection = { taskId: selection };
-      const process = snapshot.processes?.find(item => item.id === selection.processId) || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
+      const process = snapshot.processes?.find(item => item.id === selection.processId || (item.job?.codeMode && item.toolId === selection.toolId))
+        || (!selection.toolId && !selection.taskId && !snapshot.tools.length ? snapshot.processes?.[0] : null);
       if (process) {
         expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
         const row = [...all('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
@@ -231,8 +233,55 @@
       }).join('');
     }
 
+    function codeModeHTML(process, task, trace) {
+      const reads = trace.calls || [];
+      const complete = reads.filter(call => call.status === 'succeeded').length;
+      const active = reads.filter(call => call.status === 'running').length;
+      const queued = reads.filter(call => call.status === 'queued').length;
+      const incomplete = reads.length - complete - active - queued;
+      const progress = [complete + ' completed', active && active + ' reading', queued && queued + ' waiting',
+        incomplete && incomplete + ' unfinished'].filter(Boolean).join(' · ');
+      const rows = reads.map(call => {
+        const name = call.tool === 'athena.research.get_research_board' ? 'Read research board'
+          : call.tool === 'athena.artifacts.read_file' ? 'Read result file' : 'Read request';
+        const status = LABELS[call.status] || 'Unknown';
+        const timings = [call.startedAt != null && trace.startedAt != null ? '+ ' + Math.max(0, call.startedAt - trace.startedAt) + ' ms from launch' : '',
+          call.startedAt != null && call.endedAt != null ? Math.max(0, call.endedAt - call.startedAt) + ' ms' : ''].filter(Boolean).join(' · ');
+        const artifact = call.source && snapshot.artifacts.find(item => item.id === call.source.id && item.version === call.source.version);
+        const source = artifact ? '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(artifact.id)
+          + '" data-aw-artifact-version="' + esc(artifact.version) + '">' + icon('file-check') + esc(displayText(artifact.title, 'View verified result')) + '</button>' : '';
+        const diagnostics = labels.diagnostics([['Call ID', call.id], ['Tool ID', call.tool], ['Contract version', call.version], ['Contract hash', call.contractHash],
+          ['Arguments SHA-256', call.argumentsSha256], ['Result SHA-256', call.resultSha256], ['Artifact ID', call.source?.id],
+          ['Artifact version', call.source?.version], ['Artifact SHA-256', call.source?.sha256], ['Error code', call.error?.code]], 'code-read:' + call.id);
+        return '<li data-aw-code-call="' + esc(call.order) + '"><div class="aw-code-read-title"><strong>' + esc(name) + '</strong>'
+          + '<span class="aw-status" data-status="' + esc(call.status) + '">' + esc(status) + '</span></div>'
+          + (timings ? '<small>' + esc(timings) + '</small>' : '') + source
+          + (call.error ? '<p>' + esc(call.error.message) + '</p>' : '') + diagnostics + '</li>';
+      }).join('');
+      const source = snapshot.tools.find(tool => tool.id === process.toolId)?.args?.source;
+      const summary = trace.result === undefined ? '' : JSON.stringify(trace.result, (_, value) => typeof value === 'string'
+        ? displayText(value, '[See technical details]') : value, 2);
+      const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Execution ID', trace.id], ['Source SHA-256', trace.sourceSha256],
+        ['Limits', JSON.stringify(trace.limits)], ['Worker CPU time', trace.cpuMs == null ? null : trace.cpuMs.toFixed(1) + ' ms'],
+        ['Peak active reads', trace.peakConcurrency],
+        ['Error code', trace.error?.code], ['JavaScript', source],
+        ['Full summary', summary.includes('[See technical details]') ? JSON.stringify(trace.result, null, 2) : '']], 'code:' + trace.id);
+      return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '" data-aw-code-status="' + esc(process.status) + '"'
+        + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">'
+        + icon('braces') + '<span class="aw-agent-copy"><span class="aw-agent-name">Research comparison'
+        + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(LABELS[process.status] || 'Unknown') + '</span></span>'
+        + '<span class="aw-tool-target" data-aw-code-progress>' + esc(progress) + '</span></span>' + icon('chevron-down') + '</summary>'
+        + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + ' · ' + esc(labels.attempt(process.attemptId, task)) + '</p>'
+        + (trace.error ? '<p class="aw-tool-task" data-aw-code-error>' + esc(trace.error.message) + '</p>' : '')
+        + (rows ? '<ol class="aw-code-reads" aria-label="Reads in request order">' + rows + '</ol>' : '')
+        + (summary ? '<p class="aw-tool-task">JavaScript summary</p><pre class="aw-tool-log" data-aw-code-result>' + esc(summary) + '</pre>' : '')
+        + diagnostics + '</div></details>';
+    }
+
     function processHTML(process) {
       const job = process.job || process;
+      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
+      if (job.codeMode) return codeModeHTML(process, task, job.codeMode);
       const registered = window.AthenaResultFiles?.mcp(job.mcp);
       const processName = job.mcp ? registered?.name || 'Engineering calculation' : displayText(job.program, 'Process');
       const phase = window.AthenaResultFiles?.mcpPhase(job.mcp);
@@ -249,7 +298,6 @@
       const diagnostics = labels.diagnostics([['Task ID', process.taskId], ['Process ID', process.processId || process.id], ['Tool ID', process.toolId], ['Agent session ID', process.agentSessionId], ['Attempt ID', process.attemptId],
         ['MCP server', job.mcp?.server], ['MCP tool', job.mcp?.tool], ['Server version', job.mcp?.version], ['MCP protocol', job.mcp?.protocol], ['Result kind', job.mcp?.resultKind], ['MCP phase', job.mcp?.phase],
         ['Plugin ID', job.externalMcp?.pluginId], ['Plugin revision', job.externalMcp?.pluginRevision], ['Verified schema digest', job.externalMcp?.verificationDigest], ['Endpoint', job.externalMcp?.url]], 'process:' + process.id);
-      const task = { ...snapshot.tasks.find(item => item.id === process.taskId), attempts: (snapshot.attempts || []).filter(item => item.taskId === process.taskId) };
       return '<details class="aw-agent-event" data-aw-process="' + esc(process.id) + '"' + (expandedProcesses.has(process.id) ? ' open' : '') + '><summary class="cursor-interaction" data-aw-process-summary="' + esc(process.id) + '">' + icon('square-terminal') + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(processName) + '<span class="aw-status" data-status="' + esc(process.status) + '">' + esc(status) + '</span></span>' + (phase && ['queued', 'running'].includes(process.status) ? '<span class="aw-tool-target">' + esc(phase) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>'
         + '<div class="aw-agent-detail"><p class="aw-tool-task">' + esc(labels.task(process.taskId, snapshot.tasks)) + (process.attemptId ? ' · ' + esc(labels.attempt(process.attemptId, task)) : '') + '</p>' + (cancellation ? '<p class="aw-tool-task">' + esc(cancellation) + '</p>' : '') + '<dl class="aw-tool-context">' + recorded + '</dl>' + diagnostics
         + (command ? '<code class="aw-tool-command">' + command + '</code>' : '') + output('Standard output', job.stdout) + output('Standard error', job.stderr) + (job.error ? '<p class="aw-tool-task">' + esc(job.error) + '</p>' : '') + '<div class="aw-agent-links">' + resultFilesHTML(files) + '</div></div></details>';
@@ -313,7 +361,8 @@
         if(signature!==renderSignature){
           renderSignature=signature;
           const previous=contains(document.activeElement)?captureKey(document.activeElement):null;
-          const tools=state.tools.filter(tool=>(tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id));
+          const codeOwners = new Set((state.processes || []).filter(process => process.job?.codeMode).map(process => process.toolId));
+          const tools=state.tools.filter(tool=>!codeOwners.has(tool.id)&&((tool.source!=='pi'&&!options.hasConversationTool?.(tool.id))||requestedTools.has(tool.id)));
           const pending=state.approvals.filter(request=>request.status==='pending');
           const recovery=state.tasks.filter(task=>task.parentTaskId&&(['failed','paused','cancelled'].includes(task.status)||state.retryOperations?.[task.id]?.pending||state.retryOperations?.[task.id]?.accepted));
           const runContext = (LABELS[state.run.status] || displayText(state.run.status, 'Ready', state)) + ' · ' + state.tasks.length + (state.tasks.length === 1 ? ' task' : ' tasks');

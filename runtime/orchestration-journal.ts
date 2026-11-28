@@ -122,8 +122,11 @@ export class Journal {
     if(!tool || tool.projectId!==job.projectId || tool.sessionId!==job.sessionId || tool.taskId!==job.taskId)throw new Error('Process has no owning tool.');
     const ctx=context(tool), processId=job.attemptId;
     const evidence=job.analysis?.inputs.flatMap(f=>f.fileId && f.versionId?[{id:f.fileId,version:f.versionId}]:[])??
+      (job.codeMode ? [...new Map(job.codeMode.calls.flatMap(call => call.source
+        ? [[call.source.id, {id:call.source.id, version:call.source.version}] as const] : [])).values()] : undefined)??
       (job.grant?[{id:job.grant.fileId,version:job.grant.versionId}]:[]);
     this.db.putRecord('process',{...ctx,id:processId,processId,toolId:tool.id,status:job.status,job,evidence} satisfies ProcessRow);
+    if (event.type === 'process_progress') return;
     const files=job.artifacts??(job.artifact?[job.artifact]:[]);
     const links={toolId:tool.id,processId,artifactId:files[0]?.id};
     this.event(ctx,event.type,event.type==='process_output'?event.stream+': '+event.text:event.type+': '+job.status,links);

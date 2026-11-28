@@ -33,8 +33,27 @@ export interface ProcessMcp {
   readonly alias?: string; readonly resultKind?: string;
   readonly phase: 'initialize' | 'tools/list' | 'tools/call';
 }
+export interface CodeReadTrace {
+  readonly id: string; readonly order: number; readonly tool: string | null;
+  readonly version: number | null; readonly contractHash: string | null; readonly argumentsSha256: string;
+  readonly status: 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out' | 'cancelled' | 'not_dispatched' | 'interrupted';
+  readonly queuedAt: number; readonly startedAt: number | null; readonly endedAt: number | null;
+  readonly resultBytes?: number; readonly resultSha256?: string;
+  readonly source?: { readonly id: string; readonly version: string; readonly sha256: string; readonly title: string; readonly uri: string };
+  readonly error?: { readonly code: string; readonly message: string };
+}
+export interface CodeExecution {
+  readonly id: string; readonly sourceSha256: string; readonly language: 'javascript';
+  readonly bindings: readonly { readonly id: string; readonly version: number; readonly hash: string }[];
+  readonly limits: Readonly<Record<string, number>>;
+  readonly queuedAt: number; readonly startedAt: number | null; readonly endedAt: number | null;
+  readonly calls: readonly CodeReadTrace[]; readonly peakConcurrency: number;
+  readonly cpuMs?: number; readonly result?: unknown;
+  readonly error?: { readonly code: string; readonly message: string };
+}
 export interface ProcessJob {
   readonly mcp?: ProcessMcp;
+  readonly codeMode?: CodeExecution;
   readonly externalMcp?: { readonly serverId: string; readonly pluginId: string; readonly pluginRevision: string; readonly verificationDigest: string; readonly url: string; readonly tool: string; readonly argumentDigest?: string };
   readonly program?: string; readonly args?: readonly string[]; readonly cwd?: string | null;
   readonly limits?: Readonly<Record<string, number>>; readonly policy?: Readonly<Record<string, unknown>>;

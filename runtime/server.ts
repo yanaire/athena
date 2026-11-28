@@ -22,6 +22,7 @@ import { ExtensionError } from './extensions.ts';
 import { ExternalMcpError } from './external-mcp-client.ts';
 import { createPrivateDirectory } from './private-storage.ts';
 import { nativeBrowserAvailable, openAccountBrowser, openWebAddress } from './native-browser.ts';
+import type { WorkspaceSnapshot } from '../athena-backend-handoff/athena-codex-ui/integrations/task-manager.d.ts';
 
 const desktopMode = process.argv.includes('--desktop', 2);
 async function initialize() {
@@ -79,8 +80,29 @@ function publish(event: object) {
     else client.write(frame);
   }
 }
-manager.subscribe(snapshot => publish({ type: 'snapshot', snapshot }));
-manager.subscribeAllPi((sessionId, event) => publish({ type: 'pi', sessionId, event }));
+// A tool batch can commit several durable receipts in one event-loop tick.
+// Send the newest active workspace view once per refresh interval.
+let nextSnapshot: WorkspaceSnapshot | undefined;
+let snapshotTimer: NodeJS.Timeout | undefined;
+let activeConversation: string | null = null;
+function flushSnapshot() {
+  clearTimeout(snapshotTimer);
+  snapshotTimer = undefined;
+  const current = nextSnapshot;
+  nextSnapshot = undefined;
+  if (current) publish({ type: 'snapshot', snapshot: current });
+}
+manager.subscribe(snapshot => {
+  activeConversation = snapshot.sessionId;
+  nextSnapshot = snapshot;
+  if (['queued', 'running', 'blocked'].includes(snapshot.run.status)) snapshotTimer ??= setTimeout(flushSnapshot, 80).unref();
+  else flushSnapshot();
+});
+// The app consumes the conversation's Pi stream and uses saved snapshots for
+// worker activity. Forwarding worker streams repeats their tool results.
+manager.subscribeAllPi((sessionId, event) => {
+  if (sessionId === activeConversation) publish({ type: 'pi', sessionId, event });
+});
 
 function string(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) throw new TypeError('Expected a nonempty string.');

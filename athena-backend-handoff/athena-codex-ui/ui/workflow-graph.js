@@ -109,6 +109,7 @@
     const knownIds = model.nodes.flatMap(node => [node.id, node.task.parentTaskId, node.task.attemptId, node.task.agentSessionId, ...node.attempts.map(attempt => attempt.id), ...node.processes.flatMap(process => [process.id, process.toolId, process.attemptId, process.agentSessionId])]);
     const processName = process => {
       const job = process.job || process;
+      if (job.codeMode) return 'Research comparison';
       return clean(window.AthenaResultFiles?.mcp(job.mcp)?.name || job.program, job.mcp ? 'Engineering calculation' : 'Background process', knownIds);
     };
     const nodeTitle = id => byId.has(id) ? title(byId.get(id).task) : 'Unavailable task';

@@ -66,7 +66,7 @@ jobs:
         run: npm run check
       - name: Prepare the offline runner
         run: npm run analysis:prepare
-      - name: Run host and controlled provider tests
+      - name: Run host, isolated JavaScript and controlled provider tests
         run: npm test
       - name: Audit production npm dependencies
         run: npm audit --omit=dev
@@ -127,6 +127,12 @@ jobs:
         env:
           ATHENA_BROWSER_EVIDENCE: ${{ github.workspace }}/athena-backend-handoff/athena-codex-ui/qa/browser-evidence
         run: node qa/chat-browser-test.mjs
+      - name: Exercise the JavaScript read trace and Stop in Chromium
+        if: ${{ !cancelled() }}
+        working-directory: athena-backend-handoff/athena-codex-ui
+        env:
+          ATHENA_BROWSER_EVIDENCE: ${{ github.workspace }}/athena-backend-handoff/athena-codex-ui/qa/browser-evidence
+        run: node qa/code-mode-browser-test.mjs
       - name: Preserve synthetic browser verification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -193,7 +199,7 @@ jobs:
         run: |
           npm run analysis:prepare
           cargo test --release --target "$ATHENA_DESKTOP_TARGET" --manifest-path sandbox/Cargo.toml --locked
-      - name: Run host and controlled provider tests on this OS
+      - name: Run host, isolated JavaScript and controlled provider tests on this OS
         run: node --test --test-reporter=tap --test-concurrency=2 tests/*.test.*
       - name: Build and verify the native application
         run: npm run desktop:build
