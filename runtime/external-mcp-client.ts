@@ -5,7 +5,7 @@ export const EXTERNAL_MCP_LIMITS = Object.freeze({ requestBytes: 256 * 1024, res
   schemaBytes: 32 * 1024, tools: 64, pages: 8, timeoutMs: 30_000, schemaDepth: 16, valueDepth: 32 });
 export type ExternalServerDefinition = {
   readonly id: string; readonly name: string; readonly transport: 'streamable-http'; readonly url: string;
-  readonly allowedTools: readonly string[]; readonly auth?: 'none' | 'bearer'; readonly timeoutMs?: number;
+  readonly capability?:'browser'|'computer'|'program'; readonly allowedTools: readonly string[]; readonly auth?: 'none' | 'bearer'; readonly timeoutMs?: number;
 };
 export type ExternalTool = {
   readonly name: string; readonly title?: string; readonly description?: string;
@@ -42,8 +42,10 @@ export function canonicalJson(value: unknown): string {
 export const extensionDigest = (v: unknown) => createHash('sha256').update(canonicalJson(v)).digest('hex');
 const str = (v: unknown, max = 256): v is string => typeof v === 'string' && v.trim().length > 0 && Buffer.byteLength(v) <= max && !/[\u0000-\u001f\u007f]/.test(v);
 export function validateExternalServer(value: unknown): ExternalServerDefinition {
-  if (!object(value) || Object.keys(value).some(k => !['id', 'name', 'transport', 'url', 'allowedTools', 'auth', 'timeoutMs'].includes(k)))
+  if (!object(value) || Object.keys(value).some(k => !['id', 'name', 'transport', 'url', 'allowedTools', 'auth', 'timeoutMs','capability'].includes(k)))
     throw new ExternalMcpError('INVALID_SERVER', 'External MCP configuration contains unsupported fields.');
+  if(value.capability!==undefined&&value.capability!=='browser'&&value.capability!=='computer'&&value.capability!=='program')
+    throw new ExternalMcpError('INVALID_SERVER','Unknown research tool capability.');
   if (value.transport !== 'streamable-http') throw new ExternalMcpError('UNSUPPORTED_TRANSPORT', 'Only Streamable HTTP MCP is supported. Athena does not launch external stdio commands.');
   if (!str(value.id, 64) || !/^[a-z][a-z0-9-]*$/.test(value.id) || !str(value.name, 128) || !str(value.url, 2048))
     throw new ExternalMcpError('INVALID_SERVER', 'A server ID, name and endpoint URL are required.');
@@ -58,7 +60,7 @@ export function validateExternalServer(value: unknown): ExternalServerDefinition
   if (value.auth !== undefined && value.auth !== 'none' && value.auth !== 'bearer') throw new ExternalMcpError('INVALID_SERVER', 'Unsupported MCP authentication mode.');
   if (value.timeoutMs !== undefined && (!Number.isSafeInteger(value.timeoutMs) || Number(value.timeoutMs) < 100 || Number(value.timeoutMs) > EXTERNAL_MCP_LIMITS.timeoutMs))
     throw new ExternalMcpError('INVALID_SERVER', 'MCP timeout must be between 100 and 30000 milliseconds.');
-  return { id: value.id, name: value.name, transport: 'streamable-http', url: url.href,
+  return { ...(value.capability?{capability:value.capability}:{}),id: value.id, name: value.name, transport: 'streamable-http', url: url.href,
     allowedTools: [...value.allowedTools] as string[], auth: value.auth ?? 'none', timeoutMs: value.timeoutMs as number | undefined };
 }
 

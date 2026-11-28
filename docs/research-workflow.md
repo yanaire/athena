@@ -8,6 +8,16 @@ the reusable research direction described in Tencent's
 It does not import a Hyra agent framework or claim to reproduce Tencent's internal
 research infrastructure.
 
+## Running a study from chat
+
+Create a project with the research option selected and choose its local work folder if desired. The host records the resolved directory and Git branch. Attach each input through the composer to grant access. The first conversation opens immediately. Choose the model and reasoning level, attach the data or supported LaTeX template, and send the research question. Changes to the conversation model apply to the next request.
+
+The **Research progress** tab reads the plan, bibliography, tool calls, condition tables, review receipts and compilation from TaskManager. Expand a stage to open the worker and its attempts in Workflow. Select a condition table to inspect the producing program, result version and its granted original inputs. **Manuscript preview** shows saved preliminary sections during the experiment, then the reviewed revision, compiled pages, source links and downloads. The existing editor remains available there.
+
+The coordinator can search public Crossref using the project's research permission. A verified external MCP with a `browser` or `computer` capability can read pages or operate a GUI using its declared tools. Enable and check that connection in Settings. System-browser navigation has its own history. A citation to a visited page needs the URL and quoted text in the returned tool receipt. The host records the retrieval time and scope. Crossref citations retain the DOI and the metadata or abstract actually received.
+
+The experiment and manuscript runs share their initial model, reasoning, account and extension selection. Once the experimental reviewer supports exact output versions, the coordinator hands those results and their sources to the manuscript run. `record_experiment_table` resolves an array within a versioned JSON artifact to count the actual conditions. Paused work can be resumed at the latest saved checkpoint in its conversation. A repeated resume uses its existing receipt. An edited manuscript revision needs its own review and compilation.
+
 ## Implemented flow
 
 1. The coordinator records the question, acceptance criteria and planned stages
@@ -178,3 +188,13 @@ records a method, and reloads the same evidence and decisions after restart.
 Changed input, malformed CSV, missing evidence, cancelled reviewer, failed
 reproduction and changed output bytes must remain visible as their actual
 outcomes. No unobserved external MCP or native-account case is marked passed.
+
+## Replaying the browser verification
+
+With Node 24, the prepared WASI runtime, a local TeX installation and Poppler available, install the QA folder's locked dependencies and Playwright Chromium. From the repository root run:
+
+```sh
+node athena-backend-handoff/athena-codex-ui/qa/research-browser-test.mjs
+```
+
+The scenario drives the served workspace and real host with a controlled Pi-compatible model provider. It records a WebM, screenshots, downloaded PDF, TeX, review manifest and checkpoint assertions under the directory it prints. Set `ATHENA_BROWSER_EVIDENCE` for a specific output directory and `ATHENA_CHROMIUM` for an existing Chromium executable. `ATHENA_LATEX_TEMPLATE_FILE` selects an attached template. `ATHENA_PUBLIC_METHOD=1` reads the pinned public reference, and `ATHENA_INTERRUPT_REVIEW=1` exercises cancellation and host restart during review. On Linux, `ATHENA_GUI_CHECK=1` exercises the independent calculator window with Python Tk, Xvfb and XTest.

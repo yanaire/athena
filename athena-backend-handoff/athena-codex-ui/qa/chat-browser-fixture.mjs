@@ -26,7 +26,7 @@ export const inputs = Object.freeze([
 const text = value => typeof value === 'string' ? value : Array.isArray(value) ? value.map(part => part?.text || '').join('\n') : '';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function createFixture() {
+export async function createFixture(researchResponder) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-chat-browser-'));
   const failures = [], calls = [];
   let child, origin = '', hostPort = 0, hostOutput = '';
@@ -45,15 +45,15 @@ export async function createFixture() {
       const coordinator = wire.tools.some(tool => tool.function.name === 'spawn_agent');
       calls.push({ role: coordinator ? 'parent' : 'child', toolResults: outputs.length });
       let next, before = '';
-      if (coordinator && input.startsWith(prompts.cancel)) {
+      if (researchResponder) next=await researchResponder({coordinator,input,outputs});
+      else if (coordinator && input.startsWith(prompts.cancel)) {
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         const closed = once(response, 'close');
         response.write(frame({ role: 'assistant', content: 'Waiting for cancellation. This response is still streaming.' }));
         await delay(1800); // A second real stream update while the reader scrolls up.
         if (!response.destroyed) response.write(frame({ content: ' More text arrived while the reader reviewed earlier work.' }));
         await closed; return;
-      }
-      if (coordinator && !input.startsWith(prompts.compare)) {
+      } else if (coordinator && !input.startsWith(prompts.compare)) {
         next = input.startsWith('Please preserve this identifier exactly:')
           ? 'The requested identifier was preserved.' : 'The preserved draft was accepted.';
       } else if (coordinator) {
@@ -101,6 +101,7 @@ export async function createFixture() {
       response.write(frame({}, typeof next === 'string' ? 'stop' : 'tool_calls'));
       response.end('data: [DONE]\n\n');
     } catch (error) {
+      if(researchResponder)console.error(error);
       failures.push(String(error.stack || error));
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: { message: 'Controlled browser provider assertion failed.' } }));
@@ -163,7 +164,7 @@ export async function createFixture() {
   try { await startHost(); }
   catch (error) { child?.kill('SIGKILL'); provider.closeAllConnections(); provider.close(); await rm(directory, { recursive: true, force: true }); throw error; }
   return {
-    get origin() { return origin; }, get calls() { return calls; }, get failures() { return failures; },
+    get providerEndpoint(){return "http://127.0.0.1:"+providerPort+"/v1";}, get origin() { return origin; }, get calls() { return calls; }, get failures() { return failures; },
     rpc, waitSnapshot, stopHost, startHost,
     async createConversation() {
       const { project } = await rpc('createProject', [{ name: 'Browser acceptance', defaultModel: null }]);

@@ -22,6 +22,8 @@ import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensio
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
 import { Bibliography } from './bibliography.ts';
 import { CrossrefProvider, type BibliographicProvider } from './crossref.ts';
+import { projectFolder } from './project-folder.ts';
+import { template, readTemplate } from './typesetting.ts';
 import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
@@ -58,6 +60,9 @@ export type Run = {
   readonly cancellationRequested?: boolean;
   readonly recovery?: { readonly requestId: string; readonly reconciliationAttemptId: string };
 };
+type ResearchFlow={runId:string;input:string;fileIds:readonly string[];searchIds:string[];drafts:{heading:string;text:string}[];
+  tables?:{artifactId:string;version:string;condition:string;count:number;rows:Record<string,string|number>[];path:string[]}[];
+  inputs?:{sourceId:string;version:string;title:string}[];pages?:{sourceId:string;version:string;url:string;retrievedAt:string;claim:string;coverage:string}[];documentId?:string;handoff?:string;citations?:{sourceId:string;claim:string}[];error?:string};
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
 };
@@ -110,6 +115,8 @@ export class TaskManager implements AthenaTaskManager {
   readonly #files: AnalysisFiles;
   readonly #extensions: ExtensionStore;
   readonly #papers: Papers;
+  readonly #shutdown=new AbortController();
+  readonly #manualCompiles=new Set<Promise<unknown>>();
   readonly #bibliography: Bibliography;
   readonly #paperStarting=new Set<string>();
   readonly #research: ResearchLedger;
@@ -254,7 +261,7 @@ export class TaskManager implements AthenaTaskManager {
     let chain = Promise.resolve();
     const executionEnabled = this.#executionEnabled(projectId);
     runtime = await this.#factory({projectDir:this.#projectDir(projectId), sessionDir, sessionFile, selection, orchestration:{role,
-      executionEnabled, extensions,
+      executionEnabled, extensions, researchWorkflow:!!this.#storage.project(projectId)?.researchWorkflow,
       execute:(name,raw,args,signal) => {
         const a = this.#executing.get(runtime.sessionId);
         if (!a) throw new ManagerError('ATTEMPT_INACTIVE','No dispatched attempt owns this tool.');
@@ -347,6 +354,167 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('MCP_CONNECTION_FAILED',safe);
     }
   }
+  #flow(runId:string) {return this.#storage.get<ResearchFlow>('research.flow:'+runId);}
+  #saveFlow(flow:ResearchFlow){this.#storage.set('research.flow:'+flow.runId,flow);}
+  async #prepareResearchPaper(a:Attempt,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    this.#requireCoordinatorWrites(a);this.#requireEnabled(a);
+    const flow=this.#flow(a.runId);
+    if(a.parentTaskId||!flow)throw new ManagerError('FLOW_DENIED','This tool requires a research project request.');
+    const fingerprint=hash(canonical(args));
+    if(flow.documentId){
+      if(flow.handoff!==fingerprint)throw new ManagerError('REQUEST_ID_CONFLICT','A different handoff was already saved.');
+      return {documentId:flow.documentId};
+    }
+    const review=this.#research.snapshot(a).reviews.find(r=>r.id===args.reviewId&&r.requestedBy.runId===a.runId);
+    if(review?.state!=='completed'||review.executionStatus!=='succeeded'||review.verdict!=='supported')
+      throw new ManagerError('REVIEW_REQUIRED','Join a successful independent review of these experiment outputs first.');
+    const attachments=a.fileIds.map(id=>this.#storage.record<StoredFile>('file',id)).filter(f=>f?.name.toLowerCase().endsWith('.tex'));
+    const attached=attachments.find(f=>f?.name===args.template);
+    const layout=attached?readTemplate(this.#upload(a,attached.id).bytes.toString('utf8')):undefined;
+    const style=layout?.style??template(args.template),outline=headings(args.outline);
+    if(!Array.isArray(args.artifactIds)||!args.artifactIds.length||args.artifactIds.length>8)throw Error('Select one to eight reviewed experiment outputs.');
+    const evidence=[];
+    const tables:NonNullable<NonNullable<Paper['workflow']>['tables']>=[];
+    const upstreamPages=new Set((flow.pages??[]).map(p=>this.#papers.source(a.projectId,p.sourceId).origin).flatMap(o=>o&&'kind' in o?[o.id]:[]));
+    for(const id of args.artifactIds) {
+      const target=await this.#researchTarget(a,{kind:'artifact',id:text(id,'Artifact ID')});
+      if(!review.targets.some(t=>canonical(t)===canonical(target)))throw Error('The review does not cover this exact artifact.');
+      if(upstreamPages.has(target.id)&&!flow.tables?.some(t=>t.artifactId===target.id))throw Error('A cited page alone is not an experiment output.');
+      const row=this.#artifact(a,id),bytes=await this.#readArtifact(row);
+      const source=this.#papers.saveSource(a.projectId,row.file.name,new TextDecoder('utf-8',{fatal:true}).decode(bytes),'full_text',target);
+      evidence.push({sourceId:source.sourceId,version:source.version});
+      const table=flow.tables?.find(t=>t.artifactId===target.id&&t.version===target.version);
+      if(table)tables.push({sourceId:source.sourceId,version:source.version,path:table.path});
+    }
+    for(const page of flow.pages??[])if(!evidence.some(s=>s.sourceId===page.sourceId))evidence.push({sourceId:page.sourceId,version:page.version});
+    const citations:NonNullable<ResearchFlow['citations']>=[];
+    for(const cite of Array.isArray(args.citations)?args.citations:[]) {
+      if(!object(cite)||!flow.searchIds.includes(String(cite.searchId)))throw Error('Bibliography source belongs to a different research request.');
+      const source=this.#bibliography.add(a.projectId,a.sessionId,String(cite.searchId),cite.doi);
+      citations.push({sourceId:source.sourceId,claim:bounded(cite.claim,'claim',512)});
+      evidence.push({sourceId:source.sourceId,version:source.version});
+    }
+    signal.throwIfAborted();
+    const inputs:NonNullable<ResearchFlow['inputs']>=[];
+    for(const id of Array.isArray(args.inputIds)?args.inputIds:[]){
+      const target=await this.#researchTarget(a,{kind:'file',id:text(id,'Original input')});
+      const {f,bytes}=this.#upload(a,target.id);
+      const source=this.#papers.saveSource(a.projectId,f.name,bytes.toString('utf8'),'full_text',target);
+      inputs.push({title:f.name,sourceId:source.sourceId,version:source.version});
+      evidence.push({sourceId:source.sourceId,version:source.version});
+    }
+    if(!flow.pages?.length&&!citations.length&&!inputs.length)throw Error('Supply the reviewed source of the method or data: a visited page, Crossref record, or granted research input.');
+    signal.throwIfAborted();
+    const pageRefs=flow.pages?.map(p=>({url:p.url,retrievedAt:p.retrievedAt,coverage:p.coverage,claim:p.claim,sourceId:p.sourceId}))??[];
+    const doiRefs=citations.map(c=>{
+      const origin=this.#papers.source(a.projectId,c.sourceId).origin;
+      if(!origin||!('provider' in origin))throw Error('Expected a Crossref source.');
+      return {url:'https://doi.org/'+origin.providerId,retrievedAt:origin.retrievedAt,coverage:origin.hasAbstract?'metadata and abstract':'metadata',...c};
+    });
+    const d=this.#papers.create(a.projectId,{title:args.title,goal:flow.input.slice(0,4096),outline,evidence},
+      {runId:a.runId,sessionId:a.sessionId,reviewId:review.id,template:style,tables,...(layout&&attached?{layout:{preamble:layout.preamble,name:attached.name,version:attached.versionId!}}:{}),references:[...pageRefs,...doiRefs]},
+      doc=>this.#saveFlow({...flow,documentId:doc.id,handoff:fingerprint,citations,inputs}));
+    this.#commit(()=>this.#journal.event(a,'research_handoff','Pinned experiment sources for manuscript.'));
+    return {documentId:d.id,sources:evidence};
+  }
+  #continueFlow(run:Run) {
+    const flow=this.#flow(run.id);
+    if(!flow?.documentId||run.status!=='succeeded'||run.cancellationRequested||this.#active!==run.sessionId)
+      throw new ManagerError('FLOW_BLOCKED','Resume from a successful verified experiment in its original conversation.');
+    return this.#startPaper(run.projectId,flow.documentId,{sessionId:run.sessionId,mode:'write',requestId:'workflow:'+run.id},run);
+  }
+  async #resumeFlow(project:string,args:Record<string,unknown>) {
+    this.#assertReady();
+    const flowRun=this.#storage.record<Run>('run',text(args.runId,'Research run'));
+    if(!flowRun||flowRun.projectId!==project||flowRun.sessionId!==this.#active)throw new ManagerError('CHECKPOINT_UNAVAILABLE','Open the owning conversation first.');
+    const flow=this.#flow(flowRun.id);
+    if(!flow)throw new ManagerError('CHECKPOINT_UNAVAILABLE','No research workflow for this request.');
+    const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
+    const paperRun=paper?.runs.findLast(r=>r.context.sessionId===flowRun.sessionId);
+    if(paper&&!paperRun&&flowRun.status==='succeeded')return this.#continueFlow(flowRun);
+    const run=paperRun?this.#storage.record<Run>('run',paperRun.id):flowRun;
+    if(!run||run.id!==this.#currentRun(flowRun.sessionId)?.id)throw new ManagerError('CHECKPOINT_UNAVAILABLE','Only the latest request can resume.');
+    const task=this.#storage.record<TaskRow>('task',run.taskId),previous=task&&this.#storage.record<Attempt>('attempt',task.attemptId);
+    const expected=text(args.expectedAttemptId,'Checkpoint attempt');
+    const key='flow.resume:'+run.id+':'+expected;
+    const accepted=this.#storage.get<{runId:string;attemptId:string}>(key);
+    if(accepted)return accepted;
+    this.#assertIdle();
+    if(!previous||previous.id!==expected)throw new ManagerError('CHECKPOINT_UNAVAILABLE','The checkpoint changed. Refresh progress.');
+    if(!this.#executionEnabled(project))throw new ManagerError('CHECKPOINT_UNAVAILABLE','Restore project analysis access first.');
+    if(paper&&paperRun){
+      const saved=paperRun.versions.at(-1)??paperRun.baseVersion;
+      if((paper.versions.at(-1)??null)!==saved)throw new ManagerError('CHECKPOINT_UNAVAILABLE','The manuscript changed. Review its edited version separately.');
+      if(saved&&this.#papers.version(project,paper.id,saved).compilation?.state==='succeeded')throw new ManagerError('CHECKPOINT_UNAVAILABLE','This revision is already typeset.');
+      if(paperRun.reviews.at(-1)?.verdict==='insufficient_evidence')throw new ManagerError('CHECKPOINT_UNAVAILABLE','The reviewer needs additional evidence for a new manuscript request.');
+    }
+    const session=this.#session(run.sessionId),extensions=this.#runExtensions(previous);
+    this.#busy=true;
+    try{
+      for(const id of previous.fileIds)this.#upload(previous,id);
+      for(const server of extensions.servers)await this.#externalToken(server.verification.credentialRef);
+      const pin=run.model?.profileId&&this.#models?await this.#models.pin(run.model):undefined;
+      const runtime=await this.#retryRuntime({...session,sessionId:session.id,role:'parent'},run.model,pin,true,extensions);
+      const held=this.#children(previous).map(t=>({taskId:t.id,title:t.title,status:t.status,artifactIds:t.artifactIds}));
+      const board=this.#research.snapshot(previous);
+      const prompt=paper?'Manuscript write request. Resume the saved manuscript checkpoints with compose_manuscript({}).':
+        'Continue this research request from the stored checkpoints. Use the existing plan, evidence, reviews and published artifacts. Do not repeat completed experiments. '+
+        'Use get_research_board and list_tasks. Retry only missing or failed work. Once a review supports the results call prepare_research_paper. Original request: '+flow.input+
+        '\nExisting tasks: '+JSON.stringify(held)+'\nMission IDs: '+JSON.stringify(board.missions.filter(m=>m.runId===run.id).map(m=>m.id));
+      const next=this.#attempt(context(previous),'resume:'+expected,prompt,previous.fileIds,run.model??undefined);
+      const response={runId:run.id,attemptId:next.id};
+      this.#commit(()=>{
+        this.#storage.putRecord('run',{...run,endedAt:null,status:'queued',error:undefined,cancellationRequested:false,recovery:undefined});
+        this.#journal.accept(next,task!.title);
+        if(paper&&paperRun){
+          paperRun.context=context(next);paperRun.stage='requested';delete paperRun.error;this.#papers.put(paper);
+        }
+        this.#saveFlow({...flow,error:undefined});this.#storage.set(key,response);
+      });
+      if(pin)this.#pins.set(run.id,pin);
+      this.#schedule(next,runtime);return response;
+    }finally{this.#busy=false;}
+  }
+  #flowReport(project:string,session:string,selected?:unknown) {
+    if(session!==this.#active||this.#session(session).projectId!==project)throw new ManagerError('SESSION_MISMATCH','Open the owning research conversation.');
+    const runs=this.#runs(session);
+    const history=runs.filter(r=>this.#flow(r.id));
+    const run=selected?history.find(r=>r.id===selected):history.at(-1);
+    if(!run)return null;
+    const flow=this.#flow(run.id)!;
+    const board=this.#research.snapshot({projectId:project,sessionId:session});
+    const mission=board.missions.find(m=>m.runId===run.id);
+    const reviews=board.reviews.filter(r=>r.requestedBy.runId===run.id);
+    const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
+    const writing=paper?.runs.at(-1),written=writing&&this.#storage.record<Run>('run',writing.id);
+    const current=paper?.versions.at(-1),version=current?this.#papers.version(project,paper!.id,current):undefined;
+    const processes=this.#storage.records<ProcessRow>('process',session).filter(p=>p.runId===run.id);
+    const artifacts=this.#storage.records<ArtifactRow>('artifact',session).filter(f=>f.runId===run.id);
+    const recorded=new Set([...(flow.tables??[]).map(t=>t.artifactId),...reviews.flatMap(r=>r.targets.filter(t=>t.kind==='artifact').map(t=>t.id))]);
+    const experiments=processes.filter(p=>!p.job.externalMcp||artifacts.some(f=>f.processId===p.id&&recorded.has(f.id)));
+    const searches=this.#bibliography.list(project,session).filter(s=>flow.searchIds.includes(s.id));
+    const succeeded=reviews.findLast(r=>r.verdict==='supported'&&r.executionStatus==='succeeded');
+    const states=(status:string|undefined)=>status==='cancelled'||status==='paused'||status==='interrupted'?'Stopped':status==='failed'||status==='timed_out'?'Failed':
+      status==='running'||status==='queued'||status==='blocked'?'Running':'Waiting for input';
+    const upcoming=pending(run.status)?'Planned':states(run.status);
+    const phase=(title:string,status:string,taskId?:string,description?:string)=>({title,status,taskId,description});
+    const stages=[
+      phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission&&[mission.objective,...mission.acceptanceCriteria].join('\n')),
+      phase('Sources',flow.pages?.length||flow.inputs?.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
+        [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...(flow.pages??[]).map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
+      phase('Experiment',experiments.some(p=>p.status==='succeeded'&&artifacts.some(f=>f.processId===p.id))?'Succeeded':experiments.length?states(experiments.at(-1)?.status):upcoming,experiments.at(-1)?.taskId),
+      phase('Verify results',succeeded?'Succeeded':reviews.length?states(reviews.at(-1)?.executionStatus):upcoming,reviews.at(-1)?.reviewer?.taskId,reviews.at(-1)?.verdict),
+      phase('Manuscript',current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',writing?.attempts.find(t=>t.role==='Edit manuscript')?.taskId,writing?.error||flow.error),
+      phase('Independent review',version&&version.review.status==='approved'?'Succeeded':version?.assessment?'Waiting for input':writing?.stage==='Independent review'?states(written?.status):'Planned',version?.assessment?.reviewer?.taskId,version?.assessment?.verdict),
+      phase('LaTeX',version?.compilation?.state==='succeeded'?'Succeeded':version?.compilation?.state==='stopped'?'Stopped':version?.compilation?states(version.compilation.state):'Planned',written?.taskId,version?.compilation?.error)
+    ];
+    const latest=written??run,checkpoint=this.#storage.record<TaskRow>('task',latest.taskId)?.attemptId;
+    return {history:history.map(r=>({runId:r.id,title:r.title})),checkpoint,runId:run.id,model:run.model,documentId:paper?.id,manuscriptRunId:writing?.id,version:current,
+      tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
+      sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
+      connections:run.extensions?.servers.map(s=>({name:s.definition.name,capability:s.definition.capability,checkedAt:s.verification.checkedAt,calls:processes.filter(p=>p.job.externalMcp?.serverId===s.id).map(p=>({tool:p.job.externalMcp!.tool,status:p.status})),tools:s.verification.tools.map(t=>t.name)}))??[],
+      searches:searches.map(s=>({status:s.status,term:s.term})),canResume:!pending(latest.status)&&this.#currentRun(session)?.id===latest.id&&(!writing||(current??null)===(writing.versions.at(-1)??writing.baseVersion))&&(!paper||!writing||(!version?.assessment&&writing.stage!=='insufficient_evidence')||writing.stage==='failed'&&version?.review.status!=='approved'),error:flow.error??latest.error};
+  }
   paperCatalog(project:string) { this.#paperProject(project); return this.#papers.list(project); }
   #paperProject(project:string) {
     if(!this.#active||this.#session(this.#active).projectId!==project) throw new ManagerError('PROJECT_MISMATCH','Open the project conversation first.');
@@ -364,6 +532,26 @@ export class TaskManager implements AthenaTaskManager {
       if(method==='cancelSearch')return this.#bibliography.cancel(project,session,searchId);
       return this.#bibliography.add(project,session,searchId,args.doi);
     }
+    if(method==='researchFlow')return this.#flowReport(project,text(args.sessionId,'Conversation'),args.runId);
+    if(method==='researchTableInputs'){
+      const session=text(args.sessionId,'Conversation'),run=this.#storage.record<Run>('run',text(args.runId,'Research run'));
+      if(!run||session!==this.#active||run.projectId!==project||run.sessionId!==session)throw new ManagerError('EVIDENCE_DENIED','Open the owning research conversation.');
+      const flow=this.#flow(run.id),table=flow?.tables?.find(t=>t.artifactId===args.artifactId&&t.version===args.version);
+      const root=this.#storage.record<TaskRow>('task',run.taskId);
+      const attempt=root&&this.#storage.record<Attempt>('attempt',root.attemptId);
+      if(!table||!attempt)throw new ManagerError('EVIDENCE_DENIED','Select a recorded experiment table.');
+      const row=this.#artifact(attempt,table.artifactId);
+      if(row.version!==table.version)throw new ManagerError('EVIDENCE_DENIED','The result version changed.');
+      const target=await this.#researchTarget(attempt,{kind:'artifact',id:row.id});
+      const inputs=(target.inputVersions??[]).map(ref=>{
+        if(!attempt.fileIds.includes(ref.id))return ref;
+        const {f,bytes}=this.#upload(attempt,ref.id);
+        if(f.versionId!==ref.version)throw new ManagerError('EVIDENCE_DENIED','The granted input version changed.');
+        return {...ref,name:f.name,sha256:hash(bytes),...(!f.mimeType?.startsWith('image/')?{excerpt:bytes.toString('utf8').slice(0,8000)}:{})};
+      });
+      return {result:artifactRef(row.file),taskId:row.taskId,inputs};
+    }
+    if(method==='resumeResearch')return this.#resumeFlow(project,args);
     if(method==='listPapers')return this.paperCatalog(project);
     if(method==='createPaper')return this.#papers.create(project,args);
     if(method==='addPaperSource') {
@@ -378,6 +566,14 @@ export class TaskManager implements AthenaTaskManager {
       return this.#papers.saveSource(project,bounded(args.title,'source title',512),bounded(args.text,'source text',240000));
     }
     const id=text(args.documentId,'Document');
+    if(method==='compilePaper'){
+      this.#assertIdle();
+      const d=this.#papers.paper(project,id);
+      if(!this.#executionEnabled(project))throw Error('Enable project execution before typesetting.');
+      const compile=this.#papers.compile(project,this.#active!,id,text(args.version,'Version'),template(d.workflow?.template??args.template),AbortSignal.any([this.#shutdown.signal,AbortSignal.timeout(65000)]));
+      this.#manualCompiles.add(compile);
+      try{return await compile;}finally{this.#manualCompiles.delete(compile);}
+    }
     if(method==='getDocument')return this.#papers.version(project,id,args.version===undefined?undefined:text(args.version,'Version'));
     if(method==='saveDocument')return this.#papers.save(project,id,args);
     if(method==='exportPaper')return this.#papers.export(project,this.#active!,id,text(args.version,'Version'),args.format);
@@ -392,7 +588,7 @@ export class TaskManager implements AthenaTaskManager {
     if(method!=='startPaper')throw new ManagerError('INVALID_INPUT','Unknown manuscript operation.');
     return this.#startPaper(project,id,args);
   }
-  async #startPaper(project:string,id:string,args:Record<string,unknown>) {
+  async #startPaper(project:string,id:string,args:Record<string,unknown>,original?:Run) {
     const sessionId=text(args.sessionId,'Conversation'),{session,runtime}=this.#bound(sessionId);
     if(session.projectId!==project)throw new ManagerError('PROJECT_MISMATCH','Wrong conversation for this manuscript.');
     const mode=args.mode;
@@ -412,22 +608,27 @@ export class TaskManager implements AthenaTaskManager {
     try {
       const sources=d.evidence.map(ref=>this.#papers.source(project,ref.sourceId));
       for(const source of sources) {
-        if(source.origin&&'kind' in source.origin) {
+        if(source.origin&&'kind' in source.origin&&source.origin.kind==='file'){
+          const saved=this.#storage.record<StoredFile>('file',source.origin.id);
+          if(!saved||saved.projectId!==project||saved.sessionId!==sessionId||saved.versionId!==source.origin.version||hash(this.#readUpload(saved))!==source.sha256)throw Error('The source input no longer matches its original grant.');
+        }else if(source.origin&&'kind' in source.origin) {
           const row=this.#storage.record<ArtifactRow>('artifact',source.origin.id);
-          if(!row||row.projectId!==project||row.version!==source.origin.version||hash(await this.#readArtifact(row))!==source.sha256)
+          if(!row||row.projectId!==project||row.version!==source.origin.version||original&&row.sessionId!==sessionId||hash(await this.#readArtifact(row))!==source.sha256)
             throw new ManagerError('ARTIFACT_DENIED','The selected result changed.');
         }
       }
       const {fileReferences}=await this.stageFiles(sessionId,sources.map((s,i)=>({name:'source-'+(i+1)+'.txt',mimeType:'text/plain',data:Buffer.from(s.content).toString('base64')})));
+      const flow=original&&this.#flow(original.id);
+      const contextDraft=flow?'\nPreliminary sections: '+JSON.stringify(flow.drafts)+'\nCitations and uses: '+JSON.stringify([...(flow.citations??[]),...(flow.pages??[])]):'';
       const message='Manuscript '+mode+' request. Objective: '+d.goal+'\n'+(mode==='outline'?'Inspect the selected sources and call compose_manuscript with an outline of 1–8 headings.':'Call compose_manuscript with {} to execute the approved outline: '+JSON.stringify(d.outline))+
-        '\nReport the returned manuscript status. Source titles and coverage: '+JSON.stringify(sources.map(s=>[s.title,s.level]));
+        '\nReport the returned manuscript status. Source titles and coverage: '+JSON.stringify(sources.map(s=>[s.title,s.level]))+contextDraft;
       const response=await this.#prompt(session,runtime,{type:'prompt',id:'paper:'+id+':'+requestId,message,fileReferences},a=>{
         const current=this.#papers.paper(project,id);
         if(JSON.stringify([current.evidence,current.outline,current.versions])!==JSON.stringify([d.evidence,d.outline,d.versions]))throw new ManagerError('VERSION_CONFLICT','Manuscript changed during start.');
         current.runs.push({id:a.runId,requestId,mode,baseVersion:d.versions.at(-1)??null,context:context(a),stage:'requested',outline:[...d.outline],sections:[],
           attempts:[],versions:[],reviews:[],uploads:fileReferences.map((f,i)=>({fileId:f.id,sourceId:sources[i]!.sourceId}))});
         this.#papers.put(current);this.#storage.set('paper.run:'+a.runId,id);
-      });
+      },original);
       return response.data;
     } finally {this.#paperStarting.delete(sessionId);}
   }
@@ -442,53 +643,89 @@ export class TaskManager implements AthenaTaskManager {
       return {outline};
     }
     const doc=current(),sources=doc.evidence.map(ref=>this.#papers.source(a.projectId,ref.sourceId));
-    const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:a.fileIds[i],title:s.title,coverage:s.level})));
+    const upstream=doc.workflow&&this.#flow(doc.workflow.runId);
+    const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:a.fileIds[i],title:s.title,coverage:s.level,
+      ...upstream?.pages?.find(p=>p.sourceId===s.sourceId),claim:upstream?.citations?.find(c=>c.sourceId===s.sourceId)?.claim??upstream?.pages?.find(p=>p.sourceId===s.sourceId)?.claim})));
     const child=async(role:string,prompt:string,previous?:string)=>{
-      signal.throwIfAborted();const requestId='paper:'+a.runId+':'+role;
+      signal.throwIfAborted();
+      const prior=run().attempts.findLast(t=>t.role===role);
+      if(prior){
+        const finished=this.#storage.record<Attempt>('attempt',prior.attemptId);
+        if(finished?.status==='succeeded')return this.#summary(this.#child(a,prior.taskId));
+        previous=prior.taskId;
+      }
+      const requestId='paper:'+a.runId+':'+role+':'+a.id;
       update(r=>{r.stage=role;});
       const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId}:{title:role,prompt,requestId},signal,next=>{
         // Called inside the existing child admission transaction.
         const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
-      });
+      },!!prior||!!previous&&a.requestId.startsWith('resume:'));
       const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
       const row=joined.tasks[0];if(!row||row.status!=='succeeded')throw new ManagerError('PAPER_CHILD_FAILED',role+' did not succeed.');
       return row;
     };
     update(r=>{r.stage='planning';});
     try {
-      const mission=this.#research.plan(a,{objective:doc.goal,acceptanceCriteria:['Check claims, citations and figure data against exact sources.'],stages:doc.outline});
-      const writer=await child('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
+      const mission=this.#research.snapshot(a).missions.find(m=>m.runId===a.runId)??this.#research.plan(a,{objective:doc.goal,acceptanceCriteria:['Check claims, citations and figure data against exact sources.'],stages:doc.outline});
+      let sections=run().sections;
+      if(!sections.length){
+        const writer=await child('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
+        (upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
         '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline));
-      const sections=sectionDrafts(JSON.parse(writer.result??'null'),doc.outline);
-      update(r=>{r.sections=sections;});
+        sections=sectionDrafts(JSON.parse(writer.result??'null'),doc.outline);
+        update(r=>{r.sections=sections;});
+      }
       let editor:string|undefined,findings:string[]=[];
       for(let cycle=0;cycle<=1;cycle++) {
-        const result=await child(cycle?'Revise manuscript':'Edit manuscript',
+        const saved=run().versions[cycle];
+        const priorVersion=saved?this.#papers.version(a.projectId,id,saved):undefined;
+        const priorReview=priorVersion?.assessment;
+        if(priorReview?.verdict){
+          update(r=>{r.stage=priorReview.verdict!;});editor=priorVersion?.artifact?.taskId;findings=[...(priorReview.findings??[]),...(priorVersion?.issues??[])];
+          if(priorReview.verdict==='changes_required'&&cycle===0&&this.#maxChildren>=4)continue;
+          break;
+        }
+        const result=priorVersion?.artifact?.taskId?await this.#summary(this.#child(a,priorVersion.artifact.taskId)):await child(cycle?'Revise manuscript':'Edit manuscript',
           'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+
+          (doc.workflow?.tables?.length?'\nFor numeric results you can put ![Caption](athena-plot:sourceId/xKey/yKey) or ![Caption](athena-table:sourceId/xKey/yKey) on a separate line. Use the exact sourceId and numeric field names from these verified arrays: '+JSON.stringify(doc.workflow.tables):'')+
           '\nUse publish_manuscript exactly once. Supply claim/citation/figure links with exact manuscript and source quotes. Include data units for figures. Unavailable evidence must be disclosed.'+
           (cycle?'\nIndependent review findings: '+JSON.stringify(findings).slice(0,4000):''),editor);
         editor=result.taskId;
         const r=run();if(r.versions.length!==cycle+1)throw new ManagerError('PAPER_NO_ARTIFACT','Editor did not publish a manuscript.');
         const version=this.#papers.version(a.projectId,id,r.versions[cycle]);
         if(!version.artifact||current().versions.at(-1)!==version.version)throw new ManagerError('VERSION_CONFLICT','The manuscript changed before review.');
-        const artifactIds=result.artifacts.filter(f=>f.id===version.artifact!.id||f.name==='links.json'&&this.#storage.record<ArtifactRow>('artifact',f.id)?.attemptId===result.attemptId).map(f=>f.id);
+        const artifactIds=result.artifacts.filter(f=>f.id===version.artifact!.id||f.name==='links.json'&&this.#storage.record<ArtifactRow>('artifact',f.id)?.processId===version.artifact!.processId).map(f=>f.id);
         if(artifactIds.length!==2)throw new ManagerError('PAPER_NO_ARTIFACT','Missing verified evidence map.');
         const resolver=(ctx:Context,t:{kind:'file'|'artifact';id:string})=>{signal.throwIfAborted();return this.#researchTarget(ctx,t);};
+        const durableReview=this.#research.snapshot(a).reviews.find(r=>r.requestedBy.runId===a.runId&&r.verdict&&r.executionStatus==='succeeded'&&r.targets.some(t=>t.id===version.artifact!.id&&t.sha256===version.sha256));
+        if(durableReview){
+          update(r=>{r.reviews.push(durableReview);r.stage=durableReview.verdict!;});
+          if(durableReview.verdict==='changes_required'&&cycle===0&&this.#maxChildren>=4){findings=[...(durableReview.findings??[]),...version.issues];continue;}
+          break;
+        }
         const evidence=await this.#research.addEvidence(a,{missionId:mission.id,title:'Manuscript '+(cycle+1),artifactIds,fileIds:a.fileIds},resolver);
         const review=await this.#research.prepareReview(a,{missionId:mission.id,evidenceIds:[evidence.id],question:
           'Use read_file with each exact artifactId and fileId to read manuscript.md, links.json and all granted sources. Check exact quotes, cited scope, and data variables, units, transformations and captions. Include a separate substantive check beginning Claims:, Citations:, and Figures:. Report unsupported statements, missing citations or unit errors. Do not claim reproduction.'},resolver);
         update(r=>{r.stage='Independent review';});
         const name='Review manuscript '+(cycle+1);
-        const task=await this.#dispatch(a,'spawn_agent',review.id,{title:name,prompt:this.#reviewPrompt(review),artifactIds,fileIds:a.fileIds,requestId:review.id},signal,next=>{
+        const prior=run().attempts.findLast(t=>t.role===name);
+        const assignment=prior?{taskId:prior.taskId,message:this.#reviewPrompt(review)}:{title:name,prompt:this.#reviewPrompt(review)};
+        const task=await this.#dispatch(a,prior?'send_to_agent':'spawn_agent',review.id,{...assignment,artifactIds,fileIds:a.fileIds,requestId:review.id},signal,next=>{
           this.#research.registerReviewer(a,review.id,next);
           const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role:name,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
-        });
+        },!!prior);
         const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
         const checked=this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId}).reviews.find(row=>row.id===review.id);
         if(joined.tasks[0]?.status!=='succeeded'||checked?.state!=='completed'||!checked.verdict)throw new ManagerError('PAPER_NO_REVIEW','Reviewer did not submit a structured verdict.');
         update((r,d)=>{if(d.versions.at(-1)!==version.version)throw new ManagerError('VERSION_CONFLICT','Manuscript changed during review.');r.reviews.push(checked);r.stage=checked.verdict!;});
         if(checked.verdict!=='changes_required'||cycle===1||this.#maxChildren<4)break;
         findings=[...(checked.findings??[]),...version.issues];
+      }
+      if(doc.workflow&&run().stage==='supported'){
+        const version=run().versions.at(-1)!;
+        update(r=>{r.stage='Typesetting';});
+        await this.#papers.compile(a.projectId,a.sessionId,id,version,doc.workflow.template,signal);
+        update(r=>{r.stage='Typeset';});
       }
       return {documentId:id,versions:run().versions,verdict:run().stage};
     } catch(error) {
@@ -605,24 +842,35 @@ export class TaskManager implements AthenaTaskManager {
     this.#publish();
   }
 
-  async createProject(input: { name: string; defaultModel?: ModelReference | null }) {
+  async createProject(input: { name: string; defaultModel?: ModelReference | null;folder?:string;requestId?:string;researchWorkflow?:boolean }) {
     this.#assertIdle();
-    const project: Project = { id: randomUUID(), name: text(input.name, 'Project name'), defaultModel: input.defaultModel ?? null };
+    const key=input.requestId?'create-project:'+bounded(input.requestId,'request ID',128):undefined;
+    const previous=key&&this.#storage.get<{fingerprint:string;id:string}>(key);
+    const fingerprint=hash(canonical(input));
+    if(previous){
+      if(previous.fingerprint!==fingerprint)throw new ManagerError('REQUEST_ID_CONFLICT','Project request changed. Reopen New project.');
+      return {project:this.#storage.project(previous.id)!,snapshot:this.getSnapshot()};
+    }
+    const folder=input.folder?projectFolder(input.folder,this.#directory):undefined;
+    const project: Project = { id: randomUUID(), name: text(input.name, 'Project name'), defaultModel: input.defaultModel ?? null, ...(folder?{folder}:{}), ...(input.researchWorkflow?{researchWorkflow:true,offlineAnalysis:true}:{}) };
     createPrivateDirectory(this.#projectDir(project.id));
     this.#active = null;
     this.#commit(() => {
       this.#storage.putProject(project);
+      if(key)this.#storage.set(key,{id:project.id,fingerprint});
       this.#storage.set('activeProject', project.id);
       this.#storage.set('activeSession', null);
     });
     return { project, snapshot: this.getSnapshot() };
   }
 
-  async createSession(input: { projectId: string | null; title: string; model?: ModelReference | null; configurationId?: string }): Promise<SessionActivation> {
+  async createSession(input: { projectId: string | null; title: string; model?: ModelReference | null; configurationId?: string;firstForProject?:boolean }): Promise<SessionActivation> {
     this.#assertIdle();
     const projectId = text(input.projectId ?? this.#storage.get<string | null>('activeProject'), 'Project ID');
     const project = this.#storage.project(projectId);
     if (!project) throw new ManagerError('PROJECT_NOT_FOUND', 'Project does not exist.');
+    const existing=input.firstForProject&&this.#storage.sessions().find(s=>s.projectId===projectId);
+    if(existing)return this.openSession(existing.id);
     const title = text(input.title, 'Session title');
     const sessionDir = join(this.#directory, 'sessions', randomUUID());
     this.#busy = true;
@@ -821,7 +1069,7 @@ export class TaskManager implements AthenaTaskManager {
     }
   }
 
-  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand, onAccept?:(a:Attempt)=>void): Promise<Response> {
+  async #prompt(session: StoredSession, runtime: ManagedPiSession, command: PiCommand, onAccept?:(a:Attempt)=>void, original?:Run): Promise<Response> {
     const requestId = text(command.id, 'Request ID');
     const fingerprint = hash(canonical(command));
     const previous = this.#storage.receipt(session.id, requestId);
@@ -836,8 +1084,11 @@ export class TaskManager implements AthenaTaskManager {
     }
     if (this.#runs(session.id).some(run => pending(run.status))) throw new ManagerError('RUN_BUSY', 'The current run has not settled.');
     const message = this.#message(command, session);
-    const extensions = this.#extensions.pin(session.projectId);
-    let selection = this.#models?.resolve(session.profileId, this.#storage.project(session.projectId)?.defaultProfileId) ?? null;
+    const extensions=original?.extensions??this.#extensions.pin(session.projectId);
+    this.#extensions.assertPinAvailable(extensions);
+    const first=!onAccept&&this.#storage.project(session.projectId)?.researchWorkflow;
+    if(first&&!this.#executionEnabled(session.projectId))throw new ManagerError('EXECUTION_DISABLED',this.#access.available?'Enable offline analysis in this project.':this.#access.reason);
+    let selection = original ? (original.model?.profileId?original.model:null) : this.#models?.resolve(session.profileId, this.#storage.project(session.projectId)?.defaultProfileId) ?? null;
     let pin: PiModelSelection | undefined;
     if (selection && this.#models) {
       this.#busy = true;
@@ -872,6 +1123,7 @@ export class TaskManager implements AthenaTaskManager {
         runtime = await this.#openRoot(session, extensions);
       } finally { this.#busy = false; }
     } else this.#validateModel(runtime, session.model ?? null);
+    if(original && canonical(original.model)!==canonical(selection??this.#model(runtime)))throw Error('The original model and reasoning selection is unavailable.');
     const run: Run = { id: randomUUID(), projectId: session.projectId, sessionId: session.id, requestId,
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
       status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions };
@@ -882,6 +1134,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#commit(()=>{
       this.#storage.putRecord('run',{...run,agentSessionId:a.agentSessionId,attemptId:a.id});
       this.#journal.accept(a,run.title);onAccept?.(a);
+      if(first)this.#saveFlow({runId:run.id,input:String(command.message),fileIds,searchIds:[],drafts:[]});
       this.#storage.putReceipt({sessionId:session.id,requestId,fingerprint,state:'accepted',response});
     });
     if (pin) this.#pins.set(run.id, pin);
@@ -972,6 +1225,14 @@ export class TaskManager implements AthenaTaskManager {
       unsubscribe?.();
       if(this.#executing.get(a.agentSessionId)===a)this.#executing.delete(a.agentSessionId);
       this.#scheduler.release(a);this.#turns.delete(a.id);
+      if(!a.parentTaskId&&!this.#closed){
+        const flow=this.#flow(a.runId),run=this.#storage.record<Run>('run',a.runId);
+        if(flow?.documentId&&run?.status==='succeeded'&&!run.cancellationRequested){
+          try{await this.#continueFlow(run);}catch(error){
+            if(!this.#closed)this.#commit(()=>this.#saveFlow({...flow,error:(error as Error).message}));
+          }
+        }
+      }
       if (!this.#closed && !pending(this.#storage.record<Run>('run',a.runId)?.status ?? 'ready')) this.#pins.delete(a.runId);
     }
   }
@@ -1098,6 +1359,62 @@ export class TaskManager implements AthenaTaskManager {
       if(!paperId||a.kind==='reconciliation')throw new ManagerError('PAPER_DENIED','Start a manuscript from the project workspace.');
       return name==='compose_manuscript'?this.#composePaper(a,paperId,args,signal):this.#publishPaper(a,paperId,raw,args,signal);
     }
+    if(['prepare_research_paper','search_research_literature','save_research_draft','record_browser_source','record_experiment_table'].includes(name)){
+      const flow=this.#flow(a.runId);
+      if(!flow||a.parentTaskId||paperId)throw Error('This tool belongs to the research coordinator.');
+      this.#requireCoordinatorWrites(a);
+      if(name==='prepare_research_paper')return this.#prepareResearchPaper(a,args,signal);
+      if(name==='record_experiment_table'){
+        const row=this.#artifact(a,args.artifactId);
+        const target=await this.#researchTarget(a,{kind:'artifact',id:row.id});
+        if(!Array.isArray(args.path)||args.path.length>8||!args.path.every(k=>typeof k==='string'&&k.length<=128))throw Error('Supply a bounded path to condition rows.');
+        let data:unknown=JSON.parse((await this.#readArtifact(row)).toString('utf8'));
+        for(const key of args.path){
+          if(!object(data)||!Object.hasOwn(data,key))throw Error('Table path does not exist in the published result.');
+          data=data[key];
+        }
+        if(!Array.isArray(data)||!data.length||!data.every(item=>object(item)&&Object.keys(item).length>0&&Object.values(item).every(v=>typeof v==='string'||typeof v==='number')))throw Error('Expected an array of measured condition records.');
+        const rows=data.slice(0,24).map(item=>Object.fromEntries(Object.entries(item).slice(0,8).map(([k,v])=>[k.slice(0,128),typeof v==='number'?v:String(v).slice(0,256)])));
+        const table={artifactId:row.id,version:target.version,condition:bounded(args.condition,'condition label',128),count:data.length,rows,path:args.path};
+        flow.tables??=[];flow.tables=flow.tables.filter(t=>t.artifactId!==row.id);
+        if(flow.tables.length>=16)throw Error('Experiment table limit reached.');
+        flow.tables.push(table);signal.throwIfAborted();this.#commit(()=>this.#saveFlow(flow));return table;
+      }
+      if(name==='record_browser_source'){
+        const row=this.#artifact(a,args.artifactId),target=await this.#researchTarget(a,{kind:'artifact',id:row.id});
+        const p=this.#storage.record<ProcessRow>('process',row.processId);
+        if(!p?.job.externalMcp||!p.job.endedAt)throw Error('Select the published receipt of a completed external page-reading tool.');
+        const url=bounded(args.url,'source URL',2048),parsed=new URL(url);
+        if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)throw Error('Enter the visited HTTP(S) page URL.');
+        const excerpt=bounded(args.excerpt,'page excerpt',12000),claim=bounded(args.claim,'claim',512);
+        const payload=JSON.parse((await this.#readArtifact(row)).toString('utf8'));
+        const values=(v:unknown):string[]=>typeof v==='string'?[v]:object(v)||Array.isArray(v)?Object.values(v).flatMap(values):[];
+        const content=values(payload.result);
+        const declared=p.job.externalMcp && this.#runExtensions(a).servers.find(s=>s.id===p.job.externalMcp!.serverId)?.definition.capability;
+        if(declared&&declared!=='browser')throw Error('Choose a result from a page-reading MCP connection.');
+        if(!content.some(s=>s.includes(url))||!content.some(s=>s.includes(excerpt)))throw Error('The URL and passage must occur in the actual MCP result.');
+        const retrievedAt=new Date(p.job.endedAt).toISOString();
+        // Preserve the immutable raw receipt as the source; keep the quoted scope and use alongside it.
+        const source=this.#papers.saveSource(a.projectId,'Visited page: '+parsed.hostname,JSON.stringify(payload),'full_text',target);
+        const page={sourceId:source.sourceId,version:source.version,url,retrievedAt,claim,coverage:(typeof payload.result?.structuredContent?.coverage==='string'?payload.result.structuredContent.coverage.slice(0,512)+' · ':'')+'Returned passage: '+excerpt};
+        flow.pages??=[];
+        if(!flow.pages.some(x=>x.sourceId===page.sourceId&&x.claim===claim)){
+          if(flow.pages.length>=6)throw Error('Page citation limit reached.');
+          flow.pages.push(page);this.#commit(()=>this.#saveFlow(flow));
+        }
+        return page;
+      }
+      if(name==='save_research_draft'){
+        if(!['Introduction','Methods'].includes(String(args.heading)))throw Error('Select Introduction or Methods.');
+        flow.drafts=flow.drafts.filter(s=>s.heading!==args.heading).concat({heading:String(args.heading),text:bounded(args.text,'section draft',6000)});
+        this.#commit(()=>this.#saveFlow(flow));return {saved:true};
+      }
+      if(flow.searchIds.length>=4)throw Error('The four-search research limit was reached.');
+      const search=this.#bibliography.prepare(a.projectId,a.sessionId,{...args,pages:1,requestId:toolId(a,raw)});
+      if(!flow.searchIds.includes(search.id))flow.searchIds.push(search.id);
+      this.#commit(()=>this.#saveFlow(flow));
+      return this.#bibliography.execute(a.projectId,a.sessionId,search.id,signal,{...context(a),toolId:toolId(a,raw)});
+    }
     if(paperId){
       if(!['read_file','read','submit_review'].includes(name))throw new ManagerError('PAPER_DENIED','Use the assigned manuscript stage.');
       if(name==='submit_review'){
@@ -1111,6 +1428,11 @@ export class TaskManager implements AthenaTaskManager {
           throw new ManagerError('PAPER_CHECKS','Record claims, citations and figure-data checks.');
         if(args.verdict==='supported'&&this.#papers.version(a.projectId,paperId,current).issues.length)throw new ManagerError('EVIDENCE_MISSING','Resolve the missing evidence before supporting this version.');
       }
+    }
+    if(!paperId&&this.#flow(a.runId)&&name==='submit_review'&&args.verdict==='supported'){
+      const review=this.#research.snapshot(a).reviews.find(r=>r.id===args.reviewId&&r.reviewer?.attemptId===a.id);
+      const reads=this.#storage.records<Tool>('tool',a.sessionId).filter(t=>t.attemptId===a.id&&t.status==='succeeded'&&t.name==='read_file').map(t=>t.args).filter(object);
+      if(!review||!review.targets.every(t=>reads.some(call=>call[t.kind==='file'?'fileId':'artifactId']===t.id)))throw Error('Read each assigned input and artifact before supporting this experiment.');
     }
     if (['list_skills','load_skill','get_research_board','plan_research','add_research_evidence','request_review','submit_review','remember_research','propose_knowledge'].includes(name)) return this.#researchOperation(a,name,raw,args,signal);
     if(a.parentTaskId)return this.#childTool(a,name,raw,args,signal);
@@ -1150,7 +1472,7 @@ export class TaskManager implements AthenaTaskManager {
       throw new ManagerError('RECOVERY_READ_ONLY', 'Manual recovery preserves completed work. The coordinator may only inspect child results and produce the final answer.');
     }
   }
-  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal,onAccepted?:(attempt:Attempt)=>void):Promise<Accepted>{
+  async #dispatch(a:Attempt,name:'spawn_agent'|'send_to_agent',raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal,onAccepted?:(attempt:Attempt)=>void,resumeChild=false):Promise<Accepted>{
     const requestId=text(args.requestId??raw,'Request ID');
     const id=hash(canonical([a.sessionId,a.runId,a.taskId,name,requestId]));
     const kind=name==='spawn_agent'?'spawn':'send';
@@ -1176,23 +1498,34 @@ export class TaskManager implements AthenaTaskManager {
     const transfers=[];
     if(artifactGrants.length)this.#requireEnabled(a);
     for(const id of artifactGrants){const row=this.#artifact(a,id);await this.#readArtifact(row);transfers.push(artifactRef(row.file));}
-    if(child && (child.status==='cancelled'||child.status==='paused'))throw new ManagerError('TASK_CLOSED','Cannot send to a cancelled or interrupted task.');
-    if(!child && (this.#depth===0||this.#children(a).length>=this.#maxChildren))throw new ManagerError('CHILD_LIMIT','Direct child limit reached.');
+    if(child && !resumeChild && (child.status==='cancelled'||child.status==='paused'))throw new ManagerError('TASK_CLOSED','Cannot send to a cancelled or interrupted task.');
     const taskId=child?.id??randomUUID();
     const title=child?.title??text(args.title,'Child title');
     const message=text(child?args.message:args.prompt,'Child message');
     if(message.length>32768)throw new ManagerError('INPUT_TOO_LARGE','Child message exceeds 32768 characters.');
+    const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
+    const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
+    if(!child && a.requestId.startsWith('resume:') && this.#flow(a.runId)){
+      const tasks=this.#children(a).filter(t=>t.status==='succeeded'&&t.title===title);
+      for(const task of tasks){
+        const saved=this.#storage.record<Attempt>('attempt',task.attemptId);
+        if(saved?.prompt===prompt &&
+          canonical(saved.fileIds)===canonical(fileIds)&&canonical(saved.artifactGrants??[])===canonical(artifactGrants))
+          return {taskId:task.id,parentTaskId:a.taskId,agentSessionId:task.agentSessionId,attemptId:saved.id,status:task.status};
+      }
+    }
+    if(!child && (this.#depth===0||this.#children(a).length>=this.#maxChildren))throw new ManagerError('CHILD_LIMIT','Direct child limit reached.');
     const reservation:Dispatch={...context(a),id,taskId,fingerprint};
     this.#commit(()=>this.#storage.putRecord(kind,reservation));
     const sessionDir=join(this.#directory,'agents',randomUUID());
-    const runtime=child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId),this.#runExtensions(a));
+    const storedAgent=child&&resumeChild?this.#storage.record<AgentSession>('agent_session',child.agentSessionId):undefined;
+    const runtime=storedAgent?await this.#retryRuntime(storedAgent,a.model??null,this.#pins.get(a.runId),true,this.#runExtensions(a)):
+      child?this.#registry.get(child.agentSessionId):await this.#make(a.projectId,sessionDir,'child',undefined,this.#pins.get(a.runId),this.#runExtensions(a));
     if(!runtime)throw new ManagerError('SESSION_UNAVAILABLE','Child Pi session unavailable.');
     if(a.model)this.#validateModel(runtime,a.model);
     signal.throwIfAborted();
     this.#requireCoordinatorWrites(a);
     if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
-    const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
-    const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
     const next={...this.#attempt({...context(a),taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId},requestId,prompt,fileIds,a.model),artifactGrants};
     const response={taskId,parentTaskId:a.taskId,agentSessionId:runtime.sessionId,attemptId:next.id,status:next.status};
     this.#commit(()=>{
@@ -1599,7 +1932,7 @@ export class TaskManager implements AthenaTaskManager {
   }
   async close(){
     if(this.#closed)return;
-    this.#closed=true;
+    this.#closed=true;this.#shutdown.abort();await Promise.allSettled(this.#manualCompiles);
     const turns=[...this.#turns.values()];
     for(const t of turns)t.controller.abort();
     await Promise.all(turns.filter(t=>this.#executing.get(t.attempt.agentSessionId)===t.attempt).map(t=>t.runtime.command({type:'abort',id:randomUUID()})));

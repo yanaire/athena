@@ -58,11 +58,11 @@ verification. ChatGPT-account acceptance is a separate test.
 | Desktop | Native macOS arm64/x64 and Windows x64 builds using Tauri and a bundled Node sidecar |
 | Execution visibility | Recorded Workflow DAG, task and agent history, and Artifacts views backed by actual host records |
 | Research records | Mission plans, exact input/result evidence, separately assigned reviewers, reusable observations and verified methods |
+| Manuscripts | In a research project, one chat request links a planned experiment and independently reviewed manuscript to a compiled LaTeX PDF. The side panel shows saved progress, draft sections and downloads. |
 | Extensions | Twelve version-pinned research skills and explicitly approved external MCP connections |
 
 **Remaining scope:** The runtime Browser, Device, Files and Diff panels do not yet
-provide their broader automation services. Full manuscript/PDF publishing,
-arbitrary executable plugins, scheduled research wake-ups and automatic retries
+provide their broader automation services. Journal submission, arbitrary executable plugins, scheduled research wake-ups and automatic retries
 remain outside the implemented scope. See the [UI capability audit](docs/ui-capability-audit.md)
 and [research workflow contract](docs/research-workflow.md).
 
@@ -135,6 +135,9 @@ flowchart TD
     P --> S
     W --> M
     M --> A
+    A --> V["Independent review of frozen evidence and manuscript"]
+    V --> L["Approved revision · local LaTeX compiler"]
+    L --> U
     A --> U
 ```
 

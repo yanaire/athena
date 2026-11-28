@@ -5,7 +5,7 @@ export type VersionRef = { id: string; version: string };
 export type Scope = { projectId: string; sessionId: string; runId?: string | null };
 export type ExecutionScope = Scope & { readonly taskId: string; readonly parentTaskId: string | null; readonly attemptId: string; readonly agentSessionId: string };
 export type Status = 'ready' | 'queued' | 'running' | 'blocked' | 'paused' | 'succeeded' | 'failed' | 'cancelled';
-export interface Project { id: string; name: string; defaultModel?: ModelReference | null; defaultProfileId?: string | null; offlineAnalysis?: boolean }
+export interface Project { folder?: {path:string;branch?:string}; researchWorkflow?:boolean; id: string; name: string; defaultModel?: ModelReference | null; defaultProfileId?: string | null; offlineAnalysis?: boolean }
 export interface Session { id: string; projectId: string; title: string; model?: ModelReference | null; profileId?: string | null }
 export interface Task extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; title: string; status: Status; dependencies: string[]; toolIds: string[]; artifactIds: string[]; role?: string; agentName?: string; progress?: number; total?: number; readonly retryable?: boolean; readonly retryUnavailableReason?: string }
 export interface Agent extends Scope, Partial<Omit<ExecutionScope, keyof Scope | 'taskId'>> { id: string; taskId: string; name: string; role: string; status: Status; model?: ModelReference }
