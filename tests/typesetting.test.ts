@@ -26,6 +26,13 @@ test('plots and tables use the selected numeric columns of the supplied version'
   assert.throws(() => manuscriptTex('Test', '![Plot](missing.png)', 'article'), /unstaged figure/);
 });
 
+test('scientific minus and signed Unicode exponents survive PDF typesetting', () => {
+  const tex=manuscriptTex('Experiment', 'Observed −1.18, tolerance 5 × 10⁻¹⁵ and 10⁰.', 'article');
+  assert.ok(tex.includes('\\ensuremath{-}1.18'));
+  assert.ok(tex.includes('5 \\ensuremath{\\times} 10\\textsuperscript{\\ensuremath{-15}}'));
+  assert.ok(tex.includes('10\\textsuperscript{\\ensuremath{0}}'));
+});
+
 test('a missing TeX engine reports its actual subprocess failure', {skip:process.platform!=='linux'}, async () => {
   const previous = process.env.PATH;
   try {

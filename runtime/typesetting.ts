@@ -32,7 +32,14 @@ const escapes: Record<string,string> = {
   '_':'\\_','^':'\\textasciicircum{}','~':'\\textasciitilde{}','<':'\\textless{}','>':'\\textgreater{}',
 };
 function literal(text:string) {
-  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').replace(/[\\{}$&#%_^~<>]/g,c=>escapes[c]!);
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ')
+    .replace(/[\\{}$&#%_^~<>−×]|[⁺⁻⁰¹²³⁴⁵⁶⁷⁸⁹⁽⁾]+/gu,token=>{
+      if(token==='−')return '\\ensuremath{-}';
+      if(token==='×')return '\\ensuremath{\\times}';
+      if(Object.hasOwn(escapes,token))return escapes[token]!;
+      const exponent=token.normalize('NFKC').replaceAll('−','-');
+      return '\\textsuperscript{\\ensuremath{'+exponent+'}}';
+    });
 }
 export type PaperReference = {url:string;retrievedAt:string;title?:string;authors?:string[];date?:string};
 export type DiagramSource = {sourceId:string;content:string};
