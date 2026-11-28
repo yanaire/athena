@@ -14,6 +14,11 @@ checks each source path and content hash, and archives the accepted package in
 its host store. These startup integrity checks read the sources; they do not
 place every source in a model prompt.
 
+In chat, `$` lists enabled skills for the coordinator. A sent `$skill-id` or
+`$plugin-id/skill-id` loads the pinned procedure into the coordinator’s next
+model request and records explicit selection on its attempt. Workers can load
+procedures allowed for their role using `load_skill`.
+
 The model receives metadata. `load_skill` loads only its selected procedure and
 records the project, conversation, run, task, agent session and attempt,
 selection reason, content hash, version, mode and effective capabilities. A

@@ -741,8 +741,8 @@ const dialogOpen=!q('#ac-dialog-backdrop').hidden;const rightOverlay=state.panel
   onOpen(){overlay();extensions?.refresh();announce('Settings opened.')},
   onClose(){overlay();announce('Settings closed.')}
  });
- extensions=window.AthenaExtensions?.mount(q('#ast-extensions-slot'),{icons,getWorkspace:()=>workspaceStore.getState(),onUseSkill(skill){
-  const request='Use the "'+skill.name+'" skill ('+skill.id+') for this task.';
+ extensions=window.AthenaExtensions?.mount(q('#ast-extensions-slot'),{icons,getWorkspace:()=>workspaceStore.getState(),onSkillsChange:skills=>composer.setProjectSkills?.(skills),onUseSkill(skill){
+  const request=skill.roles?.includes('parent')?'$'+skill.id+' ':'Use the "'+skill.name+'" skill ('+skill.id+') for this task.';
   composer.setValue((composer.getValue().trim()?composer.getValue()+'\n\n':'')+request);
   settings?.close(false);overlay();composer.focus();toast('Skill added to your draft. Send the request to use it.');
  }});

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { privateTestDirectory } from './platform-test-helpers.ts';
 import { Storage } from '../runtime/storage.ts';
-import { BUILTIN_SKILLS_ID, ExtensionStore, emptyExtensionPin, validatePluginManifest } from '../runtime/extensions.ts';
+import { BUILTIN_SKILLS_ID, ExtensionStore, emptyExtensionPin, mentionedSkills, validatePluginManifest } from '../runtime/extensions.ts';
 import type { PluginManifest } from '../runtime/extensions.ts';
 import { externalConfigurationDigest, externalVerificationDigest } from '../runtime/external-mcp-client.ts';
 import type { ExternalServerDefinition, ExternalVerification } from '../runtime/external-mcp-client.ts';
@@ -206,4 +206,30 @@ test('catalog body tampering and directory symlinks cannot silently replace the 
     symlinkSync(outside, path);
     assert.throws(() => new ExtensionStore(s.storage, { catalogDirectory: copy }), /reviewed directory/);
   } finally { rmSync(copy, { recursive: true, force: true }); s.close(); }
+});
+
+test('chat skill mentions use the admitted project and role, and ignore literal text', () => {
+  const s = setup();
+  try {
+    const installed = () => s.store.snapshot('project-a').skills;
+    const extension = { ...plugin, skills: [
+      ...plugin.skills!,
+      { ...plugin.skills![0]!, id: 'measure', roles: ['parent' as const] },
+    ] };
+    s.store.install('project-a', extension);
+    s.store.setEnabled('project-a', plugin.id, true);
+    const pin = s.store.pin('project-a');
+    const prompt = [
+      '($lab-procedures/measure), $athena-data-quality! $lab-procedures/measure',
+      '`$lab-procedures/check-sample`',
+      '```text', '$lab-procedures/check-sample', '```',
+      'cost $25; variables $x and \\$lab-procedures/check-sample.',
+      'foo$lab-procedures/check-sample $lab-procedures/check-sample-other',
+    ].join('\n');
+    assert.deepEqual(mentionedSkills(prompt, pin, installed), ['lab-procedures/measure', 'athena-data-quality']);
+    assert.throws(() => mentionedSkills('$lab-procedures/check-sample', pin, installed), /workers only/);
+    s.store.setEnabled('project-a', plugin.id, false);
+    assert.throws(() => mentionedSkills('$lab-procedures/measure', s.store.pin('project-a'), installed), /Enable/);
+    assert.deepEqual(mentionedSkills('$lab-procedures/measure', pin, installed), ['lab-procedures/measure']);
+  } finally { s.close(); }
 });

@@ -45,7 +45,7 @@ export async function createFixture(researchResponder) {
       const coordinator = wire.tools.some(tool => tool.function.name === 'spawn_agent');
       calls.push({ ...(researchResponder ? {model:wire.model} : {}), role: coordinator ? 'parent' : 'child', toolResults: outputs.length });
       let next, before = '';
-      if (researchResponder) next=await researchResponder({coordinator,input,outputs,model:wire.model});
+      if (researchResponder) next=await researchResponder({coordinator,input,outputs,model:wire.model,messages:wire.messages});
       else if (coordinator && input.startsWith(prompts.cancel)) {
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         const closed = once(response, 'close');

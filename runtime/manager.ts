@@ -18,7 +18,7 @@ import type { AgentSession, Context, TaskRow, Attempt, ProcessRow, ArtifactRow }
 import { Journal, context, toolId, normalizeEvent } from './orchestration-journal.ts';
 import { projectHistory, withoutAttachmentContext, withMessageOwner } from './history.ts';
 import { ToolFailureBudget } from './tool-failure-budget.ts';
-import { ExtensionStore, emptyExtensionPin, type ExtensionPin } from './extensions.ts';
+import { ExtensionStore, emptyExtensionPin, mentionedSkills, type ExtensionPin } from './extensions.ts';
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
 import { Bibliography } from './bibliography.ts';
 import { CrossrefProvider, type BibliographicProvider } from './crossref.ts';
@@ -43,7 +43,7 @@ export interface ManagedPiSession {
   getState(): unknown;
   getMessages(): unknown;
   publicText?(text: string): string;
-  prompt(message: string, options?: { readonly kind?: 'reconciliation' }): Promise<void>;
+  prompt(message: string, options?: { readonly kind?: 'reconciliation'; readonly skillContext?:string }): Promise<void>;
 }
 export type PiSessionFactory = (options: PiSessionOptions) => Promise<ManagedPiSession>;
 type ModelResolver = {
@@ -1125,6 +1125,8 @@ export class TaskManager implements AthenaTaskManager {
     const message = this.#message(command, session);
     const extensions=original?.extensions??this.#extensions.pin(session.projectId);
     this.#extensions.assertPinAvailable(extensions);
+    const explicitSkillIds = onAccept ? [] : mentionedSkills(String(command.message), extensions,
+      () => this.#extensions.snapshot(session.projectId).skills);
     const first=!onAccept&&this.#storage.project(session.projectId)?.researchWorkflow;
     if(first&&!this.#executionEnabled(session.projectId))throw new ManagerError('EXECUTION_DISABLED',this.#access.available?'Enable offline analysis in this project.':this.#access.reason);
     const roleModels:RoleModels=original?{...original.roleModels}:{...this.#models?.roleModels?.()};
@@ -1186,8 +1188,9 @@ export class TaskManager implements AthenaTaskManager {
       taskId: randomUUID(), title: command.message && typeof command.message === 'string' ? command.message.slice(0, 120) : 'Research',
       status: 'queued', startedAt: null, endedAt: null, model: selection ?? this.#model(runtime), extensions,...(Object.keys(roleModels).length?{roleModels}:{}) };
     const fileIds=Array.isArray(command.fileReferences)?command.fileReferences.filter(object).map(ref=>text(ref.id,'File ID')):[];
-    const a=this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
-      parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds,selection ?? undefined);
+    const a={...this.#attempt({projectId:session.projectId,sessionId:session.id,runId:run.id,taskId:run.taskId,
+      parentTaskId:null,agentSessionId:runtime.sessionId},requestId,message,fileIds,selection ?? undefined),
+      ...(explicitSkillIds.length?{explicitSkillIds}:{})};
     const response=reply(command,{accepted:true,...context(a)});
     this.#commit(()=>{
       this.#storage.putRecord('run',{...run,agentSessionId:a.agentSessionId,attemptId:a.id});
@@ -1275,7 +1278,22 @@ export class TaskManager implements AthenaTaskManager {
         for(const listener of this.#piListeners)listener(a.agentSessionId,structuredClone(normalized));
         if(semantic)this.#publish();
       });
-      await runtime.prompt(prompt, a.kind === 'reconciliation' ? {kind:'reconciliation'} : undefined);
+      let skillContext: string | undefined;
+      const selected = a.explicitSkillIds;
+      if (selected?.length && !a.kind) {
+        const pin = this.#runExtensions(a), capabilities = this.#effectiveCapabilities(a);
+        this.#commit(() => {
+          const instructions = selected.map(id => {
+            const loaded = this.#extensions.loadSkill(pin, context(a), id, 'Explicit $' + id + ' in the chat request.', capabilities, 'explicit');
+            this.#journal.event(a, 'skill_loaded', 'Loaded research skill: ' + loaded.metadata.name + ' (' + loaded.status + ')');
+            return loaded.instructions;
+          });
+          skillContext = ['Selected procedures for the following user request.', ...instructions].join('\n\n');
+          if (skillContext.length + prompt.length > this.inputContract.maxMessageCharacters)
+            throw new ManagerError('INPUT_TOO_LARGE', 'The selected skills exceed the request limit. Choose fewer skills.');
+        });
+      }
+      await runtime.prompt(prompt, a.kind === 'reconciliation' ? {kind: 'reconciliation'} : {skillContext});
       if(!this.#closed && pending(this.#storage.record<Attempt>('attempt',a.id)?.status??'ready'))
         this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'paused','Pi returned without settling the attempt.'));
     }catch(error){
@@ -1365,7 +1383,7 @@ export class TaskManager implements AthenaTaskManager {
     if (name === 'get_research_board') return this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId,agentSessionId:a.agentSessionId});
     if (name === 'load_skill') {
       if (Object.keys(args).some(key => !['id','reason','mode'].includes(key)) || args.mode !== undefined && args.mode !== 'automatic' && args.mode !== 'explicit') throw new ManagerError('INVALID_INPUT', 'Invalid skill selection.');
-      const loaded = this.#extensions.loadSkill(resources,a,text(args.id,'Skill ID'),text(args.reason,'Selection reason'),this.#effectiveCapabilities(a),args.mode ?? 'explicit');
+      const loaded = this.#extensions.loadSkill(resources,context(a),text(args.id,'Skill ID'),text(args.reason,'Selection reason'),this.#effectiveCapabilities(a),args.mode ?? 'explicit');
       this.#commit(() => this.#journal.event(a,'skill_loaded','Loaded research skill: ' + loaded.metadata.name));
       return loaded;
     }

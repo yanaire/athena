@@ -77,7 +77,9 @@ account remains a separate, unfinished verification step.
 - **Settings → Tools & plugins:** import or update a JSON package, inspect its
   endpoints and allowed tools, check each MCP connection, then enable the package.
   Skills can be selected individually. Changes apply to new runs; existing runs
-  retain their admitted versions and credentials.
+  retain their admitted versions and credentials. In chat, type `$`, select a
+  project skill with Enter or Tab and send the request. See the
+  [CadQuery STEP experiment](examples/cad-spacer/) for a runnable program plugin.
 - **Workflow → Research board:** inspect the research plan, actual input/result
   evidence, independent reviewer receipts and reusable methods. Model review,
   independent reproduction and human-confirmed conventions remain distinct.

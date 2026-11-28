@@ -90,6 +90,7 @@
 
     function render() {
       if (destroyed) return;
+      options.onSkillsChange?.(sessionId && supported() ? snapshot?.skills || [] : []);
       const project = rows(workspace().projects).find(item => item.id === projectId);
       q('[data-aex-project]').textContent = project?.name || (projectId ? 'Current project' : 'Select a project');
       q('[data-aex-availability]').textContent = !service ? 'Connect an Athena host with extension support to manage real packages and skills.' : !projectId ? 'Open a project conversation to manage its tools and skills.' : '';
