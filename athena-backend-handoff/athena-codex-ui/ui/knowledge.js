@@ -500,16 +500,18 @@
       if (action === 'reset-filters') { restoreFullList(); renderCollection(); searchInput.focus({ preventScroll: true }); }
       if (action === 'pin' && source) {
         source.pinned = !source.pinned;
-        let sessionOnly;
+        let sessionOnly = false;
+        if (source.origin !== 'host') {
+          // A promoted device note is restored before its host edition arrives.
+          persist();
+          sessionOnly = storageMode === 'session';
+        }
         if (source.persistence === 'host') {
           try {
             const key = editionPinKey(source);
             if (source.pinned) window.localStorage.setItem(key, '1');
             else window.localStorage.removeItem(key);
           } catch (_) { sessionOnly = true; }
-        } else {
-          persist();
-          sessionOnly = storageMode === 'session';
         }
         renderCollection();
         (detail.querySelector('[data-akn-action="pin"]') || pinnedFilter).focus({ preventScroll: true });

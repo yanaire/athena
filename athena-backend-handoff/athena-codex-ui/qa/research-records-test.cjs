@@ -129,6 +129,25 @@ test('an archived paper pin survives a reload only for the same project and edit
   env = await open('first-project'); assert.equal(pinned(env),false); env.api.destroy();
 });
 
+test('a note stored by the project service keeps its device pin selection across reload', async () => {
+  const storage = new Map(), env = knowledge(storage);
+  addNote(env,'Protocol','Measured in triplicate.');
+  env.click('[data-akn-action="pin"]');
+  const sourceId=env.api.getState().selectedId;
+  const receipt={projectId:'project-rc',sourceId,version:'1',title:'Protocol',kind:'notes',format:'NOTE',
+    persistence:'host',originalLocation:{uri:'project://project-rc/originals/note'}};
+  env.api.attachRecords({ storeSource: async () => receipt });
+  env.click('[data-akn-action="store-original"]');
+  await env.wait(() => env.api.getState().sources.find(item => item.id === sourceId)?.persistence === 'host');
+  env.click('[data-akn-action="pin"]');
+  env.api.destroy();
+  const restored = knowledge(storage);
+  restored.api.attachRecords({ listSources: async () => ({sources:[receipt]}) });
+  await restored.wait(() => restored.api.getState().sources.find(item => item.id === sourceId)?.persistence === 'host');
+  assert.equal(restored.api.getState().sources.find(item => item.id === sourceId).pinned,false);
+  restored.api.destroy();
+});
+
 test('Knowledge hands off original bytes explicitly, separates PDF preview/extraction, and preserves prior-version reviews', async () => {
   const env = knowledge(), file = new File(['%PDF-1.4\nFixture original'], 'paper.pdf', { type: 'application/pdf' });
   Object.defineProperty(env.q('.akn-file-input'), 'files', { configurable: true, value: [file] }); env.fire(env.q('.akn-file-input'), 'change'); await env.wait(() => !env.api.getState().importBusy);
