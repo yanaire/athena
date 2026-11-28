@@ -58,11 +58,11 @@ verification. ChatGPT-account acceptance is a separate test.
 | Desktop | Native macOS arm64/x64 and Windows x64 builds using Tauri and a bundled Node sidecar |
 | Execution visibility | Recorded Workflow DAG, task and agent history, and Artifacts views backed by actual host records |
 | Research records | Mission plans, exact input/result evidence, separately assigned reviewers, reusable observations and verified methods |
+| Manuscripts | In a research project, one chat request links a planned experiment and independently reviewed manuscript to a compiled LaTeX PDF. The side panel shows saved progress, draft sections and downloads. |
 | Extensions | Twelve version-pinned research skills and explicitly approved external MCP connections |
 
 **Remaining scope:** The runtime Browser, Device, Files and Diff panels do not yet
-provide their broader automation services. Full manuscript/PDF publishing,
-arbitrary executable plugins, scheduled research wake-ups and automatic retries
+provide their broader automation services. Journal submission, arbitrary executable plugins, scheduled research wake-ups and automatic retries
 remain outside the implemented scope. See the [UI capability audit](docs/ui-capability-audit.md)
 and [research workflow contract](docs/research-workflow.md).
 
@@ -77,7 +77,9 @@ account remains a separate, unfinished verification step.
 - **Settings → Tools & plugins:** import or update a JSON package, inspect its
   endpoints and allowed tools, check each MCP connection, then enable the package.
   Skills can be selected individually. Changes apply to new runs; existing runs
-  retain their admitted versions and credentials.
+  retain their admitted versions and credentials. In chat, type `$`, select a
+  project skill with Enter or Tab and send the request. See the
+  [CadQuery STEP experiment](examples/cad-spacer/) for a runnable program plugin.
 - **Workflow → Research board:** inspect the research plan, actual input/result
   evidence, independent reviewer receipts and reusable methods. Model review,
   independent reproduction and human-confirmed conventions remain distinct.
@@ -127,6 +129,12 @@ flowchart TD
     M --> P
     P --> C1
     P --> C2
+    P -->|Fixed experiment contract| M
+    M --> Q["Mission planner<br/>Choose next trial or stop"]
+    Q --> R
+    Q -->|Proposal| M
+    M -->|Dispatch trial| C2
+    A -->|Measured value| M
     P --> R
     C1 --> R
     C2 --> R
@@ -135,10 +143,13 @@ flowchart TD
     P --> S
     W --> M
     M --> A
+    A --> V["Independent review of frozen evidence and manuscript"]
+    V --> L["Approved revision · local LaTeX compiler"]
+    L --> U
     A --> U
 ```
 
-The browser-development UI can also connect directly to the local Node host. TaskManager owns scheduling, file grants, run state and artifact publication; the official Pi SDK owns the independent parent/child model sessions and their JSONL histories. The model selection is fixed for a run and its children.
+The browser-development UI can also connect directly to the local Node host. TaskManager owns scheduling, file grants, run state and artifact publication; the official Pi SDK owns the independent parent/child model sessions and their JSONL histories. Settings → Models & connections can assign a saved model and reasoning level to each worker role. TaskManager freezes those choices with the coordinator's model for each run.
 
 | Layer | Technology |
 | :--- | :--- |
