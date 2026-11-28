@@ -403,7 +403,8 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   previous=await call('getDocument',{documentId});assert.ok(previous);
   assert.deepEqual(previous.assessment.findings,[remainingFinding]);
   await manager.close();manager=new TaskManager({dataDir:directory});await manager.initialize();
-  await call('startPaper',{documentId,sessionId,mode:'write',requestId:'write-after-exhausted-review'});
+  const revisionRequest={documentId,sessionId,mode:'write',requestId:'write-after-exhausted-review',expectedBaseVersion:previous.version};
+  const receipt=await call('startPaper',revisionRequest);
   await terminal(manager);assert.deepEqual(errors,[]);
   const d=await call('paperDetails',{documentId}),revised=d.runs.at(-1);
   assert.equal(revised.baseVersion,previous.version);assert.equal(revised.stage,'supported');
@@ -411,6 +412,10 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   assert.equal(revised.versions.length,1);assert.equal(revised.uploads.length,1);
   assert.notEqual(revised.reviews[0].reviewer.agentSessionId,previous.assessment.reviewer?.agentSessionId);
   const first=await call('getDocument',{documentId,version:d.versions[0]}),second=await call('getDocument',{documentId});
+  assert.deepEqual(await call('startPaper',revisionRequest),receipt);
+  await assert.rejects(call('startPaper',{...revisionRequest,expectedBaseVersion:first.version}),{code:'REQUEST_ID_CONFLICT'});
+  await assert.rejects(call('startPaper',{...revisionRequest,requestId:'stale-review'}),{code:'VERSION_CONFLICT'});
+  assert.equal((await call('paperDetails',{documentId})).runs.length,d.runs.length);
   assert.equal(second.text,revisedText);assert.equal(second.baseVersion,previous.version);
   assert.equal(first.review.status,'changes_requested');assert.equal(second.review.status,'approved');
   assert.deepEqual((await call('getDocument',{documentId,version:previous.version})).assessment,previous.assessment);
