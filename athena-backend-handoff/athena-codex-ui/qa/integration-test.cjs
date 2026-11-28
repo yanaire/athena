@@ -644,6 +644,9 @@ test('Hosted retry rejection stays beside the task and reuses the same request f
   const host = hostedFixture({ recovery: true }); host.retryError = 'Wait for the active run to finish.';
   const env = createEnvironment({ host }); host.stream.open();
   await env.waitFor(() => env.state().workspace.capabilities?.retryTask);
+  const attempt = env.q('[data-aw-task-details="interrupted-child"]').closest('[data-aw-attempt]');
+  assert.equal(attempt.open, false);
+  env.click(attempt.querySelector('summary'));
   env.click('[data-aw-task-details="interrupted-child"]');
   assert.equal(env.state().workspaceView.taskId, 'interrupted-child');
   env.click('[data-awv-retry="interrupted-child"]');

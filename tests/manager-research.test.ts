@@ -320,6 +320,7 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
       let next:string|Call;
       if(parent(w)&&prompt.startsWith('Execute my approved bibliography search'))next=out.length?'Candidates ready.':{name:'run_bibliography_search',args:{searchId:authorized}};
       else if(parent(w))next=out.length?'Manuscript stage settled.':{name:'compose_manuscript',args:prompt.includes('Manuscript outline request')?{outline:['Results']}:{}};
+      else if(prompt.includes('Plan the literature synthesis'))next=JSON.stringify([{heading:'Results',purpose:'Compare the reported voltage.',sources:[1],visual:''}]);
       else if(prompt.includes('Return only a JSON array'))next=JSON.stringify([{heading:'Results',text:sourceText}]);
       else if(prompt.includes('Use publish_manuscript')) {
         if(!out.length){round++;next={name:'publish_manuscript',args:{text:'# Results\n\n'+sourceText+'\nRevision '+round,
@@ -365,6 +366,7 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
     assert.deepEqual(errors,[]);assert.equal(snap.run.status,'succeeded');
     const d=await call('paperDetails',{documentId});assert.deepEqual(d.outline,['Results'],JSON.stringify(snap.tools));
     if(mode==='write'){assert.equal(d.runs.at(-1).stage,'supported',JSON.stringify([d.runs.at(-1),snap.tools.map(t=>[t.name,t.status,t.logs.at(-1)?.text.slice(0,300)])]));
+      assert.deepEqual(d.runs.at(-1).sectionBriefs[0].sources,[{sourceId,version:source.version}]);
       assert.equal(snap.tasks.filter(t=>t.parentTaskId).length,4);assert.equal(snap.processes.length,2);}
   }
   const d=await call('paperDetails',{documentId}),r=d.runs.at(-1);assert.equal(r.reviews.length,2);

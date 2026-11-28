@@ -6,8 +6,25 @@ window.AthenaResearchFlow={mount(root,options){
   const listeners=new AbortController();
   const body=root.querySelector('[data-flow-body]'),notice=root.querySelector('[data-flow-notice]');
   const call=(method,args={})=>service(method,{projectId:snapshot.projectId,sessionId:snapshot.sessionId,...args});
+  const draftBox=el('section'),draftLabel=el('strong'),draftText=el('pre'),draftNode=document.createTextNode('');
+  draftBox.className='ac-live-manuscript';draftBox.setAttribute('aria-label','Live manuscript');draftBox.hidden=true;
+  draftLabel.setAttribute('role','status');draftText.tabIndex=0;draftText.setAttribute('aria-label','Current manuscript text');
+  draftText.append(draftNode);draftBox.append(draftLabel,draftText);body.before(draftBox);
+  let draftOwner='',lastStream=null;
+  function displayDraft(draft){
+    if(!draft){draftBox.hidden=true;draftNode.data='';draftOwner='';return;}
+    draftBox.hidden=false;
+    const label=draft.active?(draft.role==='editor'?'Editing manuscript':'Writing manuscript'):'Saved working draft';
+    if(draftLabel.textContent!==label)draftLabel.textContent=label;
+    const same=draftOwner===draft.attemptId,follow=!same||draftText.scrollHeight-draftText.scrollTop-draftText.clientHeight<24;
+    if(same && draft.text.startsWith(draftNode.data))draftNode.appendData(draft.text.slice(draftNode.length));
+    else draftNode.data=draft.text;
+    draftOwner=draft.attemptId;
+    if(follow)draftText.scrollTop=draftText.scrollHeight;
+  }
   function viewSignature(){
-    const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version]:report;
+    const {liveDraft,...stable}=report||{};
+    const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version,!!liveDraft]:stable;
     return JSON.stringify([data,version?.version,version?.compilation,version?.review,tab]);
   }
   function tableOrigin(r,table){
@@ -29,16 +46,19 @@ window.AthenaResearchFlow={mount(root,options){
     };
     return group;
   }
+  const expanded=new Map();
   function render(){
     signature=viewSignature();
-    const opened=new Set([...body.querySelectorAll('details[open]')].map(d=>d.querySelector('summary')?.firstChild?.textContent));
+    const disclosureKey=d=>[body.dataset.flowRun,body.dataset.flowView,d.dataset.disclosure||d.querySelector('summary')?.firstChild?.textContent].join(':');
+    for(const d of body.querySelectorAll('details'))expanded.set(disclosureKey(d),d.open);
+    body.dataset.flowRun=report?.runId||'';body.dataset.flowView=tab;
     const frag=document.createDocumentFragment();
     const r=report;
     if(!r){if(snapshot?.run&&scope){frag.append(el('p','Loading recorded research stages…'));body.replaceChildren(frag);return;}frag.append(el('p','Send the topic, research question and LaTeX template in chat. Attach any research inputs.'));body.replaceChildren(frag);return;}
     if(r.history.length>1){
       const history=el('select');history.setAttribute('aria-label','Research request');
       for(const entry of r.history){const opt=el('option',entry.title);opt.value=entry.runId;history.append(opt);}
-      history.value=r.runId;history.onchange=()=>{selectedRun=history.value;generation++;signature='';update();};frag.append(history);
+      history.value=r.runId;history.onchange=()=>{displayDraft(null);selectedRun=history.value;generation++;signature='';update();};frag.append(history);
     }
     if(tab==='progress'){
       const list=el('ol');list.className='ac-flow-stages';
@@ -66,6 +86,7 @@ window.AthenaResearchFlow={mount(root,options){
             if(decision)row.append(el('p',decision.reason));
             if(t.workerNote){
               const note=el('details');
+              note.dataset.disclosure='worker-note-'+t.number;
               note.append(el('summary','Worker observation'),el('p',t.workerNote));
               row.append(note);
             }
@@ -82,6 +103,9 @@ window.AthenaResearchFlow={mount(root,options){
             trials.append(row);
           }
           details.append(trials);
+        }
+        if(stage.title==='Manuscript' && r.sectionBriefs?.length){
+          for(const brief of r.sectionBriefs)details.append(el('p',brief.heading+' · '+brief.purpose+(brief.visual?' · '+brief.visual:'')));
         }
         if(stage.taskId)details.append(button('Worker, attempts and tools',()=>options.open('workflow',{taskId:stage.taskId})));
         li.append(details);list.append(li);
@@ -145,9 +169,9 @@ window.AthenaResearchFlow={mount(root,options){
         const draft=el('details');draft.append(el('summary','Saved manuscript'),el('pre',version.text));frag.append(draft);
       }else if(r.sections?.length){
         for(const s of r.sections)frag.append(el('h4',s.heading),el('p',s.text),el('small','Draft · awaiting review'));
-      }else frag.append(el('p','No section has been saved yet.'));
+      }else if(!r.liveDraft)frag.append(el('p','The working draft will appear here when the writer starts.'));
     }
-    for(const detail of frag.querySelectorAll('details'))detail.open=opened.has(detail.querySelector('summary')?.firstChild?.textContent);
+    for(const detail of frag.querySelectorAll('details'))detail.open=expanded.get(disclosureKey(detail))===true;
     body.replaceChildren(frag);
   }
   async function recover(method,args){try{await call(method,args);signature='';await update();}catch(e){notice.textContent=e.message;}}
@@ -157,6 +181,9 @@ window.AthenaResearchFlow={mount(root,options){
     try{
       const r=await call('researchFlow',selectedRun?{runId:selectedRun}:{});if(g!==generation)return;
       report=r;
+      const fresh=lastStream && r?.runId===lastStream.runId && performance.now()-lastStream.received<1900;
+      const ahead=fresh && (!r.liveDraft||lastStream.draft.updatedAt>r.liveDraft.updatedAt);
+      displayDraft(ahead && !r.version?lastStream.draft:r?.liveDraft);
       const revision=JSON.stringify([r?.version,r?.stages.slice(-2)]);
       if(version?.version!==r?.version)version=null;
       function refresh(){
@@ -176,9 +203,12 @@ window.AthenaResearchFlow={mount(root,options){
   }
   root.addEventListener('click',e=>{const b=e.target.closest('[data-flow-tab]');if(!b)return;tab=b.dataset.flowTab;
     root.querySelectorAll('[data-flow-tab]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));render();},{signal:listeners.signal});
-  return {attach(fn){service=fn;if(scope)update();},scope(s){snapshot=s;const next=s.projects?.find(p=>p.id===s.projectId)?.researchWorkflow&&s.sessionId||'';
+  return {receiveDraft(event){
+    if(event.sessionId!==scope || (selectedRun||report?.runId)!==event.runId || !event.draft?.active)return;
+    lastStream={...event,received:performance.now()};displayDraft(event.draft);
+  },attach(fn){service=fn;if(scope)update();},scope(s){snapshot=s;const next=s.projects?.find(p=>p.id===s.projectId)?.researchWorkflow&&s.sessionId||'';
     const run=(s.run?.id||'')+' '+(s.run?.status||'');
     if(scope===next){if(scope&&hostRun!==run){hostRun=run;if(!report)render();if(!requesting)update();}return;}
-    hostRun=run;scope=next;selectedRun='';generation++;report=null;version=null;signature='';versionState='';root.hidden=!scope;clearTimeout(timer);notice.textContent='';options.stage('');render();if(scope)update();},
+    hostRun=run;scope=next;selectedRun='';generation++;lastStream=null;displayDraft(null);report=null;version=null;signature='';versionState='';root.hidden=!scope;clearTimeout(timer);notice.textContent='';options.stage('');render();if(scope)update();},
     destroy(){listeners.abort();generation++;scope='';clearTimeout(timer);}};
 }};

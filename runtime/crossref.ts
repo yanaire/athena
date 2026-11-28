@@ -16,6 +16,18 @@ export function canonicalDoi(value:unknown) {
   if(typeof value!=='string'||value.length>300||!/^10\.\d{4,9}\/[^\s\u0000-\u001f<>]+$/i.test(value))throw new SearchError('invalid_doi');
   return value.toLowerCase();
 }
+export function publicationMetadata(raw:unknown){
+    const metadata=object(raw)?raw:{};
+    const authors=Array.isArray(metadata.author)?metadata.author.flatMap(author=>{
+      if(!object(author))return [];
+      const name=[author.given,author.family].filter(v=>typeof v==='string').join(' ')||author.name;
+      return typeof name==='string'?[name]:[];
+    }):[];
+    const issued=object(metadata.issued)?metadata.issued['date-parts']:undefined;
+    const date=Array.isArray(issued)&&Array.isArray(issued[0])?issued[0].join('-'):'';
+    return {authors,date};
+}
+
 function candidate(raw:unknown):Candidate {
   if(!object(raw)||typeof raw.DOI!=='string')throw new SearchError('malformed');
   let doi:string;try {doi=canonicalDoi(raw.DOI);}catch{throw new SearchError('malformed');}

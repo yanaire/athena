@@ -121,7 +121,7 @@ try{
   const lines=createInterface({input:cad.stdout});
   const [url]=await Promise.race([once(lines,'line'),once(cad,'exit').then(()=>{throw Error('CadQuery is required.');})]);lines.close();
   manifest.mcpServers[0].url=url;
-  fixture=await createFixture(respond,{modelConcurrency:variant==='restart'?1:2});
+  fixture=await createFixture(respond,{modelConcurrency:variant==='restart'?1:2,streamSections:variant==='draft'});
   const {rpc}=fixture;
   if(variant==='routing'){
     const provider=await rpc('registerCompatibleEndpoint',[{name:'Test endpoint',endpoint:fixture.providerEndpoint}]);
@@ -142,10 +142,20 @@ try{
   context=await browser.newContext({viewport:{width:1440,height:900},recordVideo:{dir:evidence,size:{width:1440,height:900}}});
   page=await context.newPage();await page.goto(fixture.origin);
   await page.waitForFunction(()=>window.AthenaApp?.getState().workspace.sessionBound);
+  if(variant==='draft')await page.evaluate(()=>{
+    window.draftSamples=[];
+    const box=document.querySelector('.ac-live-manuscript');
+    new MutationObserver(()=>{
+      if(!box.hidden && box.querySelector('strong').textContent==='Writing manuscript'){
+        const text=box.querySelector('pre').textContent;
+        if(text && text!==window.draftSamples.at(-1))window.draftSamples.push(text);
+      }
+    }).observe(box,{subtree:true,characterData:true,childList:true,attributes:true});
+  });
   await page.locator('#ac-prompt-input').fill('Use $cad-spacer/measure to find a whole-mm bore with spacer volume ≤ 3200 mm³. Fix OD 30 mm and height 6 mm. Begin at 8 mm, adapt from measured STEP results, independently review and typeset the paper.');
   await page.locator('.acm-file-input').setInputFiles({name:'protocol.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(dimensions))});
   await page.getByRole('button',{name:'Send message',exact:true}).click();
-  const details=page.locator('details').filter({has:page.locator('summary strong',{hasText:/^Experiment$/})});
+  const details=page.locator('.ac-flow-stages > li > details').filter({has:page.locator('summary strong',{hasText:/^Experiment$/})});
   await details.locator(':scope > summary').evaluate(summary=>summary.click());
   if(variant==='routing'){
     const snap=await fixture.waitSnapshot(s=>s.attempts?.some(t=>t.workerRole==='mission'));
@@ -161,6 +171,14 @@ try{
     await fixture.stopHost();await fixture.startHost();
     const restored=await report();assert.deepEqual(restored.experimentMission.trials[0],first);
     await rpc('resumeResearch',[{...scope,runId:restored.runId,expectedAttemptId:restored.checkpoint}]);
+  }
+  if(variant==='draft'){
+    const draft=page.getByRole('region',{name:'Live manuscript'});
+    await draft.waitFor({timeout:90000});
+    await page.waitForFunction(()=>window.draftSamples.some((text,i,all)=>i>0 && text.startsWith(all[i-1]) && text.length>all[i-1].length),null,{timeout:20000});
+    const samples=await page.evaluate(()=>window.draftSamples);
+    assert.match(samples[0],/^## Methods/);
+    await page.screenshot({path:join(evidence,'live-draft.png')});
   }
   if(!hasPaper)await fixture.waitSnapshot(s=>s.run?.status==='succeeded');
   else {
@@ -203,6 +221,32 @@ try{
     await page.getByRole('button',{name:'Review JSON',exact:true}).click();
     await (await review).saveAs(join(evidence,'review.json'));
     await page.screenshot({path:join(evidence,'paper.png')});await delay(1300);
+    if(variant==='draft'){
+      const handoff=page.locator('.ac-stream-handoff').last();
+      assert.equal(await handoff.locator('.ac-stream-text').isVisible(),false);
+      assert.match(await handoff.textContent(),/Call compose_manuscript/);
+      const card=page.locator('details[data-aw-attempt]').filter({has:page.locator('.aw-attempt-heading strong',{hasText:/^Review manuscript 1$/})}).last();
+      const heading=card.locator(':scope > summary');
+      await heading.scrollIntoViewIfNeeded();
+      assert.equal(await card.getAttribute('open'),null);
+      assert.equal(await card.locator('.aw-attempt-result').isVisible(),false);
+      await page.screenshot({path:join(evidence,'activity-closed.png')});
+      await delay(1100);await heading.focus();await heading.press('Enter');
+      const reads=card.locator('[data-pi-tool="read_file"]'),row=reads.first();
+      await row.locator(':scope > summary').waitFor({state:'visible'});
+      assert.equal(await row.locator('[data-aw-log]').isVisible(),false);
+      assert.equal(await reads.nth(1).getAttribute('open'),null);
+      await page.screenshot({path:join(evidence,'activity-list.png')});
+      await delay(1100);await row.locator(':scope > summary').click();
+      await row.locator('[data-aw-log]').waitFor({state:'visible'});
+      assert.ok((await row.locator('[data-aw-log]').textContent()).trim());
+      assert.equal(await reads.nth(1).getAttribute('open'),null);
+      await page.screenshot({path:join(evidence,'activity-result.png')});
+      await delay(1100);await row.locator(':scope > summary').focus();await row.locator(':scope > summary').press('Space');
+      assert.equal(await row.locator('[data-aw-log]').isVisible(),false);
+      await heading.click();assert.equal(await row.isVisible(),false);
+    }
+
   }
   await fixture.stopHost();await fixture.startHost();
   const after=await report();assert.deepEqual(final.experimentMission,after.experimentMission);

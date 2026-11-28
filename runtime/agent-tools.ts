@@ -108,7 +108,7 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
       description:'Execute the exact Crossref search explicitly authorized by the user in this conversation. Supply the search ID shared by the user.',
       parameters:Type.Object({searchId:id},closed)}),
     ...(executionEnabled ? [delegated({name:'compose_manuscript',label:'Compose manuscript',description:'Execute the explicitly requested manuscript stage. Outlining takes headings; writing uses the saved outline.',
-      parameters:Type.Object({outline:Type.Optional(Type.Array(id,{minItems:1,maxItems:8}))},closed)})] : []),
+      parameters:Type.Object({outline:Type.Optional(Type.Array(id,{minItems:1,maxItems:8})),sectionBriefs:Type.Optional(Type.Array(Type.Object({heading:id,purpose:Type.String({maxLength:640}),sources:Type.Array(Type.Integer({minimum:1,maximum:8}),{maxItems:8}),visual:Type.String({maxLength:400})},closed),{minItems:1,maxItems:8}))},closed)})] : []),
     delegated({name:'plan_research',label:'Plan research',description:'Save a research objective, acceptance criteria and named stages. This does not execute work or approve a claim.',
       parameters:Type.Object({objective:message,acceptanceCriteria:list,stages:orchestration.researchWorkflow ? Type.Array(Type.String({minLength:1,maxLength:512}),{minItems:1,maxItems:12}) : Type.Optional(list),requestId:Type.Optional(id)},closed)}),
     ...(executionEnabled ? [delegated({name:'request_review',label:'Request independent review',description:'Start a fresh child reviewer with exact evidence and the original question. The author conversation is not inherited.',

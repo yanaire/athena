@@ -34,6 +34,8 @@ const escapes: Record<string,string> = {
 function literal(text:string) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').replace(/[\\{}$&#%_^~<>]/g,c=>escapes[c]!);
 }
+export type PaperReference = {url:string;retrievedAt:string;title?:string;authors?:string[];date?:string};
+export type DiagramSource = {sourceId:string;content:string};
 export type MeasuredSeries = {sourceId:string;rows:ReadonlyArray<Record<string,unknown>>};
 function evidenceBlock(kind:string, caption:string, series:MeasuredSeries, xKey:string, yKey:string) {
   const {rows}=series;
@@ -69,7 +71,7 @@ function evidenceBlock(kind:string, caption:string, series:MeasuredSeries, xKey:
     label(22,17,ymin,'r'),...(ymax===ymin?[]:[label(22,75,ymax,'r')]),label(24,8,xmin,'t'),...(xmax===xmin?[]:[label(169,8,xmax,'t')]),
     '\\end{picture}\\par '+literal(yKey)+' vs. '+literal(xKey)+'\\par '+literal(caption)+'\\end{minipage}\\par\\smallskip'];
 }
-export function manuscriptTex(title:string, markdown:string, style:Template,references?:readonly {url:string;retrievedAt:string}[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[]) {
+export function manuscriptTex(title:string, markdown:string, style:Template,references?:readonly PaperReference[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[],diagrams:readonly DiagramSource[]=[]) {
   const lines = markdown.split(/\r?\n/);
   const body:string[] = [];
   let i=0;
@@ -93,6 +95,23 @@ export function manuscriptTex(title:string, markdown:string, style:Template,refe
       }
       body.push('\\end{tabular}\\par\\smallskip');
     } else if(/!\[[^\]]*\]\([^)]+\)/.test(line)) {
+      const diagram=/^!\[([^\]]{1,300})\]\(athena-diagram:([a-f0-9]{64})\/([^\s)]{1,1200})\)$/.exec(line.trim());
+      if(diagram){
+        const source=diagrams.find(s=>s.sourceId===diagram[2]);
+        const nodes=diagram[3]!.split('/').map(decodeURIComponent);
+        if(!source||nodes.length<2||nodes.length>6||nodes.some(n=>!n.trim()||n.length>52||/[\r\n]/.test(n)))
+          throw Error('Choose two to six short labels from a linked full-text source for the method diagram.');
+        let offset=0;
+        for(const label of nodes){
+          const i=source.content.indexOf(label,offset);
+          if(i<0)throw Error('A method diagram label is missing or out of order in its pinned source.');
+          offset=i+label.length;
+        }
+        body.push('\\begin{center}\\begin{minipage}{.85\\linewidth}\\centering',
+          ...nodes.flatMap((n,i)=>[...(i?['$\\downarrow$\\par']:[]),'\\fbox{\\strut '+literal(n)+'}\\par']),
+          '\\smallskip '+literal(diagram[1]!)+'\\end{minipage}\\end{center}');
+        continue;
+      }
       const link=/^!\[([^\]]{1,300})\]\(athena-(plot|table):([a-f0-9]{64})\/([^/\s)]{1,128})\/([^/\s)]{1,128})\)$/.exec(line.trim());
       if(link){
         const data=series.find(s=>s.sourceId===link[3]);
@@ -107,7 +126,9 @@ export function manuscriptTex(title:string, markdown:string, style:Template,refe
     body.push('\\section*{References}');
     for(const r of references){
       const url=Array.from(r.url,c=>literal(c)+('/.-_'.includes(c)?'\\allowbreak{}':'')).join('');
-      body.push('\\noindent '+url+' (accessed '+literal(r.retrievedAt.slice(0,10))+').\\par');
+      const byline=r.authors?.length?r.authors.slice(0,12).join(', ')+(r.authors.length>12?' et al.':''):'';
+      const citation=[byline,r.date,r.title].filter(Boolean).map(part=>literal(String(part))).join('. ');
+      body.push('\\noindent '+(citation?citation+'. ':'')+url+' (accessed '+literal(r.retrievedAt.slice(0,10))+').\\par');
     }
   }
   const front=style==='elsarticle-3p'
@@ -116,8 +137,8 @@ export function manuscriptTex(title:string, markdown:string, style:Template,refe
   if(preamble)front.splice(0,1,...preamble);
   return [...front,...body,'\\end{document}',''].join('\n');
 }
-export async function typeset(title:string,markdown:string,style:Template,signal:AbortSignal,references?:readonly {url:string;retrievedAt:string}[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[]) {
-  const tex=manuscriptTex(title,markdown,style,references,preamble,series);
+export async function typeset(title:string,markdown:string,style:Template,signal:AbortSignal,references?:readonly PaperReference[],preamble?:readonly string[],series:readonly MeasuredSeries[]=[],diagrams:readonly DiagramSource[]=[]) {
+  const tex=manuscriptTex(title,markdown,style,references,preamble,series,diagrams);
   const dir=await mkdtemp(join(tmpdir(),'athena-typeset-'));
   const search=(process.env.PATH??'').split(delimiter).filter(isAbsolute);
   if(process.platform==='darwin')search.push('/Library/TeX/texbin','/opt/homebrew/bin','/usr/local/bin');

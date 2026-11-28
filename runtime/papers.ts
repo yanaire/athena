@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { publicationMetadata } from './crossref.ts';
 import { typeset, type Template, type MeasuredSeries } from './typesetting.ts';
 import { Storage } from './storage.ts';
 import { hash, ManagerError, object } from './orchestration.ts';
@@ -14,7 +15,7 @@ export type PaperLink = {kind:'claim'|'citation'|'figure'; quote:string; sourceI
   locator:string; manuscriptOffset?:number;sourceOffset?:number; variable?:string;unit?:string;transformation?:string;caption?:string};
 type PaperVersion = {projectId:string;documentId:string;version:string;baseVersion:string|null;title:string;text:string;sha256:string;
   evidence:Ref[];links:PaperLink[];issues:string[];createdAt:string;artifact?:ResearchTarget};
-export type PaperRun = {id:string;requestId:string;mode:'outline'|'write';context:Context;baseVersion:string|null;stage:string;
+export type PaperRun = {sectionBriefs?:import('./manuscript-draft.ts').SectionBrief[];id:string;requestId:string;mode:'outline'|'write';context:Context;baseVersion:string|null;stage:string;
   outline:string[];sections:{heading:string;text:string}[];attempts:{role:string;taskId:string;attemptId:string}[];
   versions:string[];reviews:ResearchReview[];uploads:{fileId:string;sourceId:string}[];error?:string};
 type Download = {id:string;name:string;uri:string;sha256:string;bytes:number;mimeType:string};
@@ -174,7 +175,11 @@ export class Papers {
     this.compiling.add(key);this.db.set(key,{...base,state:'running'});
     try {
       const workflow=this.paper(project,id).workflow;
-      const refs=workflow?.references?.filter(ref=>v.links.some(l=>l.kind==='citation'&&l.sourceId===ref.sourceId));
+      const refs=workflow?.references?.filter(ref=>v.links.some(l=>l.kind==='citation'&&l.sourceId===ref.sourceId)).map(ref=>{
+        const source=this.source(project,ref.sourceId),origin=source.origin;
+        const meta=origin && 'raw' in origin?publicationMetadata(origin.raw):undefined;
+        return {...ref,title:source.title,...(meta?{authors:meta.authors,date:meta.date}:{})};
+      });
       const series:MeasuredSeries[]=[];
       for(const table of workflow?.tables??[]){
         if(!v.evidence.some(ref=>ref.sourceId===table.sourceId&&ref.version===table.version))continue;
@@ -188,7 +193,13 @@ export class Papers {
         if(!Array.isArray(rows)||!rows.every(object))fail('ARTIFACT_DENIED','Reviewed table rows unavailable.');
         series.push({sourceId:table.sourceId,rows});
       }
-      const result=await typeset(v.title,v.text,style,signal,refs,workflow?.layout?.preamble,series);
+      const diagramIds=new Set(Array.from(v.text.matchAll(/\(athena-diagram:([a-f0-9]{64})\//g),match=>match[1]));
+      const diagrams=v.evidence.filter(ref=>diagramIds.has(ref.sourceId) && v.links.some(l=>l.sourceId===ref.sourceId && (l.sourceOffset??-1)>=0)).map(ref=>{
+        const source=this.source(project,ref.sourceId);
+        if(source.version!==ref.version || source.level!=='full_text')fail('SOURCE_DENIED','A method diagram requires a pinned full-text edition.');
+        return {sourceId:source.sourceId,content:source.content};
+      });
+      const result=await typeset(v.title,v.text,style,signal,refs,workflow?.layout?.preamble,series,diagrams);
       signal.throwIfAborted();
       return this.db.transaction(()=>{
         const save=(name:string,mimeType:string,bytes:Buffer)=>{

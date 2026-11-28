@@ -333,8 +333,10 @@
  function requestProject(){
   const requestId=crypto.randomUUID();let created=null;
   const enabled=Boolean(workspaceStore.getState().capabilities?.createProject);
-  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label><input type="checkbox" id="ac-research-mode" checked> Run research, save papers to the project’s Athena Library folder and typeset the manuscript</label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
-   const name=q('#ac-project-name').value.trim();if(!name)return;
+  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label class="ac-research-choice"><input type="checkbox" id="ac-research-mode" checked><span>Enable research, paper archiving and typesetting</span></label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
+   const input=q('#ac-project-name'),name=input.value.trim();
+   if(!name){const message=q('[data-lifecycle-error]');message.hidden=false;message.textContent='Enter a project name.';input.setAttribute('aria-invalid','true');input.focus();return;}
+   input.removeAttribute('aria-invalid');
    q('#ac-dialog-primary').disabled=true;
    try{
     if(!created){const result=await workspaceStore.createProject({name,requestId,folder:q('#ac-project-folder').value.trim(),researchWorkflow:q('#ac-research-mode').checked,defaultModel:connectionManager.getDefaultModel()});created=result?.project;}
@@ -573,6 +575,7 @@
    piTurnEpoch++;preservePendingSubmission('The host changed conversations before acceptance.');resetPiActivity();piManualTools.clear();piManualView?.reset();q('#ac-live-user').hidden=true;piView?.clear?.();piHistorySignature='';piSessionIdentity='';return;
   }
   if(workspaceStore?.getState().sessionBound===false)return;
+  if(event.type==='manuscript_draft'){researchFlow?.receiveDraft(event);return;}
   if(event.type==='host_command_start'){
    const presentation=window.AthenaPiActivity.toolPresentation('bash',event.args,'queued');
    piManualTools.set(event.id,{...presentation,id:'manual:'+event.id,toolCallId:event.id,toolName:'bash',args:event.args,status:'queued',output:'',outputRevision:0,startedAt:Date.now()});

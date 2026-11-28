@@ -26,7 +26,7 @@ export const inputs = Object.freeze([
 const text = value => typeof value === 'string' ? value : Array.isArray(value) ? value.map(part => part?.text || '').join('\n') : '';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function createFixture(researchResponder, { hostNodeArgs = [], modelConcurrency = 2 } = {}) {
+export async function createFixture(researchResponder, { hostNodeArgs = [], modelConcurrency = 2, streamSections = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-chat-browser-'));
   const failures = [], calls = [];
   let child, origin = '', hostPort = 0, hostOutput = '';
@@ -97,7 +97,13 @@ export async function createFixture(researchResponder, { hostNodeArgs = [], mode
       const delta = typeof next === 'string' ? { role: 'assistant', content: next } : { role: 'assistant', tool_calls: [{
         index: 0, id: 'call_' + randomUUID(), type: 'function', function: { name: next.name, arguments: JSON.stringify(next.args) },
       }] };
-      response.write(frame(delta));
+      if(streamSections && typeof next==='string' && input.includes('Return only a JSON array')){
+        // Leave enough time for two host checkpoint polls of incomplete JSON.
+        const first=Math.floor(next.length/3),second=2*first;
+        response.write(frame({role:'assistant',content:next.slice(0,first)}));await delay(1800);
+        response.write(frame({content:next.slice(first,second)}));await delay(1800);
+        response.write(frame({content:next.slice(second)}));
+      }else response.write(frame(delta));
       response.write(frame({}, typeof next === 'string' ? 'stop' : 'tool_calls'));
       response.end('data: [DONE]\n\n');
     } catch (error) {

@@ -27,6 +27,7 @@ import type { RoleModels, WorkerRole } from './worker-roles.ts';
 import { ProjectLibrary, type PaperAcquisition } from './project-library.ts';
 import { projectFolder } from './project-folder.ts';
 import { template, readTemplate } from './typesetting.ts';
+import { streamedManuscript, sectionBriefs, type ManuscriptDraft } from './manuscript-draft.ts';
 import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
@@ -129,6 +130,7 @@ export class TaskManager implements AthenaTaskManager {
   readonly #extensions: ExtensionStore;
   readonly #papers: Papers;
   readonly #shutdown=new AbortController();
+  readonly #draftStreams=new Map<string,{draft:ManuscriptDraft;sampled:number;saved:number}>();
   readonly #manualCompiles=new Set<Promise<unknown>>();
   readonly #library:ProjectLibrary;
   readonly #bibliography: Bibliography;
@@ -667,6 +669,9 @@ export class TaskManager implements AthenaTaskManager {
     const reviews=board.reviews.filter(r=>r.requestedBy.runId===run.id);
     const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
     const writing=paper?.runs.at(-1),written=writing&&this.#storage.record<Run>('run',writing.id);
+    const author=writing?.attempts.at(-1);
+    const draft=author && (this.#draftStreams.get(author.attemptId)?.draft??this.#storage.get<ManuscriptDraft>('paper.draft:'+author.attemptId));
+    const drafting=draft && this.#storage.record<Attempt>('attempt',draft.attemptId);
     const current=paper?.versions.at(-1),version=current?this.#papers.version(project,paper!.id,current):undefined;
     const processes=this.#storage.records<ProcessRow>('process',session).filter(p=>p.runId===run.id);
     const artifacts=this.#storage.records<ArtifactRow>('artifact',session).filter(f=>f.runId===run.id);
@@ -695,6 +700,8 @@ export class TaskManager implements AthenaTaskManager {
     return {history:history.map(r=>({runId:r.id,title:r.title})),checkpoint,runId:run.id,model:run.model,documentId:paper?.id,manuscriptRunId:writing?.id,version:current,
       plan:mission && {missionId:mission.id, objective:mission.objective, stages:mission.stages, acceptanceCriteria:mission.acceptanceCriteria,
         coordinatorModel:flow.planMode ? run.model?.modelId : undefined},
+      liveDraft:draft && (!current||drafting && pending(drafting.status))?{...draft,active:!!drafting && pending(drafting.status)}:undefined,
+      sectionBriefs:writing?.sectionBriefs,
       experimentMission:study?{...study,...missionProgress(study)}:undefined,
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
       sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
@@ -850,6 +857,8 @@ export class TaskManager implements AthenaTaskManager {
     }):'';
     const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:a.fileIds[i],title:s.title,coverage:s.level,
       ...upstream?.pages?.find(p=>p.sourceId===s.sourceId),claim:upstream?.citations?.find(c=>c.sourceId===s.sourceId)?.claim??upstream?.pages?.find(p=>p.sourceId===s.sourceId)?.claim})));
+    // Reserve a fresh reviewer for a possible revision before reserving a literature session.
+    const separatePlanner=this.#maxChildren>=5;
     const child=async(role:string,prompt:string,previous?:string)=>{
       signal.throwIfAborted();
       const prior=run().attempts.findLast(t=>t.role===role);
@@ -863,7 +872,7 @@ export class TaskManager implements AthenaTaskManager {
       const task=await this.#dispatch(a,previous?'send_to_agent':'spawn_agent',requestId,previous?{taskId:previous,message:prompt,requestId}:{title:role,prompt,requestId},signal,next=>{
         // Called inside the existing child admission transaction.
         const d=current();d.runs.find(r=>r.id===a.runId)!.attempts.push({role,taskId:next.taskId,attemptId:next.id});this.#papers.put(d);
-      },!!prior||!!previous&&a.requestId.startsWith('resume:'),role==='Draft sections'?'writer':'editor');
+      },!!prior||!!previous&&a.requestId.startsWith('resume:'),role==='Plan manuscript evidence'&&separatePlanner?'literature':role==='Draft sections'||role==='Plan manuscript evidence'?'writer':'editor');
       const joined=await this.#wait(a,[task.taskId],signal);signal.throwIfAborted();
       const row=joined.tasks[0];if(!row||row.status!=='succeeded')throw new ManagerError('PAPER_CHILD_FAILED',role+' did not succeed.');
       return row;
@@ -871,11 +880,25 @@ export class TaskManager implements AthenaTaskManager {
     update(r=>{r.stage='planning';});
     try {
       const mission=this.#research.snapshot(a).missions.find(m=>m.runId===a.runId)??this.#research.plan(a,{objective:doc.goal,acceptanceCriteria:['Check claims, citations and figure data against exact sources.'],stages:doc.outline});
+      let briefs=run().sectionBriefs;
+      const scholarly=sources.some(s=>s.origin && 'provider' in s.origin);
+      let planner=run().attempts.find(t=>t.role==='Plan manuscript evidence')?.taskId;
+      if(!briefs && (scholarly || args.sectionBriefs!==undefined)){
+        let raw=args.sectionBriefs;
+        if(!raw){
+          const planned=await child('Plan manuscript evidence','Plan the literature synthesis and visuals for this paper. Read relevant granted sources. Distinguish metadata from full text. Use sequential source numbers starting at 1. For each heading identify the comparison, finding or limitation and any useful plot, table or method diagram. Return a JSON array of {heading,purpose,sources:[numbers],visual:"description or empty string"}.\nSources: '+description+'\nOutline: '+JSON.stringify(doc.outline));
+          planner=planned.taskId;raw=JSON.parse(planned.result??'null');
+        }
+        briefs=sectionBriefs(raw,doc.outline,sources);
+        update(r=>{r.sectionBriefs=briefs;});
+      }
+      const briefContext=briefs?'\nSection evidence and visual plan: '+JSON.stringify(briefs):'';
+      const revisionRoom=this.#maxChildren>=4;
       let sections=run().sections;
       if(!sections.length){
         const writer=await child('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
-        trialContext+(upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
-        '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline));
+        trialContext+briefContext+(upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
+        '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline),separatePlanner?undefined:planner);
         sections=sectionDrafts(JSON.parse(writer.result??'null'),doc.outline);
         update(r=>{r.sections=sections;});
       }
@@ -886,12 +909,13 @@ export class TaskManager implements AthenaTaskManager {
         const priorReview=priorVersion?.assessment;
         if(priorReview?.verdict){
           update(r=>{r.stage=priorReview.verdict!;});editor=priorVersion?.artifact?.taskId;findings=[...(priorReview.findings??[]),...(priorVersion?.issues??[])];
-          if(priorReview.verdict==='changes_required'&&cycle===0&&this.#maxChildren>=4)continue;
+          if(priorReview.verdict==='changes_required'&&cycle===0&&revisionRoom)continue;
           break;
         }
         const result=priorVersion?.artifact?.taskId?await this.#summary(this.#child(a,priorVersion.artifact.taskId)):await child(cycle?'Revise manuscript':'Edit manuscript',
-          'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+trialContext+
+          'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+trialContext+briefContext+
           (doc.workflow?.tables?.length?'\nFor numeric results you can put ![Caption](athena-plot:sourceId/xKey/yKey) or ![Caption](athena-table:sourceId/xKey/yKey) on a separate line. Use the exact sourceId and numeric field names from these verified arrays: '+JSON.stringify(doc.workflow.tables):'')+
+          '\nFor a method diagram, use ![caption](athena-diagram:sourceId/label1/label2) on a separate line. Copy 2–6 short ordered labels from one linked full-text source and URL-encode each label.'+
           '\nUse publish_manuscript exactly once. Supply claim/citation/figure links with exact manuscript and source quotes. Include data units for figures. Unavailable evidence must be disclosed.'+
           (cycle?'\nIndependent review findings: '+JSON.stringify(findings).slice(0,4000):''),editor);
         editor=result.taskId;
@@ -904,7 +928,7 @@ export class TaskManager implements AthenaTaskManager {
         const durableReview=this.#research.snapshot(a).reviews.find(r=>r.requestedBy.runId===a.runId&&r.verdict&&r.executionStatus==='succeeded'&&r.targets.some(t=>t.id===version.artifact!.id&&t.sha256===version.sha256));
         if(durableReview){
           update(r=>{r.reviews.push(durableReview);r.stage=durableReview.verdict!;});
-          if(durableReview.verdict==='changes_required'&&cycle===0&&this.#maxChildren>=4){findings=[...(durableReview.findings??[]),...version.issues];continue;}
+          if(durableReview.verdict==='changes_required'&&cycle===0&&revisionRoom){findings=[...(durableReview.findings??[]),...version.issues];continue;}
           break;
         }
         const evidence=await this.#research.addEvidence(a,{missionId:mission.id,title:'Manuscript '+(cycle+1),artifactIds,fileIds:a.fileIds},resolver);
@@ -922,7 +946,7 @@ export class TaskManager implements AthenaTaskManager {
         const checked=this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId}).reviews.find(row=>row.id===review.id);
         if(joined.tasks[0]?.status!=='succeeded'||checked?.state!=='completed'||!checked.verdict)throw new ManagerError('PAPER_NO_REVIEW','Reviewer did not submit a structured verdict.');
         update((r,d)=>{if(d.versions.at(-1)!==version.version)throw new ManagerError('VERSION_CONFLICT','Manuscript changed during review.');r.reviews.push(checked);r.stage=checked.verdict!;});
-        if(checked.verdict!=='changes_required'||cycle===1||this.#maxChildren<4)break;
+        if(checked.verdict!=='changes_required'||cycle===1||!revisionRoom)break;
         findings=[...(checked.findings??[]),...version.issues];
       }
       if(doc.workflow&&run().stage==='supported'){
@@ -1214,7 +1238,9 @@ export class TaskManager implements AthenaTaskManager {
   }
 
   #attachmentMessage(attempt: Attempt, runtime: ManagedPiSession): AttachmentMessage | undefined {
-    if (attempt.parentTaskId !== null || attempt.kind === 'reconciliation' || !attempt.fileIds.length) return;
+    if (attempt.parentTaskId !== null || attempt.kind === 'reconciliation') return;
+    const manuscriptHandoff = Boolean(this.#storage.get<string>('paper.run:' + attempt.runId));
+    if (!attempt.fileIds.length && !manuscriptHandoff) return;
     let suffix = '';
     const attachments = [];
     for (const fileId of attempt.fileIds) {
@@ -1228,8 +1254,8 @@ export class TaskManager implements AthenaTaskManager {
     // Older attempts stored the full dispatch and file IDs. The immutable upload
     // metadata identifies their exact appended suffix without scanning user text.
     if (!attempt.prompt.endsWith(suffix)) return;
-    const user = attempt.prompt.slice(0, -suffix.length);
-    return {dispatch: runtime.publicText?.(attempt.prompt) ?? attempt.prompt, user: runtime.publicText?.(user) ?? user, attachments};
+    const user = suffix ? attempt.prompt.slice(0, -suffix.length) : attempt.prompt;
+    return {dispatch: runtime.publicText?.(attempt.prompt) ?? attempt.prompt, user: runtime.publicText?.(user) ?? user, attachments, manuscriptHandoff};
   }
 
   async pi(sessionId: string, command: PiCommand): Promise<unknown> {
@@ -1419,8 +1445,27 @@ export class TaskManager implements AthenaTaskManager {
       this.#executing.set(a.agentSessionId,a);
       const attachment = this.#attachmentMessage(a, runtime);
       const publicMessage = (message: unknown) => withMessageOwner(withoutAttachmentContext(message, attachment), a);
+      const authorRole=a.workerRole==='writer'||a.workerRole==='editor'?a.workerRole:undefined;
+      const paperId=authorRole && this.#storage.get<string>('paper.run:'+a.runId);
+      const paper=paperId?this.#papers.paper(a.projectId,paperId):undefined;
+      const paperRun=paper?.runs.find(r=>r.id===a.runId && r.attempts.some(t=>t.attemptId===a.id && ['Draft sections','Edit manuscript','Revise manuscript'].includes(t.role)));
       unsubscribe=runtime.subscribe(event=>{
         if(this.#closed || this.#executing.get(a.agentSessionId)!==a)return;
+        if(paperRun && authorRole && (event.type==='message_update'||event.type==='message_end')){
+          const prior=this.#draftStreams.get(a.id),now=Date.now();
+          if(!prior||now-prior.sampled>=160||event.type==='message_end'){
+            const text=streamedManuscript(authorRole,event.message,paperRun.outline);
+            if(text && text!==prior?.draft.text){
+              const draft={role:authorRole,attemptId:a.id,text,updatedAt:now};
+              const persist=!prior||now-prior.saved>=1000||event.type==='message_end';
+              if(persist)this.#storage.set('paper.draft:'+a.id,draft);
+              this.#draftStreams.set(a.id,{draft,sampled:now,saved:persist?now:prior.saved});
+              if(paper?.workflow)for(const listener of this.#piListeners)listener(a.sessionId,{
+                type:'manuscript_draft',sessionId:a.sessionId,runId:paper.workflow.runId,paperRunId:a.runId,draft:{...draft,active:true}
+              });
+            }
+          }
+        }
         const semantic=SNAPSHOT_EVENTS.has(event.type);
         const failure = failureBudget.observe(event);
         this.#storage.transaction(()=>{
@@ -1465,6 +1510,9 @@ export class TaskManager implements AthenaTaskManager {
       if(!this.#closed)this.#commit(()=>this.#journal.transition(a,signal.aborted?'cancelled':'failed',error instanceof Error?error.message:'Pi failed.'));
     }finally{
       unsubscribe?.();
+      const preview=this.#draftStreams.get(a.id);
+      if(preview && !this.#closed)this.#storage.set('paper.draft:'+a.id,preview.draft);
+      this.#draftStreams.delete(a.id);
       if(this.#executing.get(a.agentSessionId)===a)this.#executing.delete(a.agentSessionId);
       this.#scheduler.release(a);this.#turns.delete(a.id);
       if(!a.parentTaskId&&!this.#closed){

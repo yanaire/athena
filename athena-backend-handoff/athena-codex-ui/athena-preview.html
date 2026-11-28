@@ -40,6 +40,11 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 .ac-inline-agent>svg{width:16px;height:16px;color:#a4a9a4;flex:none}
 @media(max-width:640px){.ac-inline-agent{gap:8px;padding:11px}.ac-inline-agent-title{flex-wrap:wrap}.ac-inline-status{margin-left:0}}
 
+#athena-codex .ac-dialog .ac-research-choice{display:flex;align-items:center;gap:.65rem;margin:.8rem 0}
+#athena-codex .ac-dialog .ac-research-choice input[type=checkbox]{width:1rem;height:1rem;margin:0;padding:0;flex:none}
+#athena-codex .ac-live-manuscript:not([hidden]){display:block;padding:.65rem 1rem;border-bottom:1px solid var(--line,#ddd)}
+#athena-codex .ac-live-manuscript pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:15rem;overflow:auto;font:inherit;line-height:1.5;margin:.4rem 0 0}
+
 /* Athena composer. Motion references are recorded in composer.js.
    All selectors and tokens stay inside the application root. */
 #athena-codex .acm-composer {
@@ -824,10 +829,11 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .aw-agent-event > summary > svg {width:14px;height:14px;flex:none;margin-top:3px;}
 #athena-codex .aw-agent-event > summary > svg:last-child {width:11px;height:11px;margin-top:5px;transition:transform .15s ease;transform:rotate(-90deg);color:var(--aw-activity-muted);}
 #athena-codex .aw-agent-event[open] > summary > svg:last-child {transform:rotate(0);}
-#athena-codex .aw-agent-copy {flex:1;min-width:0;font-size:12px;line-height:1.8;}
-#athena-codex .aw-agent-name {display:block;overflow-wrap:anywhere;}
+#athena-codex .aw-agent-copy {flex:1;display:flex;gap:8px;align-items:baseline;min-width:0;font-size:12px;line-height:1.8;}
+#athena-codex .aw-agent-name, #athena-codex .aw-tool-target {overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+#athena-codex .aw-agent-name {flex-shrink:0;max-width:100%;}
 #athena-codex .aw-agent-owner {color:var(--aw-activity-muted);}
-#athena-codex .aw-tool-activity {display:block;margin-top:3px;color:var(--aw-activity-muted);font-size:11px;line-height:1.8;overflow-wrap:anywhere;}
+
 #athena-codex .aw-agent-detail {min-width:0;padding:4px 0 15px 23px;color:var(--aw-activity-text);}
 #athena-codex .aw-activity .aw-tool-task {margin:0 0 8px;font-size:11px;line-height:1.7;}
 #athena-codex .aw-tool-context {display:flex;flex-wrap:wrap;gap:4px 18px;margin:0 0 7px;font-size:11px;line-height:1.7;}
@@ -906,14 +912,14 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 
 #athena-codex .ar-activity-slot {min-width:0;margin:7px 0 16px;}
 #athena-codex .ap-tool-event {min-width:0;margin:5px 0;color:rgba(48,52,46,.70);}
-#athena-codex .ap-tool-event > summary {display:flex;align-items:flex-start;gap:9px;list-style:none;padding:7px 0;min-width:0;}
+#athena-codex .ap-tool-event > summary {display:flex;align-items:center;gap:9px;list-style:none;padding:7px 0;min-width:0;}
 #athena-codex .ap-tool-event > summary::-webkit-details-marker {display:none;}
 #athena-codex .ap-tool-event > summary > svg {width:11px;height:11px;margin-top:5px;transform:rotate(-90deg);transition:transform .15s ease;flex:none;}
 #athena-codex .ap-tool-event[open] > summary > svg {transform:rotate(0);}
 #athena-codex .ap-tool-icon {display:inline-flex;flex:none;margin-top:1px;}
-#athena-codex .ap-tool-copy {flex:1;min-width:0;font-size:12px;line-height:1.8;}
-#athena-codex .ap-tool-label {display:block;}
-#athena-codex .ap-tool-target {display:block;white-space:pre-wrap;overflow-wrap:anywhere;color:rgba(48,52,46,.60);font-size:11px;line-height:1.7;}
+#athena-codex .ap-tool-copy {flex:1;display:flex;align-items:baseline;gap:8px;min-width:0;font-size:12px;line-height:1.8;}
+#athena-codex .ap-tool-label {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;max-width:100%;}
+#athena-codex .ap-tool-target {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(48,52,46,.60);font-size:11px;line-height:1.7;}
 #athena-codex .ap-tool-body {min-width:0;padding:4px 0 13px 26px;font-size:11px;line-height:1.8;}
 #athena-codex .ap-tool-body dl {display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 8px;}
 #athena-codex .ap-tool-body dl > div {display:flex;gap:7px;min-width:0;}
@@ -926,7 +932,7 @@ if(window.AthenaHosted===true||(/^https?:$/.test(location.protocol)&&location.pa
 #athena-codex .ap-copy-label {display:block;margin-top:8px;}
 #athena-codex .ap-copy-label textarea {display:block;width:100%;min-height:80px;resize:vertical;background:#fafbf6;border:1px solid #d6d8cd;border-radius:5px;padding:8px;font:11px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;}
 #athena-codex .ap-session-error {font-size:12px;line-height:1.8;color:#955c48;overflow-wrap:anywhere;}
-#athena-codex .aw-tool-target {display:block;font-size:11px;line-height:1.7;color:rgba(48,52,46,.60);white-space:pre-wrap;overflow-wrap:anywhere;}
+#athena-codex .aw-tool-target {min-width:0;font-size:11px;color:var(--ac-muted);}
 #athena-codex .aw-agent-event > summary > .ap-icon {margin-top:2px;}
 @media(pointer:coarse){#athena-codex .ap-tool-event > summary,#athena-codex .ap-tool-actions button {min-height:44px;}#athena-codex .ap-copy-label textarea {font-size:16px;}}
 @media(prefers-reduced-motion:reduce){#athena-codex .ap-tool-event > summary > svg {transition:none;}}
@@ -2564,14 +2570,24 @@ html[data-athena-hosted="true"] #athena-codex:not([data-workspace-mode]) #ac-pi-
 #athena-codex .ac-stream-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 #athena-codex .ac-stream-tool { margin: -5px 0; }
 #athena-codex .ac-stream-tool .ap-tool-event { margin: 0; }
-#athena-codex .aw-attempt { border-left: 2px solid var(--ac-line); padding-left: 15px; margin: 2px 0 8px; }
-#athena-codex .aw-attempt-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 5px; color: var(--ac-text); font-size: 14px; }
-#athena-codex .aw-attempt-heading strong { font-weight: 550; }
+#athena-codex .aw-attempt { min-width: 0; margin: -5px 0; }
+#athena-codex .aw-attempt-heading { display: flex; align-items: center; gap: 9px; list-style: none; padding: 7px 0; color: var(--ac-muted); font-size: 13px; line-height: 1.6; }
+#athena-codex .aw-attempt-heading::-webkit-details-marker { display: none; }
+#athena-codex .aw-attempt-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+#athena-codex .aw-attempt-heading > svg { flex: none; width: 15px; height: 15px; }
+#athena-codex .aw-attempt-heading > svg:last-child { width: 11px; transform: rotate(-90deg); }
+#athena-codex .aw-attempt[open] > summary > svg:last-child { transform: none; }
+#athena-codex .aw-attempt > :not(summary) { margin-left: 24px; }
+@media(pointer:coarse) { #athena-codex .aw-attempt-heading { min-height: 44px; } }
 #athena-codex .aw-attempt-meta { margin: 0 0 8px; color: var(--ac-muted); font-size: 12px; }
 #athena-codex .aw-attempt .aw-agent-events { margin: 0; }
 #athena-codex .aw-attempt .aw-approval-inline { margin-top: 10px; }
 #athena-codex .aw-attempt-results { margin-top: 8px; }
 #athena-codex .aw-attempt-results:empty { display: none; }
+
+#athena-codex .ac-stream-handoff { font-size: 13px; color: var(--ac-muted); }
+#athena-codex .ac-stream-handoff > summary { padding: 5px 0; }
+#athena-codex .ac-stream-handoff > .ac-stream-text { margin: 8px 0; }
 
 /* Extension and research records use Athena's existing warm, compact palette. */
 #athena-codex .aex-host { min-width: 0; color: #35372f; font-size: 12px; line-height: 1.6; }
@@ -6944,8 +6960,25 @@ window.AthenaResearchFlow={mount(root,options){
   const listeners=new AbortController();
   const body=root.querySelector('[data-flow-body]'),notice=root.querySelector('[data-flow-notice]');
   const call=(method,args={})=>service(method,{projectId:snapshot.projectId,sessionId:snapshot.sessionId,...args});
+  const draftBox=el('section'),draftLabel=el('strong'),draftText=el('pre'),draftNode=document.createTextNode('');
+  draftBox.className='ac-live-manuscript';draftBox.setAttribute('aria-label','Live manuscript');draftBox.hidden=true;
+  draftLabel.setAttribute('role','status');draftText.tabIndex=0;draftText.setAttribute('aria-label','Current manuscript text');
+  draftText.append(draftNode);draftBox.append(draftLabel,draftText);body.before(draftBox);
+  let draftOwner='',lastStream=null;
+  function displayDraft(draft){
+    if(!draft){draftBox.hidden=true;draftNode.data='';draftOwner='';return;}
+    draftBox.hidden=false;
+    const label=draft.active?(draft.role==='editor'?'Editing manuscript':'Writing manuscript'):'Saved working draft';
+    if(draftLabel.textContent!==label)draftLabel.textContent=label;
+    const same=draftOwner===draft.attemptId,follow=!same||draftText.scrollHeight-draftText.scrollTop-draftText.clientHeight<24;
+    if(same && draft.text.startsWith(draftNode.data))draftNode.appendData(draft.text.slice(draftNode.length));
+    else draftNode.data=draft.text;
+    draftOwner=draft.attemptId;
+    if(follow)draftText.scrollTop=draftText.scrollHeight;
+  }
   function viewSignature(){
-    const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version]:report;
+    const {liveDraft,...stable}=report||{};
+    const data=tab==='preview'&&report?[report.runId,report.history,report.sections,report.sources,report.version,!!liveDraft]:stable;
     return JSON.stringify([data,version?.version,version?.compilation,version?.review,tab]);
   }
   function tableOrigin(r,table){
@@ -6967,16 +7000,19 @@ window.AthenaResearchFlow={mount(root,options){
     };
     return group;
   }
+  const expanded=new Map();
   function render(){
     signature=viewSignature();
-    const opened=new Set([...body.querySelectorAll('details[open]')].map(d=>d.querySelector('summary')?.firstChild?.textContent));
+    const disclosureKey=d=>[body.dataset.flowRun,body.dataset.flowView,d.dataset.disclosure||d.querySelector('summary')?.firstChild?.textContent].join(':');
+    for(const d of body.querySelectorAll('details'))expanded.set(disclosureKey(d),d.open);
+    body.dataset.flowRun=report?.runId||'';body.dataset.flowView=tab;
     const frag=document.createDocumentFragment();
     const r=report;
     if(!r){if(snapshot?.run&&scope){frag.append(el('p','Loading recorded research stages…'));body.replaceChildren(frag);return;}frag.append(el('p','Send the topic, research question and LaTeX template in chat. Attach any research inputs.'));body.replaceChildren(frag);return;}
     if(r.history.length>1){
       const history=el('select');history.setAttribute('aria-label','Research request');
       for(const entry of r.history){const opt=el('option',entry.title);opt.value=entry.runId;history.append(opt);}
-      history.value=r.runId;history.onchange=()=>{selectedRun=history.value;generation++;signature='';update();};frag.append(history);
+      history.value=r.runId;history.onchange=()=>{displayDraft(null);selectedRun=history.value;generation++;signature='';update();};frag.append(history);
     }
     if(tab==='progress'){
       const list=el('ol');list.className='ac-flow-stages';
@@ -7004,6 +7040,7 @@ window.AthenaResearchFlow={mount(root,options){
             if(decision)row.append(el('p',decision.reason));
             if(t.workerNote){
               const note=el('details');
+              note.dataset.disclosure='worker-note-'+t.number;
               note.append(el('summary','Worker observation'),el('p',t.workerNote));
               row.append(note);
             }
@@ -7020,6 +7057,9 @@ window.AthenaResearchFlow={mount(root,options){
             trials.append(row);
           }
           details.append(trials);
+        }
+        if(stage.title==='Manuscript' && r.sectionBriefs?.length){
+          for(const brief of r.sectionBriefs)details.append(el('p',brief.heading+' · '+brief.purpose+(brief.visual?' · '+brief.visual:'')));
         }
         if(stage.taskId)details.append(button('Worker, attempts and tools',()=>options.open('workflow',{taskId:stage.taskId})));
         li.append(details);list.append(li);
@@ -7083,9 +7123,9 @@ window.AthenaResearchFlow={mount(root,options){
         const draft=el('details');draft.append(el('summary','Saved manuscript'),el('pre',version.text));frag.append(draft);
       }else if(r.sections?.length){
         for(const s of r.sections)frag.append(el('h4',s.heading),el('p',s.text),el('small','Draft · awaiting review'));
-      }else frag.append(el('p','No section has been saved yet.'));
+      }else if(!r.liveDraft)frag.append(el('p','The working draft will appear here when the writer starts.'));
     }
-    for(const detail of frag.querySelectorAll('details'))detail.open=opened.has(detail.querySelector('summary')?.firstChild?.textContent);
+    for(const detail of frag.querySelectorAll('details'))detail.open=expanded.get(disclosureKey(detail))===true;
     body.replaceChildren(frag);
   }
   async function recover(method,args){try{await call(method,args);signature='';await update();}catch(e){notice.textContent=e.message;}}
@@ -7095,6 +7135,9 @@ window.AthenaResearchFlow={mount(root,options){
     try{
       const r=await call('researchFlow',selectedRun?{runId:selectedRun}:{});if(g!==generation)return;
       report=r;
+      const fresh=lastStream && r?.runId===lastStream.runId && performance.now()-lastStream.received<1900;
+      const ahead=fresh && (!r.liveDraft||lastStream.draft.updatedAt>r.liveDraft.updatedAt);
+      displayDraft(ahead && !r.version?lastStream.draft:r?.liveDraft);
       const revision=JSON.stringify([r?.version,r?.stages.slice(-2)]);
       if(version?.version!==r?.version)version=null;
       function refresh(){
@@ -7114,10 +7157,13 @@ window.AthenaResearchFlow={mount(root,options){
   }
   root.addEventListener('click',e=>{const b=e.target.closest('[data-flow-tab]');if(!b)return;tab=b.dataset.flowTab;
     root.querySelectorAll('[data-flow-tab]').forEach(btn=>btn.setAttribute('aria-pressed',String(btn===b)));render();},{signal:listeners.signal});
-  return {attach(fn){service=fn;if(scope)update();},scope(s){snapshot=s;const next=s.projects?.find(p=>p.id===s.projectId)?.researchWorkflow&&s.sessionId||'';
+  return {receiveDraft(event){
+    if(event.sessionId!==scope || (selectedRun||report?.runId)!==event.runId || !event.draft?.active)return;
+    lastStream={...event,received:performance.now()};displayDraft(event.draft);
+  },attach(fn){service=fn;if(scope)update();},scope(s){snapshot=s;const next=s.projects?.find(p=>p.id===s.projectId)?.researchWorkflow&&s.sessionId||'';
     const run=(s.run?.id||'')+' '+(s.run?.status||'');
     if(scope===next){if(scope&&hostRun!==run){hostRun=run;if(!report)render();if(!requesting)update();}return;}
-    hostRun=run;scope=next;selectedRun='';generation++;report=null;version=null;signature='';versionState='';root.hidden=!scope;clearTimeout(timer);notice.textContent='';options.stage('');render();if(scope)update();},
+    hostRun=run;scope=next;selectedRun='';generation++;lastStream=null;displayDraft(null);report=null;version=null;signature='';versionState='';root.hidden=!scope;clearTimeout(timer);notice.textContent='';options.stage('');render();if(scope)update();},
     destroy(){listeners.abort();generation++;scope='';clearTimeout(timer);}};
 }};
 
@@ -10654,7 +10700,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (element.matches?.('[data-aw-diagnostics] > summary')) return { attribute: 'data-aw-diagnostics', value: element.parentElement.dataset.awDiagnostics, summary: true };
       if (element.dataset?.awToolAction) return { attribute: 'data-aw-tool-action', value: element.dataset.awToolAction, tool: element.dataset.awTool };
       if (element.dataset?.awOutputMode) return { attribute: 'data-aw-output-mode', value: element.dataset.awOutputMode, tool: element.dataset.awTool };
-      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-summary', 'data-aw-tool-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-aw-retry', 'data-aw-task-details', 'data-awv-focus', 'data-awv-action']) {
+      for (const attribute of ['id', 'data-aw-copy-fallback', 'data-aw-agent-reveal', 'data-aw-approval-open', 'data-aw-attempt-summary', 'data-aw-tool-summary', 'data-aw-summary', 'data-aw-process-summary', 'data-aw-thinking-summary', 'data-aw-action', 'data-aw-retry', 'data-aw-task-details', 'data-awv-focus', 'data-awv-action']) {
         const value = element.getAttribute?.(attribute);
         if (value != null) return { attribute, value };
       }
@@ -10725,10 +10771,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
     function toolEventHTML(tool, state, agent = null) {
       const task = state.tasks.find(item => item.id === tool.taskId) || (state.mode === 'runtime' ? { id: null, title: 'Session tool', status: tool.status } : null);
       if (!task) return '';
-      const latest = tool.logs[tool.logs.length - 1];
-      const open = expandedTools.has(tool.id) || (agent && expanded.has(agent.id));
+      const open = expandedTools.has(tool.id);
       const identity = agent ? 'data-aw-agent="' + esc(agent.id) + '"' : 'data-aw-pending-tool="' + esc(tool.id) + '"';
-      const summaryKey = agent ? 'data-aw-summary="' + esc(agent.id) + '"' : 'data-aw-tool-summary="' + esc(tool.id) + '"';
+      const summaryKey = 'data-aw-tool-summary="' + esc(tool.id) + '"' + (agent ? ' data-aw-summary="' + esc(agent.id) + '"' : '');
       // A retry changes the task's current attempt, not the recorded tool outcome.
       // A successful worker process can still be followed by a failed tool wrapper.
       const activityStatus = state.mode === 'runtime' ? tool.status : task.status;
@@ -10736,8 +10781,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       const glyph = window.AthenaPiActivity.iconHTML(presentation.icon, { active: presentation.active });
       const owner = agent ? labels.agent(agent, state.tasks) : '';
       const status = LABELS[activityStatus] || displayText(activityStatus, 'Working', state);
-      const summary = latest && displayText(latest.text, [owner, status].filter(Boolean).join(' · '), state);
-      return '<details class="aw-agent-event" ' + identity + ' data-aw-event-tool="' + esc(tool.id) + '" data-pi-tool="' + esc(tool.sdkToolName || 'custom') + '"' + (open ? ' open' : '') + '><summary class="cursor-interaction" ' + summaryKey + '>' + glyph + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(presentation.label) + '<span class="aw-agent-owner">' + (owner ? ' · ' + esc(owner) : '') + '</span><span class="aw-status" data-status="' + esc(activityStatus) + '">' + esc(status) + '</span></span><span class="aw-tool-target">' + esc(presentation.detail) + '</span>' + (latest ? '<span class="aw-tool-activity" data-aw-progress="' + esc(tool.id) + '">' + esc(summary) + '</span>' : '') + '</span>' + icon('chevron-down') + '</summary>' + toolDetailsHTML(tool, task, state) + '</details>';
+      return '<details class="aw-agent-event" ' + identity + ' data-aw-event-tool="' + esc(tool.id) + '" data-pi-tool="' + esc(tool.sdkToolName || 'custom') + '"' + (open ? ' open' : '') + '><summary class="cursor-interaction" ' + summaryKey + '>' + glyph
+        + '<span class="aw-agent-copy"><span class="aw-agent-name">' + esc(presentation.label) + '</span><span class="aw-tool-target">' + esc(presentation.detail) + '</span></span>'
+        + '<span class="aw-status" data-status="' + esc(activityStatus) + '">' + esc(status) + '</span>' + icon('chevron-down') + '</summary>'
+        + (owner ? '<p class="aw-attempt-meta">' + esc(owner) + '</p>' : '') + toolDetailsHTML(tool, task, state) + '</details>';
     }
 
     function agentGroupHTML(state) {
@@ -10771,6 +10818,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         expandedProcesses.add(process.id); thinkingOpen = true; renderSignature = ''; render(snapshot);
         const row = [...all('[data-aw-process]')].find(item => item.dataset.awProcess === process.id);
         if (!row) return false;
+        const attempt = row.closest('[data-aw-attempt]');
+        if (attempt) attempt.open = true;
         row.open = true;
         row.querySelector('summary').focus({ preventScroll: true });
         row.scrollIntoView?.({ block: 'nearest' });
@@ -10784,6 +10833,8 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       if (agent) expanded.add(agent.id);
       renderSignature = ''; render(snapshot);
       const row = Array.from(all('[data-aw-event-tool]')).find(item => item.dataset.awEventTool === tool.id);
+      const attempt = row?.closest('[data-aw-attempt]');
+      if (attempt) attempt.open = true;
       const summary = row?.querySelector('summary');
       if (focusable(summary)) { summary.focus({ preventScroll: true }); summary.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); }
       return true;
@@ -10854,7 +10905,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         const results = state.artifacts.filter(item => item.attemptId === attempt.id);
         const agent = state.agents.find(item => item.taskId === task.id);
         let node = attemptSections.get(attempt.id);
-        if (!node) { node = document.createElement('section'); node.className = 'aw-attempt'; node.dataset.awAttempt = attempt.id; attemptSections.set(attempt.id, node); }
+        if (!node) { node = document.createElement('details'); node.className = 'aw-attempt'; node.dataset.awAttempt = attempt.id; attemptSections.set(attempt.id, node); }
         kept.add(attempt.id);
         const ownStatus = LABELS[attempt.status] || displayText(attempt.status, 'Waiting', state);
         const attemptLabel = labels.attempt(attempt.id, { ...task, attempts: attempts.filter(item => item.taskId === task.id) });
@@ -10863,7 +10914,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         const observed = [...tools.map((tool, index) => ({ at: state.events.find(event => event.toolId === tool.id)?.at ?? tool.logs?.[0]?.at ?? Infinity, index, html: toolEventHTML(tool, state, agent) })), ...processes.map((process, index) => ({ at: process.job?.startedAt ?? state.events.find(event => event.processId === process.id)?.at ?? Infinity, index: tools.length + index, html: processHTML(process) }))].sort((a, b) => a.at - b.at || a.index - b.index);
         const summary = attempt.result ? displayText(attempt.result, '', state) : '';
         const resultButtons = results.map(item => '<button type="button" class="aw-text-button cursor-interaction" data-aw-artifact="' + esc(item.id) + '" data-aw-artifact-version="' + esc(item.version || '') + '">' + icon('file-check') + esc(displayText(item.title || item.file?.name, 'View result', state)) + '</button>').join('');
-        node.innerHTML = '<header class="aw-attempt-heading"><strong>' + esc(labels.task(task, state.tasks)) + '</strong><span class="aw-status" data-status="' + esc(attempt.status) + '">' + esc(ownStatus) + '</span></header>'
+        node.innerHTML = '<summary class="aw-attempt-heading cursor-interaction" data-aw-attempt-summary="' + esc(attempt.id) + '">' + icon('users-round') + '<strong>' + esc(labels.task(task, state.tasks)) + '</strong><span class="aw-status" data-status="' + esc(attempt.status) + '">' + esc(ownStatus) + '</span>' + icon('chevron-down') + '</summary>'
           + '<p class="aw-attempt-meta">' + esc([agent ? labels.agent(agent, state.tasks) : 'Subagent', attemptLabel].join(' · ')) + '</p>'
           + '<div class="aw-agent-events">' + observed.map(item => item.html).join('') + '</div>'
           + (summary && summary.length <= 300 ? '<p class="aw-attempt-result">' + esc(summary) + '</p>' : '')
@@ -11181,10 +11232,15 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       }
     }
     function makeNode(entry) {
-      const article = document.createElement(entry.kind === 'tool' ? 'div' : 'article');
+      const article = document.createElement(entry.kind === 'handoff' ? 'details' : entry.kind === 'tool' ? 'div' : 'article');
       article.className = entry.kind === 'tool' ? 'ac-stream-tool' : 'ac-pi-history-message ac-stream-message';
       article.dataset.streamKey = entry.key;
-      if (entry.kind !== 'tool') {
+      if (entry.kind === 'handoff') {
+        article.className = 'ac-stream-handoff';
+        const label = document.createElement('summary'); label.className = 'cursor-interaction'; label.textContent = 'Manuscript instructions';
+        const body = document.createElement('p'); body.className = 'ac-stream-text';
+        article.append(label, body);
+      } else if (entry.kind !== 'tool') {
         article.dataset.role = entry.role;
         const label = document.createElement('strong'); label.textContent = entry.role === 'user' ? 'You' : 'Athena';
         const body = document.createElement('p'); body.className = 'ac-stream-text';
@@ -11277,6 +11333,18 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
       return withLayout(() => restoreHistory(messages));
     }
     function restoreHistory(messages) {
+      // The live feed and the durable transcript share host-owned call IDs.
+      // Keep a reader's place when a settled run replaces its streaming rows.
+      const expanded = new Map();
+      for (const entry of entries) {
+        if (entry.kind !== 'tool' || !entry.athena) continue;
+        const row = view.getToolElement(entry.toolId);
+        if (!row?.open) continue;
+        const diagnostic = row.querySelector('[data-aw-diagnostics]');
+        expanded.set(entry.toolId, { attempt: entry.athena.attemptId, diagnostic: diagnostic.open,
+          focused: document.activeElement === row.querySelector('summary') ? 'summary' :
+            document.activeElement === diagnostic.querySelector('summary') ? '[data-aw-diagnostics] > summary' : null });
+      }
       clear(true);
       for (const [index, message] of (messages || []).entries()) {
         const owner = context(message.athena), at = timestamp(message.timestamp);
@@ -11287,7 +11355,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         }
         if (!['user', 'assistant'].includes(message.role)) continue;
         if (message.role === 'user') {
-          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), attachments: attachmentNames(message.attachments), athena: owner, at });
+          entries.push({ key: 'history:' + index, kind: owner && message.manuscriptHandoff === true ? 'handoff' : 'message', role: 'user', text: text(message.content), attachments: attachmentNames(message.attachments), athena: owner, at });
           continue;
         }
         const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content || [];
@@ -11300,6 +11368,14 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         }
       }
       render();
+      for (const entry of entries) {
+        const saved = expanded.get(entry.toolId);
+        if (!saved || saved.attempt !== entry.athena?.attemptId) continue;
+        const row = view.getToolElement(entry.toolId);
+        row.open = true;
+        row.querySelector('[data-aw-diagnostics]').open = saved.diagnostic;
+        if (saved.focused) row.querySelector(saved.focused).focus({preventScroll:true});
+      }
     }
     function finish() { generation++; pendingUser = null; liveOwner = null; liveKeys.clear(); lastObservedOrder = 0; error = null; }
     function beginUser(value, attachments = []) {
@@ -11314,8 +11390,9 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
         if (pendingUser && !pendingUser.athena) pendingUser.athena = owner;
       }
       if (event.type === 'message_start' && event.message?.role === 'user') {
-        if (!pendingUser || pendingUser.observed) {
-          pendingUser = { key: 'user:' + generation + ':' + (++userCounter), kind: 'message', role: 'user', text: '', athena: owner, at: null, order: lastObservedOrder + 0.5 };
+        const handoff = owner && event.message.manuscriptHandoff === true;
+        if (!pendingUser || pendingUser.observed || handoff) {
+          pendingUser = { key: 'user:' + generation + ':' + (++userCounter), kind: handoff ? 'handoff' : 'message', role: 'user', text: '', athena: owner, at: null, order: lastObservedOrder + 0.5 };
           entries.push(pendingUser); liveKeys.add(pendingUser.key);
         }
         pendingUser.observed = true;
@@ -13920,8 +13997,10 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
  function requestProject(){
   const requestId=crypto.randomUUID();let created=null;
   const enabled=Boolean(workspaceStore.getState().capabilities?.createProject);
-  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label><input type="checkbox" id="ac-research-mode" checked> Run research, save papers to the project’s Athena Library folder and typeset the manuscript</label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
-   const name=q('#ac-project-name').value.trim();if(!name)return;
+  dialog('New project','<p>Create a separate place for conversations, sources, and versioned documents.</p><label for="ac-project-name">Project name</label><input id="ac-project-name" aria-label="Project name" placeholder="Your research project"><label for="ac-project-folder">Work folder or Git repository (optional)</label><input id="ac-project-folder" placeholder="Absolute local folder path"><button id="ac-choose-folder" type="button" hidden>Choose folder…</button><label class="ac-research-choice"><input type="checkbox" id="ac-research-mode" checked><span>Enable research, paper archiving and typesetting</span></label><p class="ac-small-note">'+(enabled?'The connected project service will store this project.':'Project storage is not connected. A project will be created only after the service confirms it.')+'</p><p data-lifecycle-error role="alert" hidden></p>','Create project',async()=>{
+   const input=q('#ac-project-name'),name=input.value.trim();
+   if(!name){const message=q('[data-lifecycle-error]');message.hidden=false;message.textContent='Enter a project name.';input.setAttribute('aria-invalid','true');input.focus();return;}
+   input.removeAttribute('aria-invalid');
    q('#ac-dialog-primary').disabled=true;
    try{
     if(!created){const result=await workspaceStore.createProject({name,requestId,folder:q('#ac-project-folder').value.trim(),researchWorkflow:q('#ac-research-mode').checked,defaultModel:connectionManager.getDefaultModel()});created=result?.project;}
@@ -14160,6 +14239,7 @@ assert abs(gain_db(fc, R_OHM, C_FARAD) + 3.01029995664) < 1e-9
    piTurnEpoch++;preservePendingSubmission('The host changed conversations before acceptance.');resetPiActivity();piManualTools.clear();piManualView?.reset();q('#ac-live-user').hidden=true;piView?.clear?.();piHistorySignature='';piSessionIdentity='';return;
   }
   if(workspaceStore?.getState().sessionBound===false)return;
+  if(event.type==='manuscript_draft'){researchFlow?.receiveDraft(event);return;}
   if(event.type==='host_command_start'){
    const presentation=window.AthenaPiActivity.toolPresentation('bash',event.args,'queued');
    piManualTools.set(event.id,{...presentation,id:'manual:'+event.id,toolCallId:event.id,toolName:'bash',args:event.args,status:'queued',output:'',outputRevision:0,startedAt:Date.now()});

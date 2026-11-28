@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Storage } from './storage.ts';
 import { Papers, bounded } from './papers.ts';
-import { canonicalDoi, SearchError, type Candidate, type SearchSpec, type BibliographicProvider } from './crossref.ts';
+import { canonicalDoi, publicationMetadata, SearchError, type Candidate, type SearchSpec, type BibliographicProvider } from './crossref.ts';
 import { hash, ManagerError, object } from './orchestration.ts';
 
 interface Result extends Candidate { retrievedAt:string }
@@ -91,13 +91,7 @@ export class Bibliography {
     const row=this.scoped(project,session,id),record=row.records.find(r=>r.doi===canonicalDoi(doi));
     if(!record||hash(JSON.stringify(record.raw))!==record.rawSha256)throw new SearchError('record_unavailable');
     const metadata=record.raw;
-    const authors=Array.isArray(metadata.author)?metadata.author.flatMap(author=>{
-      if(!object(author))return [];
-      const name=[author.given,author.family].filter(v=>typeof v==='string').join(' ')||author.name;
-      return typeof name==='string'?[name]:[];
-    }):[];
-    const issued=object(metadata.issued)?metadata.issued['date-parts']:undefined;
-    const date=Array.isArray(issued)&&Array.isArray(issued[0])?issued[0].join('-'):'';
+    const {authors,date}=publicationMetadata(metadata);
     const journal=Array.isArray(metadata['container-title'])?metadata['container-title'][0]:undefined;
     const content=[record.title,'DOI: '+record.doi,authors.length&&'Authors: '+authors.join(', '),
       date&&'Issued: '+date,typeof journal==='string'&&'Published in: '+journal,record.abstract].filter(Boolean).join('\n');

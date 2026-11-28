@@ -161,6 +161,20 @@ test('child attempts stay with the originating request; retries preserve prior f
   } finally { chrome.destroy(); e.close(); }
 });
 
+test('a settled history refresh preserves the opened call only in its owning attempt', () => {
+  const e = environment(), first = owner(), records = historyRun(first, 100);
+  try {
+    e.view.history(records);
+    const row = () => e.host.querySelector('[data-ap-tool]');
+    row().open = true; row().querySelector('[data-aw-diagnostics]').open = true;
+    e.view.history(records);
+    assert.equal(row().open, true);
+    assert.equal(row().querySelector('[data-aw-diagnostics]').open, true);
+    e.view.history(historyRun(owner('run-one', 'another-attempt'), 300));
+    assert.equal(row().open, false);
+  } finally { e.close(); }
+});
+
 test('unmatched ownership is kept in fallback and session/branch changes remove prior inline activity', () => {
   const e = environment(), context = owner();
   try {

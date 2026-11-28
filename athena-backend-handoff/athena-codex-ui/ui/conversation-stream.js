@@ -23,10 +23,15 @@
       }
     }
     function makeNode(entry) {
-      const article = document.createElement(entry.kind === 'tool' ? 'div' : 'article');
+      const article = document.createElement(entry.kind === 'handoff' ? 'details' : entry.kind === 'tool' ? 'div' : 'article');
       article.className = entry.kind === 'tool' ? 'ac-stream-tool' : 'ac-pi-history-message ac-stream-message';
       article.dataset.streamKey = entry.key;
-      if (entry.kind !== 'tool') {
+      if (entry.kind === 'handoff') {
+        article.className = 'ac-stream-handoff';
+        const label = document.createElement('summary'); label.className = 'cursor-interaction'; label.textContent = 'Manuscript instructions';
+        const body = document.createElement('p'); body.className = 'ac-stream-text';
+        article.append(label, body);
+      } else if (entry.kind !== 'tool') {
         article.dataset.role = entry.role;
         const label = document.createElement('strong'); label.textContent = entry.role === 'user' ? 'You' : 'Athena';
         const body = document.createElement('p'); body.className = 'ac-stream-text';
@@ -119,6 +124,18 @@
       return withLayout(() => restoreHistory(messages));
     }
     function restoreHistory(messages) {
+      // The live feed and the durable transcript share host-owned call IDs.
+      // Keep a reader's place when a settled run replaces its streaming rows.
+      const expanded = new Map();
+      for (const entry of entries) {
+        if (entry.kind !== 'tool' || !entry.athena) continue;
+        const row = view.getToolElement(entry.toolId);
+        if (!row?.open) continue;
+        const diagnostic = row.querySelector('[data-aw-diagnostics]');
+        expanded.set(entry.toolId, { attempt: entry.athena.attemptId, diagnostic: diagnostic.open,
+          focused: document.activeElement === row.querySelector('summary') ? 'summary' :
+            document.activeElement === diagnostic.querySelector('summary') ? '[data-aw-diagnostics] > summary' : null });
+      }
       clear(true);
       for (const [index, message] of (messages || []).entries()) {
         const owner = context(message.athena), at = timestamp(message.timestamp);
@@ -129,7 +146,7 @@
         }
         if (!['user', 'assistant'].includes(message.role)) continue;
         if (message.role === 'user') {
-          entries.push({ key: 'history:' + index, kind: 'message', role: 'user', text: text(message.content), attachments: attachmentNames(message.attachments), athena: owner, at });
+          entries.push({ key: 'history:' + index, kind: owner && message.manuscriptHandoff === true ? 'handoff' : 'message', role: 'user', text: text(message.content), attachments: attachmentNames(message.attachments), athena: owner, at });
           continue;
         }
         const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content || [];
@@ -142,6 +159,14 @@
         }
       }
       render();
+      for (const entry of entries) {
+        const saved = expanded.get(entry.toolId);
+        if (!saved || saved.attempt !== entry.athena?.attemptId) continue;
+        const row = view.getToolElement(entry.toolId);
+        row.open = true;
+        row.querySelector('[data-aw-diagnostics]').open = saved.diagnostic;
+        if (saved.focused) row.querySelector(saved.focused).focus({preventScroll:true});
+      }
     }
     function finish() { generation++; pendingUser = null; liveOwner = null; liveKeys.clear(); lastObservedOrder = 0; error = null; }
     function beginUser(value, attachments = []) {
@@ -156,8 +181,9 @@
         if (pendingUser && !pendingUser.athena) pendingUser.athena = owner;
       }
       if (event.type === 'message_start' && event.message?.role === 'user') {
-        if (!pendingUser || pendingUser.observed) {
-          pendingUser = { key: 'user:' + generation + ':' + (++userCounter), kind: 'message', role: 'user', text: '', athena: owner, at: null, order: lastObservedOrder + 0.5 };
+        const handoff = owner && event.message.manuscriptHandoff === true;
+        if (!pendingUser || pendingUser.observed || handoff) {
+          pendingUser = { key: 'user:' + generation + ':' + (++userCounter), kind: handoff ? 'handoff' : 'message', role: 'user', text: '', athena: owner, at: null, order: lastObservedOrder + 0.5 };
           entries.push(pendingUser); liveKeys.add(pendingUser.key);
         }
         pendingUser.observed = true;
