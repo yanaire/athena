@@ -46,6 +46,13 @@ window.AthenaResearchFlow={mount(root,options){
         const li=el('li'),details=el('details'),summary=el('summary'),title=el('strong',stage.title),status=el('span',stage.status);
         status.dataset.state=stage.status;summary.append(title,status);details.append(summary);
         if(stage.description)details.append(el('p',stage.description));
+        if(stage.title==='Research plan' && r.plan){
+          if(r.plan.coordinatorModel)details.append(el('p','Main coordinator · '+r.plan.coordinatorModel));
+          const steps=el('ol'), criteria=el('ul');
+          for(const step of r.plan.stages)steps.append(el('li',step));
+          for(const criterion of r.plan.acceptanceCriteria)criteria.append(el('li',criterion));
+          details.append(steps,el('strong','Acceptance criteria'),criteria);
+        }
         if(stage.taskId)details.append(button('Worker, attempts and tools',()=>options.open('workflow',{taskId:stage.taskId})));
         li.append(details);list.append(li);
       }

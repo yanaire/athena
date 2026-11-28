@@ -64,12 +64,15 @@ export type Run = {
   readonly cancellationRequested?: boolean;
   readonly recovery?: { readonly requestId: string; readonly reconciliationAttemptId: string };
 };
-type ResearchFlow={runId:string;input:string;fileIds:readonly string[];searchIds:string[];drafts:{heading:string;text:string}[];
+type ResearchFlow={planMode?:'coordinator';runId:string;input:string;fileIds:readonly string[];searchIds:string[];drafts:{heading:string;text:string}[];
   tables?:{artifactId:string;version:string;condition:string;count:number;rows:Record<string,string|number>[];path:string[]}[];
   inputs?:{sourceId:string;version:string;title:string}[];pages?:{sourceId:string;version:string;url:string;retrievedAt:string;claim:string;coverage:string}[];documentId?:string;handoff?:string;citations?:{sourceId:string;claim:string}[];error?:string};
 type StoredFile = FileReference & {
   readonly projectId: string; readonly sessionId: string; readonly path: string; readonly digest: string;
 };
+// Inputs, available resources and prior records can inform the coordinator's plan.
+const planningTools = new Set(['plan_research','read','read_file','list_skills','load_skill','get_research_board',
+  'search_project_library','read_project_paper','get_task','list_tasks','cancel_task','wait_for_agents']);
 const uploadBytes = 256 * 1024;
 type Response = {
   readonly type: 'response'; readonly command: string; readonly id?: string;
@@ -310,6 +313,11 @@ export class TaskManager implements AthenaTaskManager {
     if (!this.#storage.project(projectId)) throw new ManagerError('PROJECT_NOT_FOUND','Project does not exist.');
   }
   getExtensions(projectId: string) { this.#extensionProject(projectId); return this.#extensions.snapshot(projectId); }
+  installGitHubPlugin(projectId: string, expectedRevision?: number) {
+    this.#extensionProject(projectId);
+    this.#commit(() => this.#extensions.installGitHub(projectId, expectedRevision));
+    return this.getExtensions(projectId);
+  }
   installPlugin(projectId: string, manifest: unknown, expectedRevision?: number) {
     this.#extensionProject(projectId);
     this.#commit(()=>{this.#extensions.install(projectId,manifest,expectedRevision);});
@@ -489,7 +497,8 @@ export class TaskManager implements AthenaTaskManager {
       const held=this.#children(previous).map(t=>({taskId:t.id,title:t.title,status:t.status,artifactIds:t.artifactIds}));
       const board=this.#research.snapshot(previous);
       const prompt=paper?'Manuscript write request. Resume the saved manuscript checkpoints with compose_manuscript({}).':
-        'Continue this research request from the stored checkpoints. Use the existing plan, evidence, reviews and published artifacts. Do not repeat completed experiments. '+
+        'Continue this research request from the stored checkpoints. '+(flow.planMode && !board.missions.some(m=>m.runId===run.id)?'Create the missing plan with plan_research. ':'Use the existing plan. ')+
+        'Reuse saved evidence, reviews and published artifacts. Do not repeat completed experiments. '+
         'Use get_research_board and list_tasks. Retry only missing or failed work. Once a review supports the results call prepare_research_paper. Original request: '+flow.input+
         '\nExisting tasks: '+JSON.stringify(held)+'\nMission IDs: '+JSON.stringify(board.missions.filter(m=>m.runId===run.id).map(m=>m.id));
       const next=this.#attempt(context(previous),'resume:'+expected,prompt,previous.fileIds,run.model??undefined);
@@ -514,7 +523,8 @@ export class TaskManager implements AthenaTaskManager {
     if(!run)return null;
     const flow=this.#flow(run.id)!;
     const board=this.#research.snapshot({projectId:project,sessionId:session});
-    const mission=board.missions.find(m=>m.runId===run.id);
+    const missions=board.missions.filter(m=>m.runId===run.id);
+    const mission=flow.planMode ? missions.at(-1) : missions[0];
     const reviews=board.reviews.filter(r=>r.requestedBy.runId===run.id);
     const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
     const writing=paper?.runs.at(-1),written=writing&&this.#storage.record<Run>('run',writing.id);
@@ -531,7 +541,7 @@ export class TaskManager implements AthenaTaskManager {
     const upcoming=pending(run.status)?'Planned':states(run.status);
     const phase=(title:string,status:string,taskId?:string,description?:string)=>({title,status,taskId,description});
     const stages=[
-      phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission&&[mission.objective,...mission.acceptanceCriteria].join('\n')),
+      phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission?.objective),
       phase('Sources',flow.pages?.length||flow.inputs?.length||retained.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
         [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...[...(flow.pages??[]),...retained].map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
       phase('Experiment',experiments.some(p=>p.status==='succeeded'&&artifacts.some(f=>f.processId===p.id))?'Succeeded':experiments.length?states(experiments.at(-1)?.status):upcoming,experiments.at(-1)?.taskId),
@@ -542,6 +552,8 @@ export class TaskManager implements AthenaTaskManager {
     ];
     const latest=written??run,checkpoint=this.#storage.record<TaskRow>('task',latest.taskId)?.attemptId;
     return {history:history.map(r=>({runId:r.id,title:r.title})),checkpoint,runId:run.id,model:run.model,documentId:paper?.id,manuscriptRunId:writing?.id,version:current,
+      plan:mission && {missionId:mission.id, objective:mission.objective, stages:mission.stages, acceptanceCriteria:mission.acceptanceCriteria,
+        coordinatorModel:flow.planMode ? run.model?.modelId : undefined},
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
       sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
       connections:run.extensions?.servers.map(s=>({name:s.definition.name,capability:s.definition.capability,checkedAt:s.verification.checkedAt,calls:processes.filter(p=>p.job.externalMcp?.serverId===s.id).map(p=>({tool:p.job.externalMcp!.tool,status:p.status})),tools:s.verification.tools.map(t=>t.name)}))??[],
@@ -1195,7 +1207,7 @@ export class TaskManager implements AthenaTaskManager {
     this.#commit(()=>{
       this.#storage.putRecord('run',{...run,agentSessionId:a.agentSessionId,attemptId:a.id});
       this.#journal.accept(a,run.title);onAccept?.(a);
-      if(first)this.#saveFlow({runId:run.id,input:String(command.message),fileIds,searchIds:[],drafts:[]});
+      if(first)this.#saveFlow({planMode:'coordinator',runId:run.id,input:String(command.message),fileIds,searchIds:[],drafts:[]});
       this.#storage.putReceipt({sessionId:session.id,requestId,fingerprint,state:'accepted',response});
     });
     if (pin) this.#pins.set(run.id, pin);
@@ -1391,7 +1403,11 @@ export class TaskManager implements AthenaTaskManager {
     const resolver = (ctx:Context,target:{kind:'file'|'artifact';id:string}) => {signal.throwIfAborted(); return this.#researchTarget(ctx,target);};
     let result: unknown;
     switch (name) {
-      case 'plan_research': this.#requireCoordinatorWrites(a); result=this.#research.plan(a,{...args,requestId:args.requestId ?? raw}); break;
+      case 'plan_research': {
+        this.#requireCoordinatorWrites(a);
+        result = this.#research.plan(a, {...args,requestId:args.requestId ?? raw}, this.#flow(a.runId)?.planMode === 'coordinator');
+        break;
+      }
       case 'add_research_evidence': result=await this.#research.addEvidence(a,{...args,requestId:args.requestId ?? raw},resolver); break;
       case 'submit_review': result=await this.#research.submitReview(a,args,resolver); break;
       case 'remember_research': result=this.#research.remember(a,{...args,requestId:args.requestId ?? raw}); break;
@@ -1432,6 +1448,9 @@ export class TaskManager implements AthenaTaskManager {
     const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
     signal.throwIfAborted();
     const paperId=this.#storage.get<string>('paper.run:'+a.runId);
+    if (!a.parentTaskId && !a.kind && !paperId && !planningTools.has(name)
+        && this.#flow(a.runId)?.planMode === 'coordinator' && !this.#research.hasPlan(a))
+      throw new ManagerError('PLAN_REQUIRED','The main coordinator must call plan_research with its own objective, ordered stages and acceptance criteria before starting research work.');
     if(name==='compose_manuscript'||name==='publish_manuscript'){
       if(!paperId||a.kind==='reconciliation')throw new ManagerError('PAPER_DENIED','Start a manuscript from the project workspace.');
       return name==='compose_manuscript'?this.#composePaper(a,paperId,args,signal):this.#publishPaper(a,paperId,raw,args,signal);

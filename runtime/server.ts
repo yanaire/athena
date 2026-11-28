@@ -144,6 +144,7 @@ async function rpc(method: string, args: unknown[]) {
     case 'chooseProjectFolder': if(!desktop)throw Error('Use the local path field in browser mode.');return chooseProjectFolder();
     case 'getSnapshot': return manager.getSnapshot();
     case 'getExtensions': return manager.getExtensions(string(input));
+    case 'installGitHubPlugin': return manager.installGitHubPlugin(string(input),revisionArg(second));
     case 'installPlugin': return manager.installPlugin(string(input),second,revisionArg(args[2]));
     case 'setPluginEnabled': return manager.setPluginEnabled(string(input),string(second),booleanArg(args[2]),revisionArg(args[3]));
     case 'removePlugin': return manager.removePlugin(string(input),string(second),revisionArg(args[2]));

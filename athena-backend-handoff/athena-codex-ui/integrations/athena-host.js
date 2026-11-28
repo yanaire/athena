@@ -59,6 +59,7 @@
     return Object.freeze({
       capability: 'extensions',
       getExtensions: projectId => rpc('getExtensions', [projectId]),
+      installGitHubPlugin: (projectId, revision) => rpc('installGitHubPlugin', [projectId, revision]),
       installPlugin: (projectId, manifest, revision) => rpc('installPlugin', [projectId, manifest, revision]),
       setPluginEnabled: (projectId, id, enabled, revision) => rpc('setPluginEnabled', [projectId, id, enabled, revision]),
       removePlugin: (projectId, id, revision) => rpc('removePlugin', [projectId, id, revision]),

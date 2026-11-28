@@ -61,6 +61,13 @@ export class ExtensionError extends Error {
 }
 export const EXTENSION_LIMITS = Object.freeze({ packageBytes: 512 * 1024, skillBytes: 64 * 1024, plugins: 32, skills: 32, servers: 16, uses: 10000 });
 export const BUILTIN_SKILLS_ID = 'athena-research-skills';
+const githubRepositoryPlugin: PluginManifest = {
+  schemaVersion: 1, id: 'athena-github', name: 'GitHub', version: '1.0.0',
+  description: 'Search repositories and inspect branches and commit history through GitHub’s official read-only MCP server.',
+  mcpServers: [{id: 'repositories', name: 'GitHub repositories', transport: 'streamable-http',
+    url: 'https://api.githubcopilot.com/mcp/x/repos/readonly', auth: 'bearer',
+    allowedTools: ['search_repositories', 'list_branches', 'list_commits']}],
+};
 const CATALOG_SHA256 = '404f09cd98b20e9790a7dc3d9dbd1e34e5987e5c05f5c2ffdd38e411b2f763aa';
 const CATALOG_COMMIT = '987e61d8b922c609b0fda3794a06f835c9b36530';
 const AUTOMATIC_SKILLS = new Set(['athena-research-intake', 'athena-source-provenance', 'athena-data-quality']);
@@ -263,13 +270,19 @@ export class ExtensionStore {
     return freeze({ schemaVersion: 1, projectId, revision: state.revision, plugins, skills: plugins.flatMap(plugin => plugin.skills), skillUses: state.uses });
   }
   install(projectId: string, raw: unknown, expectedRevision?: number): ExtensionSnapshot {
-    const value = manifest(raw), state = this.#state(projectId), revision = extensionDigest(value);
+    return this.#install(projectId, manifest(raw), false, expectedRevision);
+  }
+  installGitHub(projectId: string, expectedRevision?: number): ExtensionSnapshot {
+    return this.#install(projectId, manifest(githubRepositoryPlugin, true), true, expectedRevision);
+  }
+  #install(projectId: string, value: PluginManifest, builtin: boolean, expectedRevision?: number): ExtensionSnapshot {
+    const state = this.#state(projectId), revision = extensionDigest(value);
     const old = state.plugins.find(plugin => plugin.id === value.id);
     if (expectedRevision !== undefined && state.revision !== expectedRevision) throw new ExtensionError('STALE_EXTENSION_REVISION', 'Project extension settings changed.');
     if (old?.revision === revision) return this.snapshot(projectId);
     if (old && this.#readArchive(old.revision).manifest.version === value.version) throw new ExtensionError('PLUGIN_VERSION_CONFLICT', 'Change the plugin version before replacing its contents or configuration.');
     if (!old && state.plugins.length >= EXTENSION_LIMITS.plugins) throw new ExtensionError('PLUGIN_LIMIT', 'Project plugin limit reached.');
-    this.#archive(value);
+    this.#archive(value, builtin);
     const next: StoredPlugin = { id: value.id, revision, enabled: false, installedAt: old?.installedAt ?? Date.now(), updatedAt: Date.now(), credentialRefs: {}, verifications: {}, errors: {} };
     state.plugins = old ? state.plugins.map(plugin => plugin.id === value.id ? next : plugin) : [...state.plugins, next];
     return this.#write(projectId, state, expectedRevision);

@@ -10,6 +10,13 @@ research infrastructure.
 
 ## Running a study from chat
 
+For new research runs the selected main model writes the study objective, ordered
+steps and acceptance criteria through `plan_research`. It may inspect granted inputs
+and existing project papers while planning. TaskManager requires a saved plan before
+delegating work or starting a remote search. Expand **Research progress → Research
+plan** to see the steps and criteria sent by the coordinator. A revised plan is
+recorded alongside earlier plans in the research board.
+
 Create a project with the research option selected and choose its local work folder if desired. The host records the resolved directory and Git branch. Attach each input through the composer to grant access. The first conversation opens immediately. Choose the model and reasoning level, attach the data or supported LaTeX template, and send the research question. Changes to the conversation model apply to the next request.
 
 The **Research progress** tab reads the plan, bibliography, tool calls, condition tables, review receipts and compilation from TaskManager. Expand a stage to open the worker and its attempts in Workflow. Select a condition table to inspect the producing program, result version and its granted original inputs. **Manuscript preview** shows saved preliminary sections during the experiment, then the reviewed revision, compiled pages, source links and downloads. The existing editor remains available there.

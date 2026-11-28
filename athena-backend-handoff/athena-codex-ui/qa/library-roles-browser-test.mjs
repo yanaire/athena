@@ -24,9 +24,10 @@ const fixture=await createFixture(async({coordinator,input,outputs,model})=>{
   assert.equal(model,'browser-fixture');
   if(input.startsWith('Find and save')){
     if(!outputs.length){started.resolve();await proceed.promise;}
-    if(!outputs.length)return call('spawn_agent',{role:'literature',title:'Retrieve the published article',prompt:'Look up DOI '+doi+' and retain the accessible original.'});
-    if(outputs.length===1)return call('wait_for_agents',{});
-    assert.equal(JSON.parse(outputs[1]).tasks[0].status,'succeeded');
+    if(!outputs.length)return call('plan_research',{objective:'Retain the requested version of the article',stages:['Resolve the DOI','Archive the accessible publisher edition'],acceptanceCriteria:['The saved edition contains the requested DOI and original PDF.']});
+    if(outputs.length===1)return call('spawn_agent',{role:'literature',title:'Retrieve the published article',prompt:'Look up DOI '+doi+' and retain the accessible original.'});
+    if(outputs.length===2)return call('wait_for_agents',{});
+    assert.equal(JSON.parse(outputs[2]).tasks[0].status,'succeeded');
     return 'The published article is saved. Open Knowledge to inspect its full text and download the original PDF.';
   }
   if(!outputs.length)return call('search_project_library',{query:'corner'});

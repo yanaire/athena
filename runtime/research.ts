@@ -187,14 +187,27 @@ export class ResearchLedger {
     }
   }
 
-  plan(ctx: Context, args: Args): ResearchMission {
+  hasPlan(ctx: Context): boolean {
+    return this.#document(ctx.projectId).missions.some(mission => mission.sessionId === ctx.sessionId && mission.runId === ctx.runId);
+  }
+
+  plan(ctx: Context, args: Args, coordinatorPlan = false): ResearchMission {
     this.#active(ctx, true);
     fields(args, ['objective', 'acceptanceCriteria', 'stages', 'requestId']);
     const objective = string(args.objective, 'Research objective');
     const acceptanceCriteria = strings(args.acceptanceCriteria, 'Acceptance criteria');
-    const stages = args.stages === undefined ? DEFAULT_STAGES : strings(args.stages, 'Research stages', { maximum: 12, length: 512 });
+    const stages = !coordinatorPlan && args.stages === undefined ? DEFAULT_STAGES : strings(args.stages, 'Research stages', { maximum: 12, length: 512 });
     const doc = this.#document(ctx.projectId); const request = this.#request(doc, ctx, 'plan', args);
     if (request?.id) return structuredClone(doc.missions.find(row => row.id === request.id)!);
+    if (coordinatorPlan) {
+      const saved = doc.missions.findLast(mission => mission.runId === ctx.runId);
+      if (saved && saved.objective === objective && JSON.stringify(saved.stages) === JSON.stringify(stages)
+          && JSON.stringify(saved.acceptanceCriteria) === JSON.stringify(acceptanceCriteria)) {
+        this.#receipt(doc, request, saved.id);
+        this.#save(doc);
+        return structuredClone(saved);
+      }
+    }
     const mission: ResearchMission = { id: randomUUID(), projectId: ctx.projectId, sessionId: ctx.sessionId, runId: ctx.runId,
       objective, acceptanceCriteria, stages: [...stages], createdAt: Date.now(), createdBy: contextCopy(ctx) };
     doc.missions.push(mission); this.#receipt(doc, request, mission.id); this.#save(doc);

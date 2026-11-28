@@ -160,3 +160,13 @@ removal, stale configuration, old pins and retained usage evidence. They do not
 establish access to a particular third-party service, native Mac operation or
 actual ChatGPT-account inference. Those require the exact integrated candidate's
 separate acceptance evidence.
+
+## GitHub repository connection
+
+In a project conversation, open **Settings → Tools & plugins → Install GitHub plugin**.
+Enter a GitHub personal access token and choose **Connect and enable GitHub**. For a
+fine-grained token, select the repositories you want to use and grant read access
+to their contents and metadata. Athena discovers the upstream tools before enabling
+the package for new runs. Workers can search repositories, list branches and list
+commits. The project card also supports rechecking, disabling and removing the
+connection. [GitHub MCP Server toolsets](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)

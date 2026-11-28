@@ -69,7 +69,7 @@ export function validateExternalServer(value: unknown): ExternalServerDefinition
 const schemaKeys = new Set(['type', 'title', 'description', 'properties', 'required', 'additionalProperties', 'items',
   'enum', 'const', 'anyOf', 'oneOf', 'allOf', 'not', 'minLength', 'maxLength', 'minItems', 'maxItems', 'uniqueItems',
   'minProperties', 'maxProperties', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
-  'default', 'examples', 'deprecated', 'readOnly', 'writeOnly', '$schema']);
+  'default', 'examples', 'deprecated', 'readOnly', 'writeOnly', '$schema', 'x-mcp-header']);
 const types = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
 function boundedJson(value: unknown, maxBytes: number, depth = 0, count = { nodes: 0 }): void {
   if (depth > EXTERNAL_MCP_LIMITS.valueDepth || ++count.nodes > 20000) throw new ExternalMcpError('VALUE_LIMIT', 'JSON structure exceeds supported limits.');
@@ -85,6 +85,11 @@ export function validateExternalSchema(value: unknown, root = true): asserts val
   const visit = (schema: unknown, depth: number) => {
     if (++nodes > 1024 || depth > EXTERNAL_MCP_LIMITS.schemaDepth || !object(schema) || Object.keys(schema).some(k => !schemaKeys.has(k)))
       throw new ExternalMcpError('UNSUPPORTED_SCHEMA', 'MCP schema exceeds the supported bounded JSON Schema subset.');
+    // Upstream GitHub includes this descriptive annotation even for 2025-06-18.
+    // Keep it in the pinned schema. Our transport constructs its own fixed headers.
+    const header = schema['x-mcp-header'];
+    if (header !== undefined && (typeof header !== 'string' || !/^[A-Za-z][A-Za-z0-9-]{0,63}$/.test(header)))
+      throw new ExternalMcpError('UNSUPPORTED_SCHEMA', 'Invalid MCP header annotation.');
     if (schema.type !== undefined && !(typeof schema.type === 'string' && types.has(schema.type))
       && !(Array.isArray(schema.type) && schema.type.length > 0 && schema.type.length <= types.size && new Set(schema.type).size === schema.type.length && schema.type.every(t => typeof t === 'string' && types.has(t))))
       throw new ExternalMcpError('UNSUPPORTED_SCHEMA', 'Unsupported JSON Schema type.');

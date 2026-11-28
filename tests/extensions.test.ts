@@ -233,3 +233,24 @@ test('chat skill mentions use the admitted project and role, and ignore literal 
     assert.deepEqual(mentionedSkills('$lab-procedures/measure', pin, installed), ['lab-procedures/measure']);
   } finally { s.close(); }
 });
+
+test('GitHub installer pins the official readonly endpoint and isolates installation per project', () => {
+  const s = setup();
+  try {
+    const initial = s.store.installGitHub('project-a', 0);
+    const github = initial.plugins.find(plugin => plugin.id === 'athena-github')!;
+    assert.equal(github.enabled, false);
+    assert.equal(github.servers.length, 1);
+    const [server] = github.servers;
+    assert.equal(server!.url, 'https://api.githubcopilot.com/mcp/x/repos/readonly');
+    assert.deepEqual(server!.allowedTools, ['search_repositories','list_branches','list_commits']);
+    assert.equal(server!.auth, 'bearer');
+    assert.equal(s.store.installGitHub('project-a', initial.revision).revision, initial.revision);
+    assert.throws(() => s.store.setEnabled('project-a', github.id, true), /verification/);
+    assert.throws(() => s.store.install('project-a', {...plugin, id: github.id}), /reserved/);
+    assert.equal(s.store.snapshot('project-b').plugins.some(p => p.id === github.id), false);
+    const reopened = new ExtensionStore(s.storage);
+    assert.deepEqual(reopened.snapshot('project-a'), initial);
+    assert.equal(reopened.remove('project-a', github.id, initial.revision).plugins.some(p => p.id === github.id), false);
+  } finally {s.close();}
+});

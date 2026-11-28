@@ -26,7 +26,7 @@ export const inputs = Object.freeze([
 const text = value => typeof value === 'string' ? value : Array.isArray(value) ? value.map(part => part?.text || '').join('\n') : '';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function createFixture(researchResponder) {
+export async function createFixture(researchResponder, { hostNodeArgs = [] } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-chat-browser-'));
   const failures = [], calls = [];
   let child, origin = '', hostPort = 0, hostOutput = '';
@@ -115,7 +115,7 @@ export async function createFixture(researchResponder) {
   const providerPort = provider.address().port;
 
   async function startHost() {
-    child = spawn(process.execPath, ['runtime/server.ts'], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: {
+    child = spawn(process.execPath, [...hostNodeArgs, 'runtime/server.ts'], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: {
       ...process.env, ATHENA_DATA_DIR: directory, ATHENA_PORT: String(hostPort),
       ATHENA_ENDPOINT: `http://127.0.0.1:${providerPort}/v1`, ATHENA_MODEL: 'browser-fixture',
       ATHENA_PROVIDER: '', ATHENA_API_KEY: '', ATHENA_MODEL_CONCURRENCY: '2', ATHENA_MAX_CHILDREN: '3', ATHENA_MAX_DEPTH: '1',
