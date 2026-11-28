@@ -10,6 +10,8 @@ import { privateTestDirectory } from './platform-test-helpers.ts';
 import { JobRunner } from '../runtime/jobs.ts';
 import { CrossrefProvider } from '../runtime/crossref.ts';
 import { TaskManager } from '../runtime/manager.ts';
+import { Papers } from '../runtime/papers.ts';
+import { Storage } from '../runtime/storage.ts';
 import type { ResearchEvidence, ResearchMission, ResearchReview } from '../runtime/research.ts';
 
 type Wire = { model: string; messages: { role: string; content: unknown }[]; tools: { function: { name: string } }[] };
@@ -312,7 +314,7 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   let held:ReturnType<typeof Promise.withResolvers<void>>|undefined, holdStage='';
   let previous:{version:string;text:string;assessment:ResearchReview}|undefined;
   const remainingFinding='Add the measurement uncertainty or explicitly state it was never reported.';
-  const revisedText='# Results\n\n'+sourceText+'\nRevision 2\nMeasurement uncertainty was not reported.';
+  const revisedText='# Results\n\n'+sourceText+'\nRevision 2\n\n## Measurement limits\nMeasurement uncertainty was not reported.';
   const server=createServer(async(request,response)=>{
     try {
       const chunks:Buffer[]=[];for await(const c of request)chunks.push(Buffer.from(c));
@@ -332,7 +334,7 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
         else if(out.length===contextGrants.length){
           round++;
           if(revision){
-            assert.ok(previous);assert.match(prompt,new RegExp(previous.version));
+            assert.ok(previous);assert.match(prompt,new RegExp(previous.version));assert.match(prompt,/Compare the reported voltage/);
             assert.equal(out[0],previous.text);
             const recorded=JSON.parse(out[1]!);
             assert.equal(recorded.reviewId,previous.assessment.id);assert.deepEqual(recorded.findings,[remainingFinding]);
@@ -410,12 +412,23 @@ test('paper outlining, editorial revision, independent frozen reviews and exact 
   assert.equal(revised.baseVersion,previous.version);assert.equal(revised.stage,'supported');
   assert.deepEqual(revised.attempts.map((a:{role:string})=>a.role),['Edit manuscript','Review manuscript 1']);
   assert.equal(revised.versions.length,1);assert.equal(revised.uploads.length,1);
+  assert.deepEqual(revised.sectionBriefs,exhausted.sectionBriefs);
+  const ledger=new Storage(directory);
+  try {
+    const papers=new Papers(ledger);
+    const legacy={...revised,sectionBriefs:undefined};
+    const planFor=(run:typeof legacy)=>papers.sectionPlan({...d,runs:d.runs.with(-1,run)},run);
+    assert.deepEqual(planFor(legacy),exhausted.sectionBriefs);
+    assert.equal(planFor({...legacy,revisionReviewId:exhausted.reviews[0].id}),undefined,'An assessment of an earlier edition cannot supply this plan.');
+    assert.equal(planFor({...legacy,context:{...legacy.context,sessionId:'another-conversation'}}),undefined);
+  } finally {ledger.close();}
   assert.notEqual(revised.reviews[0].reviewer.agentSessionId,previous.assessment.reviewer?.agentSessionId);
   const first=await call('getDocument',{documentId,version:d.versions[0]}),second=await call('getDocument',{documentId});
   assert.equal((await call('startPaper',revisionRequest)).runId,receipt.runId);
   await assert.rejects(call('startPaper',{...revisionRequest,expectedBaseVersion:first.version}),{code:'REQUEST_ID_CONFLICT'});
   await assert.rejects(call('startPaper',{...revisionRequest,requestId:'stale-review'}),{code:'VERSION_CONFLICT'});
   assert.equal((await call('paperDetails',{documentId})).runs.length,d.runs.length);
+  assert.deepEqual(second.sectionChecks,[{heading:'Results',linkedPassages:1},{heading:'Measurement limits',linkedPassages:0}]);
   assert.equal(second.text,revisedText);assert.equal(second.baseVersion,previous.version);
   assert.equal(first.review.status,'changes_requested');assert.equal(second.review.status,'approved');
   assert.deepEqual((await call('getDocument',{documentId,version:previous.version})).assessment,previous.assessment);

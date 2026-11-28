@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { marked } from 'marked';
 import { publicationMetadata } from './crossref.ts';
 import { typeset, type Template, type MeasuredSeries } from './typesetting.ts';
 import { Storage } from './storage.ts';
@@ -67,6 +68,30 @@ export function inspectLinks(v:unknown,body:string,sources:PaperSource[]) {
   return {links,issues};
 }
 
+/** Match link offsets against heading lines in the same saved Markdown edition. */
+export function manuscriptSectionChecks({title,text,links}:Pick<PaperVersion,'title'|'text'|'links'>) {
+  const sections:{heading:string;start:number;linkedPassages:number}[]=[];
+  // Marked normalizes CRLF. Keep token starts in the original UTF-16 coordinates
+  // used by inspectLinks so Windows manuscripts retain exact quote attribution.
+  const crlf=text.matchAll(/\r\n/g);
+  let nextCrlf=crlf.next(),removed=0,position=0,firstHeading=true;
+  for(const token of marked.lexer(text)){
+    if(token.type==='heading'){
+      while(!nextCrlf.done && nextCrlf.value.index<position+removed){removed++;nextCrlf=crlf.next();}
+      if(!firstHeading || token.text!==title)
+        sections.push({heading:token.text,start:position+removed,linkedPassages:0});
+      firstHeading=false;
+    }
+    position+=token.raw.length;
+  }
+  for(const {manuscriptOffset,sourceOffset} of links){
+    if(manuscriptOffset===undefined || (sourceOffset??-1)<0)continue;
+    const section=sections.findLast(s=>s.start<=manuscriptOffset);
+    if(section)section.linkedPassages++;
+  }
+  return sections.map(({heading,linkedPassages})=>({heading,linkedPassages}));
+}
+
 export class Papers {
   readonly db:Storage;
   private compiling=new Set<string>();
@@ -129,6 +154,26 @@ export class Papers {
     const review=d.runs.flatMap(r=>r.reviews).find(r=>r.state==='completed'&&r.targets.some(t=>t.kind==='artifact'&&t.id===v.artifact?.id&&t.sha256===v.sha256));
     const status=review?.verdict==='supported'?'approved':review?.verdict?'changes_requested':'unreviewed';
     return {...v,currentVersion:d.versions.at(-1)!,persistence:'host' as const,review:{version:key,status,reviewerId:review?.reviewer?.agentSessionId,notes:review?.verdict},assessment:review,compilation:this.compilation(project,id,v.version)};
+  }
+  sectionPlan(d:Paper,run:PaperRun) {
+    const index=d.runs.findIndex(r=>r.id===run.id);
+    if(index<0)return undefined;
+    let revision=d.runs[index]!;
+    if(revision.sectionBriefs)return revision.sectionBriefs;
+    for(let i=index-1;i>=0;i--){
+      if(!revision.revisionReviewId || !revision.baseVersion)break;
+      const author=d.runs[i]!;
+      if(!author.versions.includes(revision.baseVersion))continue;
+      const review=this.version(d.projectId,d.id,revision.baseVersion).assessment;
+      if(author.context.sessionId!==run.context.sessionId || review?.id!==revision.revisionReviewId ||
+        review.requestedBy.runId!==author.id || review.verdict!=='changes_required')break;
+      if(author.sectionBriefs){
+        return author.sectionBriefs.filter(b=>run.outline.includes(b.heading) &&
+          b.sources.every(s=>d.evidence.some(ref=>ref.sourceId===s.sourceId&&ref.version===s.version)));
+      }
+      revision=author;
+    }
+    return undefined;
   }
   save(project:string,id:string,args:Record<string,unknown>,generated?:{artifact:ResearchTarget;links:unknown;runId:string}) {
     const body=bounded(args.text,'manuscript text',120000),title=bounded(args.title,'title',256);

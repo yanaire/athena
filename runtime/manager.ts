@@ -28,7 +28,7 @@ import { ProjectLibrary, type PaperAcquisition } from './project-library.ts';
 import { projectFolder } from './project-folder.ts';
 import { template, readTemplate } from './typesetting.ts';
 import { parseManuscriptJson, streamedManuscript, sectionBriefs, type ManuscriptDraft } from './manuscript-draft.ts';
-import { Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
+import { manuscriptSectionChecks, Papers, bounded, headings, inspectLinks, sectionDrafts, type Paper, type PaperRun } from './papers.ts';
 import { ResearchLedger, type ResearchTarget } from './research.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 import type { AttachmentMessage, HistoryEvent } from './history.ts';
@@ -778,7 +778,7 @@ export class TaskManager implements AthenaTaskManager {
         coordinatorModel:flow.planMode ? run.model?.modelId : undefined},
       liveDraft:draft && (!current||drafting && pending(drafting.status))?{...draft,active:!!drafting && pending(drafting.status)}:undefined,
       compilationReceipt:version?.compilation?.pdf?.id,
-      sectionBriefs:writing?.sectionBriefs,
+      sectionBriefs:paper && writing && (current??null)===(writing.versions.at(-1)??writing.baseVersion)?this.#papers.sectionPlan(paper,writing):undefined,
       experimentMission:study?{...study,...missionProgress(study)}:undefined,
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
       sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
@@ -851,7 +851,10 @@ export class TaskManager implements AthenaTaskManager {
       this.#manualCompiles.add(compile);
       try{return await compile;}finally{this.#manualCompiles.delete(compile);}
     }
-    if(method==='getDocument')return this.#papers.version(project,id,args.version===undefined?undefined:text(args.version,'Version'));
+    if(method==='getDocument'){
+      const version=this.#papers.version(project,id,args.version===undefined?undefined:text(args.version,'Version'));
+      return {...version,sectionChecks:manuscriptSectionChecks(version)};
+    }
     if(method==='saveDocument')return this.#papers.save(project,id,args);
     if(method==='exportPaper')return this.#papers.export(project,this.#active!,id,text(args.version,'Version'),args.format);
     if(method==='paperDetails') {
@@ -1001,7 +1004,8 @@ export class TaskManager implements AthenaTaskManager {
     update(r=>{r.stage='planning';});
     try {
       const mission=this.#research.snapshot(a).missions.find(m=>m.runId===a.runId)??this.#research.plan(a,{objective:doc.goal,acceptanceCriteria:['Check claims, citations and figure data against exact sources.'],stages:doc.outline});
-      let briefs=run().sectionBriefs;
+      let briefs=this.#papers.sectionPlan(doc,paperRun);
+      if(briefs && !paperRun.sectionBriefs)update(r=>{r.sectionBriefs=briefs;});
       const scholarly=sources.some(s=>s.origin && 'provider' in s.origin);
       let planner=run().attempts.find(t=>t.role==='Plan manuscript evidence')?.taskId;
       if(!revisionContext && !briefs && (scholarly || args.sectionBriefs!==undefined)){

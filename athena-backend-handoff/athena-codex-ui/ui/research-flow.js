@@ -192,14 +192,13 @@ window.AthenaResearchFlow={mount(root,options){
         for(const table of r.tables||[]){if(r.sources?.some(s=>s.source?.id===table.artifactId&&s.source.version===table.version)){frag.append(tableOrigin(r,table));}}
         for(const src of r.sources||[]){if(src.source?.kind==='artifact')frag.append(button(src.quote+' · input and result',()=>options.open('workflow',{taskId:src.source.taskId})));}
         const sectionList=el('details');sectionList.append(el('summary','Section checks'));
-        for(const section of r.sections||[]){
-          const start=version.text.indexOf(section.heading);
-          const next=start<0?-1:version.text.indexOf('\n## ',start+section.heading.length);
-          const count=version.links.filter(l=>start>=0&&l.manuscriptOffset>=start&&(next<0||l.manuscriptOffset<next)&&l.sourceOffset>=0).length;
-          sectionList.append(el('p',section.heading+' · draft saved · '+count+' linked passages · '+(version.review.status==='approved'?'in independently reviewed revision':version.review.status)));
+        for(const section of version.sectionChecks||[]){
+          sectionList.append(el('p',section.heading+' · draft saved · '+section.linkedPassages+' linked passages · '+(version.review.status==='approved'?'in independently reviewed revision':version.review.status)));
         }
         frag.append(sectionList,button('Open manuscript editor',()=>options.editor(r.documentId).catch(e=>{notice.textContent=e.message;})));
         const draft=el('details');draft.append(el('summary','Saved manuscript'),el('pre',version.text));frag.append(draft);
+      }else if(r.version){
+        frag.append(el('p','Loading saved manuscript…'));
       }else if(r.sections?.length){
         for(const s of r.sections)frag.append(el('h4',s.heading),el('p',s.text),el('small','Draft · awaiting review'));
       }else if(!r.liveDraft)frag.append(el('p','The working draft will appear here when the writer starts.'));

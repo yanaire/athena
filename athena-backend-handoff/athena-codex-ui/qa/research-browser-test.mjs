@@ -290,6 +290,11 @@ try{
   await page.locator('.ac-flow-page').first().evaluate(img=>img.scrollIntoView({block:'nearest'}));
   mark('pdf');await pause(screencast?3000:1800);await page.screenshot({path:join(evidence,'workspace.png')});
   const receipt=await rpc('getDocument',[{projectId:project,documentId:status.documentId,version:status.version}]);
+  if(interruptRevision){
+    const checks=page.locator('[data-flow-body] details').filter({has:page.getByText('Section checks',{exact:true})});
+    await checks.locator('summary').click();
+    assert.deepEqual((await checks.locator('p').allTextContents()).map(label=>label.split(' · ')[0]),headings);
+  }
   for(const file of [receipt.compilation.tex,receipt.compilation.pdf]){
     const wait=page.waitForEvent('download');await page.getByRole('link',{name:file.name}).click();
     const download=await wait;const path=join(evidence,file.name);await download.saveAs(path);assert.equal(digest(await readFile(path)),file.sha256);
