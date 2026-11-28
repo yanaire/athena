@@ -22,6 +22,7 @@ import { ExtensionStore, emptyExtensionPin, mentionedSkills, type ExtensionPin }
 import { discoverExternalMcp, extensionDigest } from './external-mcp-client.ts';
 import { Bibliography } from './bibliography.ts';
 import { CrossrefProvider, type BibliographicProvider } from './crossref.ts';
+import { experimentContract, plannerDecision, missionPlannerPrompt, measuredMetric, missionProgress, type ExperimentMission, type MissionTrial } from './experiment-mission.ts';
 import type { RoleModels, WorkerRole } from './worker-roles.ts';
 import { ProjectLibrary, type PaperAcquisition } from './project-library.ts';
 import { projectFolder } from './project-folder.ts';
@@ -375,6 +376,141 @@ export class TaskManager implements AthenaTaskManager {
   }
   #flow(runId:string) {return this.#storage.get<ResearchFlow>('research.flow:'+runId);}
   #saveFlow(flow:ResearchFlow){this.#storage.set('research.flow:'+flow.runId,flow);}
+  #experimentMission(runId:string) {
+    return this.#storage.get<ExperimentMission>('experiment.mission:'+runId);
+  }
+
+  // Admission and its receipt share #dispatch's transaction. A restored parent
+  // joins the exact accepted attempt before it can propose any further work.
+  async #missionChild(a:Attempt,study:ExperimentMission,trial:MissionTrial,role:'mission'|'experiment',prompt:string,artifactIds:string[],signal:AbortSignal) {
+    let ref = role==='mission' ? trial.planners.at(-1) : trial.worker;
+    if (role==='mission' && ref && a.requestId.startsWith('resume:')) {
+      const previous=this.#storage.record<Attempt>('attempt',ref.attemptId);
+      if (previous && !pending(previous.status) && previous.status!=='succeeded' && ref.coordinatorAttemptId!==a.id)
+        trial.rejectedPlanner=previous.id;
+    }
+    if (!ref || (role==='mission' && ref.attemptId===trial.rejectedPlanner)) {
+      const tasks = study.trials.flatMap(t => role==='mission' ? t.planners : t.worker ? [t.worker] : []);
+      const prior = tasks.at(-1);
+      const requestId = ['mission',study.missionId,trial.number,role,a.id,trial.planners.length].join(':');
+      const assignment = prior ? {taskId:prior.taskId,message:prompt} :
+        {title:role==='mission'?'Plan experiment trials':'Run experiment trials',prompt};
+      const accepted = await this.#dispatch(a,prior?'send_to_agent':'spawn_agent',requestId,{
+        ...assignment,requestId,fileIds:role==='experiment'?study.contract.fileIds:[],artifactIds
+      },signal,next=>{
+        const receipt = {coordinatorAttemptId:a.id,taskId:next.taskId,attemptId:next.id};
+        if (role==='mission') trial.planners.push(receipt);
+        else trial.worker=receipt;
+        this.#storage.set('experiment.mission:'+a.runId,study);
+      },!!prior && a.requestId.startsWith('resume:'),role);
+      ref={coordinatorAttemptId:a.id,taskId:accepted.taskId,attemptId:accepted.attemptId};
+    }
+    if (pending(this.#child(a,ref.taskId).status)) await this.#wait(a,[ref.taskId],signal);
+    signal.throwIfAborted();
+    const result=this.#storage.record<Attempt>('attempt',ref.attemptId);
+    if (!result || result.runId!==a.runId || result.taskId!==ref.taskId || result.workerRole!==role || pending(result.status))
+      throw new ManagerError('MISSION_RECEIPT','The accepted experiment attempt could not be reconciled.');
+    return result;
+  }
+
+  async #measureTrial(a:Attempt,study:ExperimentMission,trial:MissionTrial,worker:Attempt,signal:AbortSignal):Promise<NonNullable<MissionTrial['outcome']>> {
+    if (worker.status!=='succeeded') return {error:worker.error || 'Experiment worker '+worker.status};
+    const {contract}=study;
+    const outputs=this.#storage.records<ArtifactRow>('artifact',a.sessionId).filter(row=>
+      row.runId===a.runId && row.taskId===worker.taskId && row.attemptId===worker.id && row.file.name===contract.resultFile);
+    if (outputs.length!==1) return {error:'Expected one '+contract.resultFile+' from this attempt, found '+outputs.length+'.'};
+    const row=outputs[0]!;
+    const invocation=this.#storage.record<ProcessRow>('process',row.processId)?.job.externalMcp;
+    const binding=contract.measurementTool;
+    if (binding && (invocation?.serverId!==binding.serverId || invocation.tool!==binding.tool))
+      return {error:'Artifact was produced outside the selected measurement tool.'};
+    const artifact=await this.#researchTarget(context(a),{kind:'artifact',id:row.id});
+    const bytes=await this.#readArtifact(row);
+    let value:number;
+    try { value=measuredMetric(bytes,contract.metricPath); }
+    catch(error) {return {error:error instanceof Error?error.message:'The metric could not be read.',candidate:artifact};}
+    const evidence=await this.#research.addEvidence(a,{
+      missionId:study.missionId,requestId:'mission-trial:'+study.missionId+':'+trial.number,
+      title:'Experiment trial '+trial.number,summary:(contract.metricPath.join('.')||contract.resultFile)+' = '+value,
+      fileIds:contract.fileIds,artifactIds:[row.id]
+    },(ctx,t)=>{signal.throwIfAborted();return this.#researchTarget(ctx,t);});
+    return {value,artifact,evidenceId:evidence.id};
+  }
+
+  async #runExperimentMission(a:Attempt,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
+    this.#requireEnabled(a);
+    this.#requireCoordinatorWrites(a);
+    const mission = this.#research.snapshot(a).missions.find(m => m.runId===a.runId && m.id===args.missionId);
+    if (!mission || a.parentTaskId || !this.#flow(a.runId) || this.#storage.get('paper.run:'+a.runId))
+      throw new ManagerError('MISSION_DENIED','Choose a saved plan in the current research run.');
+    const saved = this.#experimentMission(a.runId);
+    const contract = args.contract===undefined && saved ? saved.contract : experimentContract(args.contract,a.fileIds);
+    if (saved && (saved.missionId!==mission.id || canonical(saved.contract)!==canonical(contract)))
+      throw new ManagerError('MISSION_CONFLICT','This run already has a frozen experiment contract.');
+    const binding=contract.measurementTool;
+    if (binding && !this.#runExtensions(a).servers.some(s=>s.id===binding.serverId && s.verification.tools.some(t=>t.name===binding.tool)))
+      throw new ManagerError('MISSION_INPUT','The measurement tool must be enabled and verified for this run.');
+    const study:ExperimentMission = saved ?? {missionId:mission.id,contract,status:'running',trials:[]};
+    const key = 'experiment.mission:'+a.runId;
+    const store = () => this.#storage.set(key,study);
+    const checkpoint = () => this.#commit(store);
+    const report = () => ({...study,...missionProgress(study)});
+    if (study.status!=='running' && study.status!=='blocked') return report();
+    if (study.status==='blocked' && a.id===study.blockedAttempt) return report();
+    study.status='running';
+    const repairHint=study.reason;
+    delete study.reason;
+    delete study.blockedAttempt;
+    checkpoint();
+
+    try {
+      while (study.status==='running') {
+        signal.throwIfAborted();
+        this.#requireEnabled(a);
+        let trial=study.trials.at(-1);
+        if (!trial || trial.outcome) {
+          if (missionProgress(study).reached) {study.status='reached';break;}
+          if (study.trials.length>=contract.maxTrials) {study.status='exhausted';study.reason='The fixed trial budget was used.';break;}
+          trial={number:study.trials.length+1,planners:[]};
+          study.trials.push(trial);
+          checkpoint();
+        }
+        const previous=study.trials.slice(0,-1);
+        if (!trial.decision) {
+          const prompt=missionPlannerPrompt(mission,contract,previous)+(trial.rejectedPlanner && repairHint?'\nCorrect the previous decision: '+repairHint:'');
+          const planner=await this.#missionChild(a,study,trial,'mission',prompt,[],signal);
+          if (planner.status==='cancelled') {study.status='stopped';study.reason='The mission planner was stopped.';break;}
+          if (planner.status!=='succeeded') {
+            trial.rejectedPlanner=planner.id;
+            throw new Error(planner.error || 'Mission planner '+planner.status);
+          }
+          try {trial.decision=plannerDecision(planner.result??'',previous);}
+          catch(error) {trial.rejectedPlanner=planner.id;throw error;}
+          checkpoint();
+        }
+        const decision=trial.decision;
+        if (decision.action==='stop') {study.status='stopped';study.reason=decision.reason;break;}
+        const base=previous.find(t=>t.number===decision.parentTrial)?.outcome;
+        const grants=base && 'artifact' in base ? [base.artifact.id] : [];
+        const worker=await this.#missionChild(a,study,trial,'experiment','Execute the assigned experiment using the available tools.\nContract: '+
+          JSON.stringify(contract)+'\nExperiment instruction: '+decision.instruction+
+          '\nPublish the actual output using the agreed measurement method. Report any failure or concern about the method in your final response.',grants,signal);
+        if (worker.status==='cancelled' && !(a.requestId.startsWith('resume:') && trial.worker?.coordinatorAttemptId!==a.id)) {study.status='stopped';study.reason='The experiment worker was stopped.';break;}
+        if(worker.result)trial.workerNote=worker.result.slice(0,600);
+        trial.outcome=await this.#measureTrial(a,study,trial,worker,signal);
+        signal.throwIfAborted();
+        checkpoint();
+      }
+    } catch(error) {
+      signal.throwIfAborted();
+      study.status='blocked';
+      study.blockedAttempt=a.id;
+      study.reason=error instanceof Error?error.message.slice(0,512):'The experiment mission was interrupted.';
+    }
+    checkpoint();
+    return report();
+  }
+
   async #prepareResearchPaper(a:Attempt,args:Readonly<Record<string,unknown>>,signal:AbortSignal) {
     this.#requireCoordinatorWrites(a);this.#requireEnabled(a);
     const flow=this.#flow(a.runId);
@@ -496,8 +632,10 @@ export class TaskManager implements AthenaTaskManager {
       const runtime=await this.#retryRuntime({...session,sessionId:session.id,role:'parent'},run.model,pin,true,extensions);
       const held=this.#children(previous).map(t=>({taskId:t.id,title:t.title,status:t.status,artifactIds:t.artifactIds}));
       const board=this.#research.snapshot(previous);
+      const adaptive=this.#experimentMission(run.id);
       const prompt=paper?'Manuscript write request. Resume the saved manuscript checkpoints with compose_manuscript({}).':
         'Continue this research request from the stored checkpoints. '+(flow.planMode && !board.missions.some(m=>m.runId===run.id)?'Create the missing plan with plan_research. ':'Use the existing plan. ')+
+        (adaptive?'Call run_experiment_mission with only missionId '+adaptive.missionId+' to reconcile its saved trials. ':'')+
         'Reuse saved evidence, reviews and published artifacts. Do not repeat completed experiments. '+
         'Use get_research_board and list_tasks. Retry only missing or failed work. Once a review supports the results call prepare_research_paper. Original request: '+flow.input+
         '\nExisting tasks: '+JSON.stringify(held)+'\nMission IDs: '+JSON.stringify(board.missions.filter(m=>m.runId===run.id).map(m=>m.id));
@@ -524,7 +662,8 @@ export class TaskManager implements AthenaTaskManager {
     const flow=this.#flow(run.id)!;
     const board=this.#research.snapshot({projectId:project,sessionId:session});
     const missions=board.missions.filter(m=>m.runId===run.id);
-    const mission=flow.planMode ? missions.at(-1) : missions[0];
+    const study=this.#experimentMission(run.id);
+    const mission=study?missions.find(m=>m.id===study.missionId):flow.planMode?missions.at(-1):missions[0];
     const reviews=board.reviews.filter(r=>r.requestedBy.runId===run.id);
     const paper=flow.documentId?this.#papers.paper(project,flow.documentId):undefined;
     const writing=paper?.runs.at(-1),written=writing&&this.#storage.record<Run>('run',writing.id);
@@ -540,11 +679,13 @@ export class TaskManager implements AthenaTaskManager {
       status==='running'||status==='queued'||status==='blocked'?'Running':'Waiting for input';
     const upcoming=pending(run.status)?'Planned':states(run.status);
     const phase=(title:string,status:string,taskId?:string,description?:string)=>({title,status,taskId,description});
+    const studyStatus=study?.status==='reached'?'Succeeded':study?.status==='stopped'?'Stopped':
+      study?.status==='exhausted'||study?.status==='blocked'?'Waiting for input':pending(run.status)?'Running':states(run.status);
     const stages=[
       phase('Research plan',mission?'Succeeded':states(run.status),run.taskId,mission?.objective),
       phase('Sources',flow.pages?.length||flow.inputs?.length||retained.length?'Succeeded':searches.some(s=>s.records.length)?'Succeeded':searches.length?states(searches[0]?.status):upcoming,run.taskId,
         [...(flow.inputs??[]).map(p=>p.title+' · supplied input'),...[...(flow.pages??[]),...retained].map(p=>[p.url,p.retrievedAt,p.coverage,p.claim].join(' · ')),...searches.map(s=>[s.term,s.status,s.error,...s.records.map(r=>r.doi+' · '+r.level+' · '+r.retrievedAt)].filter(Boolean).join(' · '))].join('\n')),
-      phase('Experiment',experiments.some(p=>p.status==='succeeded'&&artifacts.some(f=>f.processId===p.id))?'Succeeded':experiments.length?states(experiments.at(-1)?.status):upcoming,experiments.at(-1)?.taskId),
+      phase('Experiment',study?studyStatus:experiments.some(p=>p.status==='succeeded'&&artifacts.some(f=>f.processId===p.id))?'Succeeded':experiments.length?states(experiments.at(-1)?.status):upcoming,study?.trials.at(-1)?.worker?.taskId??experiments.at(-1)?.taskId,study?.reason),
       phase('Verify results',succeeded?'Succeeded':reviews.length?states(reviews.at(-1)?.executionStatus):upcoming,reviews.at(-1)?.reviewer?.taskId,reviews.at(-1)?.verdict),
       phase('Manuscript',current?'Succeeded':written?states(written.status):paper?'Waiting for input':'Planned',writing?.attempts.find(t=>t.role==='Edit manuscript')?.taskId,writing?.error||flow.error),
       phase('Independent review',version&&version.review.status==='approved'?'Succeeded':version?.assessment?'Waiting for input':writing?.stage==='Independent review'?states(written?.status):'Planned',version?.assessment?.reviewer?.taskId,version?.assessment?.verdict),
@@ -554,6 +695,7 @@ export class TaskManager implements AthenaTaskManager {
     return {history:history.map(r=>({runId:r.id,title:r.title})),checkpoint,runId:run.id,model:run.model,documentId:paper?.id,manuscriptRunId:writing?.id,version:current,
       plan:mission && {missionId:mission.id, objective:mission.objective, stages:mission.stages, acceptanceCriteria:mission.acceptanceCriteria,
         coordinatorModel:flow.planMode ? run.model?.modelId : undefined},
+      experimentMission:study?{...study,...missionProgress(study)}:undefined,
       tables:flow.tables??[],stages,sections:writing?.sections.length?writing.sections:flow.drafts,artifacts:artifacts.map(f=>({...artifactRef(f.file),taskId:f.taskId,inputs:f.evidence})),
       sources:version?.links.map(l=>({quote:l.quote,locator:l.locator,source:this.#papers.source(project,l.sourceId).origin})),
       connections:run.extensions?.servers.map(s=>({name:s.definition.name,capability:s.definition.capability,checkedAt:s.verification.checkedAt,calls:processes.filter(p=>p.job.externalMcp?.serverId===s.id).map(p=>({tool:p.job.externalMcp!.tool,status:p.status})),tools:s.verification.tools.map(t=>t.name)}))??[],
@@ -695,6 +837,17 @@ export class TaskManager implements AthenaTaskManager {
     }
     const doc=current(),sources=doc.evidence.map(ref=>this.#papers.source(a.projectId,ref.sourceId));
     const upstream=doc.workflow&&this.#flow(doc.workflow.runId);
+    const study=upstream && this.#experimentMission(upstream.runId);
+    const measurements=study?.trials.flatMap(t=>{
+      if (!t.outcome || !('value' in t.outcome)) return [];
+      const {artifact,value}=t.outcome;
+      const source=sources.find(s=>s.origin && 'kind' in s.origin && s.origin.id===artifact.id && s.origin.version===artifact.version);
+      return source?[{trial:t.number,sourceId:source.sourceId,value}]:[];
+    });
+    const trialContext=study && measurements?.length?'\nMeasured trial evidence: '+JSON.stringify({
+      protocol:study.contract.protocol,metricPath:study.contract.metricPath,target:study.contract.target,direction:study.contract.direction,
+      status:study.status,measurements
+    }):'';
     const description=JSON.stringify(sources.map((s,i)=>({sourceId:s.sourceId,fileId:a.fileIds[i],title:s.title,coverage:s.level,
       ...upstream?.pages?.find(p=>p.sourceId===s.sourceId),claim:upstream?.citations?.find(c=>c.sourceId===s.sourceId)?.claim??upstream?.pages?.find(p=>p.sourceId===s.sourceId)?.claim})));
     const child=async(role:string,prompt:string,previous?:string)=>{
@@ -721,7 +874,7 @@ export class TaskManager implements AthenaTaskManager {
       let sections=run().sections;
       if(!sections.length){
         const writer=await child('Draft sections','Read the granted source material. Objective: '+doc.goal+'\nSources: '+description+
-        (upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
+        trialContext+(upstream?.drafts.length?'\nPreliminary sections to refine: '+JSON.stringify(upstream.drafts):'')+
         '\nReturn only a JSON array of {heading,text} in this exact order: '+JSON.stringify(doc.outline));
         sections=sectionDrafts(JSON.parse(writer.result??'null'),doc.outline);
         update(r=>{r.sections=sections;});
@@ -737,7 +890,7 @@ export class TaskManager implements AthenaTaskManager {
           break;
         }
         const result=priorVersion?.artifact?.taskId?await this.#summary(this.#child(a,priorVersion.artifact.taskId)):await child(cycle?'Revise manuscript':'Edit manuscript',
-          'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+
+          'Read granted sources and edit these sections into Markdown: '+JSON.stringify(sections)+'\nSources: '+description+trialContext+
           (doc.workflow?.tables?.length?'\nFor numeric results you can put ![Caption](athena-plot:sourceId/xKey/yKey) or ![Caption](athena-table:sourceId/xKey/yKey) on a separate line. Use the exact sourceId and numeric field names from these verified arrays: '+JSON.stringify(doc.workflow.tables):'')+
           '\nUse publish_manuscript exactly once. Supply claim/citation/figure links with exact manuscript and source quotes. Include data units for figures. Unavailable evidence must be disclosed.'+
           (cycle?'\nIndependent review findings: '+JSON.stringify(findings).slice(0,4000):''),editor);
@@ -1392,7 +1545,11 @@ export class TaskManager implements AthenaTaskManager {
   async #researchOperation(a:Attempt,name:string,raw:string,args:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<unknown> {
     const resources = this.#runExtensions(a);
     if (name === 'list_skills') return {skills:resources.skills.filter(skill => skill.roles.includes(a.parentTaskId ? 'child' : 'parent'))};
-    if (name === 'get_research_board') return this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId,agentSessionId:a.agentSessionId});
+    if (name === 'get_research_board') {
+      const board=this.#research.snapshot({projectId:a.projectId,sessionId:a.sessionId,agentSessionId:a.agentSessionId});
+      const study=!a.parentTaskId && this.#experimentMission(a.runId);
+      return study?{...board,experimentMission:{...study,...missionProgress(study)}}:board;
+    }
     if (name === 'load_skill') {
       if (Object.keys(args).some(key => !['id','reason','mode'].includes(key)) || args.mode !== undefined && args.mode !== 'automatic' && args.mode !== 'explicit') throw new ManagerError('INVALID_INPUT', 'Invalid skill selection.');
       const loaded = this.#extensions.loadSkill(resources,context(a),text(args.id,'Skill ID'),text(args.reason,'Selection reason'),this.#effectiveCapabilities(a),args.mode ?? 'explicit');
@@ -1448,9 +1605,11 @@ export class TaskManager implements AthenaTaskManager {
     const signal=sdkSignal?AbortSignal.any([sdkSignal,turn.controller.signal]):turn.controller.signal;
     signal.throwIfAborted();
     const paperId=this.#storage.get<string>('paper.run:'+a.runId);
+    if(a.workerRole==='mission')throw new ManagerError('TOOL_DENIED','The mission planner can only return a decision.');
     if (!a.parentTaskId && !a.kind && !paperId && !planningTools.has(name)
         && this.#flow(a.runId)?.planMode === 'coordinator' && !this.#research.hasPlan(a))
       throw new ManagerError('PLAN_REQUIRED','The main coordinator must call plan_research with its own objective, ordered stages and acceptance criteria before starting research work.');
+    if(name==='run_experiment_mission')return this.#runExperimentMission(a,args,signal);
     if(name==='compose_manuscript'||name==='publish_manuscript'){
       if(!paperId||a.kind==='reconciliation')throw new ManagerError('PAPER_DENIED','Start a manuscript from the project workspace.');
       return name==='compose_manuscript'?this.#composePaper(a,paperId,args,signal):this.#publishPaper(a,paperId,raw,args,signal);
@@ -1590,6 +1749,7 @@ export class TaskManager implements AthenaTaskManager {
     }
     const child=kind==='send'?this.#child(a,args.taskId):undefined;
     if (child && this.#retryTasks.has(child.id)) throw new ManagerError('TASK_RETRY_PENDING', 'A manual retry is being prepared for this child.');
+    if(child && !assignedRole && this.#missionOwnsTask(child))throw new ManagerError('MISSION_OWNED','Continue this task through its experiment mission.');
     const previous=child?this.#storage.records<Attempt>('attempt',a.sessionId).filter(t=>t.taskId===child.id).at(-1):undefined;
     const select=(arg:unknown,fallback:readonly string[])=>{
       if(arg===undefined)return fallback;
@@ -1614,7 +1774,7 @@ export class TaskManager implements AthenaTaskManager {
     if(message.length>32768)throw new ManagerError('INPUT_TOO_LARGE','Child message exceeds 32768 characters.');
     const grantInfo=fileIds.map(id=>({fileId:id,name:this.#storage.record<StoredFile>('file',id)?.name}));
     const prompt=message+'\nGranted input files: '+JSON.stringify(grantInfo)+(transfers.length?'\nGranted result artifacts: '+JSON.stringify(transfers):'');
-    if(!child && a.requestId.startsWith('resume:') && this.#flow(a.runId)){
+    if(!child && assignedRole!=='mission' && assignedRole!=='experiment' && a.requestId.startsWith('resume:') && this.#flow(a.runId)){
       const tasks=this.#children(a).filter(t=>t.status==='succeeded'&&t.title===title);
       for(const task of tasks){
         const saved=this.#storage.record<Attempt>('attempt',task.attemptId);
@@ -1910,6 +2070,9 @@ export class TaskManager implements AthenaTaskManager {
     if (model) this.#runtimeModels.set(runtime, model);
     return runtime;
   }
+  #missionOwnsTask(task:TaskRow) {
+    return this.#experimentMission(task.runId)?.trials.some(t=>t.worker?.taskId===task.id||t.planners.some(p=>p.taskId===task.id));
+  }
   async retryTask(taskId: string, options: RetryTaskOptions): Promise<RetryTaskResult> {
     this.#assertReady();
     text(taskId, 'Task ID');
@@ -1919,6 +2082,7 @@ export class TaskManager implements AthenaTaskManager {
     const task = this.#storage.record<TaskRow>('task', taskId);
     if (task && this.#storage.get('paper.run:'+task.runId))throw new ManagerError('TASK_NOT_RETRYABLE','Manuscript runs retain partial results; start a new explicit run.');
     if (!task || task.sessionId !== this.#active) throw new ManagerError('TASK_SCOPE_MISMATCH', 'Task is outside the selected conversation.');
+    if(this.#missionOwnsTask(task))throw new ManagerError('TASK_NOT_RETRYABLE','Resume the research checkpoint to reconcile experiment trials.');
     const id = hash(canonical([task.sessionId, 'retry', requestId]));
     const fingerprint = hash(canonical({ taskId, expectedAttemptId }));
     const previous = this.#storage.record<RetryReceipt>('retry', id);

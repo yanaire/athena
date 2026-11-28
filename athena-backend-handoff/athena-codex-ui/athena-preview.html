@@ -6991,6 +6991,36 @@ window.AthenaResearchFlow={mount(root,options){
           for(const criterion of r.plan.acceptanceCriteria)criteria.append(el('li',criterion));
           details.append(steps,el('strong','Acceptance criteria'),criteria);
         }
+        if(stage.title==='Experiment' && r.experimentMission){
+          const mission=r.experimentMission, c=mission.contract, trials=el('ol');
+          const metric=c.metricPath.at(-1) || c.resultFile;
+          const showValue=value=>String(Number(value.toPrecision(7)));
+          details.append(el('p',metric+' '+(c.direction==='at_most'?'≤':'≥')+' '+c.target+' · '+c.maxTrials+' trials allowed'));
+          if(mission.best)details.append(el('p','Best measured value: '+showValue(mission.best.value)+' (trial '+mission.best.trial+')'));
+          for(const t of mission.trials){
+            const row=el('li'), decision=t.decision;
+            row.append(el('strong',decision?.parentTrial?'Based on trial '+decision.parentTrial:'Trial '+t.number));
+            if(decision?.instruction)row.append(el('p',decision.instruction));
+            if(decision)row.append(el('p',decision.reason));
+            if(t.workerNote){
+              const note=el('details');
+              note.append(el('summary','Worker observation'),el('p',t.workerNote));
+              row.append(note);
+            }
+            const planner=t.planners.at(-1);
+            if(planner)row.append(button('Planner',()=>options.open('workflow',{taskId:planner.taskId})));
+            if(t.outcome?.artifact){
+              const {artifact,value}=t.outcome;
+              row.append(button(metric+' = '+showValue(value),()=>options.open('artifacts',{artifactId:artifact.id,version:artifact.version})));
+            }else if(t.outcome?.error){
+              row.append(el('p',t.outcome.error));
+              const candidate=t.outcome.candidate;
+              if(candidate)row.append(button('Inspect result',()=>options.open('artifacts',{artifactId:candidate.id,version:candidate.version})));
+            }
+            trials.append(row);
+          }
+          details.append(trials);
+        }
         if(stage.taskId)details.append(button('Worker, attempts and tools',()=>options.open('workflow',{taskId:stage.taskId})));
         li.append(details);list.append(li);
       }

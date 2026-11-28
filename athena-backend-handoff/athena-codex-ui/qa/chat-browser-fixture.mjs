@@ -26,7 +26,7 @@ export const inputs = Object.freeze([
 const text = value => typeof value === 'string' ? value : Array.isArray(value) ? value.map(part => part?.text || '').join('\n') : '';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function createFixture(researchResponder, { hostNodeArgs = [] } = {}) {
+export async function createFixture(researchResponder, { hostNodeArgs = [], modelConcurrency = 2 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'athena-chat-browser-'));
   const failures = [], calls = [];
   let child, origin = '', hostPort = 0, hostOutput = '';
@@ -42,7 +42,7 @@ export async function createFixture(researchResponder, { hostNodeArgs = [] } = {
       const lastUserIndex = wire.messages.findLastIndex(message => message.role === 'user');
       const input = text(wire.messages[lastUserIndex]?.content);
       const outputs = wire.messages.slice(lastUserIndex + 1).filter(message => message.role === 'tool').map(message => text(message.content));
-      const coordinator = wire.tools.some(tool => tool.function.name === 'spawn_agent');
+      const coordinator = (wire.tools ?? []).some(tool => tool.function.name === 'spawn_agent');
       calls.push({ ...(researchResponder ? {model:wire.model} : {}), role: coordinator ? 'parent' : 'child', toolResults: outputs.length });
       let next, before = '';
       if (researchResponder) next=await researchResponder({coordinator,input,outputs,model:wire.model,messages:wire.messages});
@@ -118,7 +118,7 @@ export async function createFixture(researchResponder, { hostNodeArgs = [] } = {
     child = spawn(process.execPath, [...hostNodeArgs, 'runtime/server.ts'], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: {
       ...process.env, ATHENA_DATA_DIR: directory, ATHENA_PORT: String(hostPort),
       ATHENA_ENDPOINT: `http://127.0.0.1:${providerPort}/v1`, ATHENA_MODEL: 'browser-fixture',
-      ATHENA_PROVIDER: '', ATHENA_API_KEY: '', ATHENA_MODEL_CONCURRENCY: '2', ATHENA_MAX_CHILDREN: '3', ATHENA_MAX_DEPTH: '1',
+      ATHENA_PROVIDER: '', ATHENA_API_KEY: '', ATHENA_MODEL_CONCURRENCY: String(modelConcurrency), ATHENA_MAX_CHILDREN: '3', ATHENA_MAX_DEPTH: '1',
     } });
     hostOutput = '';
     const started = new Promise((resolve, reject) => {

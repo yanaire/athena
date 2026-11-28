@@ -1,3 +1,4 @@
+import { maxMissionTrials } from './experiment-mission.ts';
 import { builtins } from './mcp-registry.ts';
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -87,7 +88,16 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
     delegated({name:'remember_research',label:'Save research note',description:'Persist a concise public assumption, excluded route, or next step separately from verified knowledge.',
       parameters:Type.Object({scope:Type.Union([Type.Literal('project'),Type.Literal('agent')]),text:message,requestId:Type.Optional(id)},closed)}),
   ];
+  const contract = Type.Object({
+    protocol:Type.String({minLength:1,maxLength:2500}), resultFile:id,
+    measurementTool:Type.Optional(Type.Object({serverId:id,tool:id},closed)),
+    metricPath:Type.Array(id,{maxItems:10}), direction:Type.Union([Type.Literal('at_most'),Type.Literal('at_least')]),
+    target:Type.Number(), maxTrials:Type.Integer({minimum:1,maximum:maxMissionTrials}), fileIds:Type.Optional(ids)
+  },closed);
   const parentResearch = [
+    ...(orchestration.researchWorkflow && executionEnabled ? [delegated({name:'run_experiment_mission',label:'Run adaptive experiments',
+      description:'Run a bounded series for the saved plan. Freeze the scientific protocol, JSON artifact name, numeric metric path, threshold, explicit input grants and trial budget. For plugin measurements also pin measurementTool (serverId and tool). A separate planner chooses experiments from host measurements. Omit contract to resume or inspect this same mission. A reached target still needs independent review.',
+      parameters:Type.Object({missionId:id,contract:Type.Optional(contract)},closed)})] : []),
     ...(orchestration.researchWorkflow ? [
       delegated({name:'record_experiment_table',label:'Record experiment conditions',description:'Point to the array of per-condition rows in a published JSON artifact. The host reads the captured bytes and counts and previews the rows. Use an empty path for a top-level array.',parameters:Type.Object({artifactId:id,path:Type.Array(id,{maxItems:8}),condition:id},closed)}),
       delegated({name:'record_browser_source',label:'Cite a visited page',description:'Record a passage read by a connected Browser Use MCP worker. Supply the exact URL and an excerpt from its published result, plus the claim it supports.',parameters:Type.Object({artifactId:id,url:message,excerpt:message,claim:id},closed)}),
@@ -118,9 +128,12 @@ export function createPiToolLoadout(projectDir: string, orchestration?: PiOrches
   const coordinatorIntro = orchestration.researchWorkflow
     ? 'You are the main orchestration model. For a research request, design the plan yourself from the question, attachments, available tools and constraints. '
       + 'You may inspect granted inputs and the saved library to inform it. Before delegating, searching remote sources or starting experiments, call plan_research '
-      + 'with the specific objective, ordered steps (source targets, method and verification) and measurable acceptance criteria. On resume, reuse the saved plan and completed results. '
+      + 'with the specific objective, ordered steps (source targets, method and verification) and measurable acceptance criteria. For an adaptive experiment with a numeric target use run_experiment_mission after planning. Set a budget and fixed measurement protocol. Each measured trial returns an evidenceId. Pass the relevant evidenceIds to request_review before manuscript handoff. On resume, reuse the saved plan and completed results. '
     : measurementParent + ' Delegate a granted RC input JSON to one child for calculate_rc_response, then join. ';
 
+  if (role === 'child' && orchestration.workerRole === 'mission') {
+    return {systemPrompt:'You are the experiment mission planner. Use the fixed protocol and host measurements in the assignment. Choose one next experiment or stop with a reason. Return only the requested JSON. You have no execution tools.',customTools:[]};
+  }
   switch (role) {
     case "parent": return {
       systemPrompt: coordinatorIntro + (executionEnabled ? "Delegate with spawn_agent and join with wait_for_agents. In the join response, result is the child's own report; artifacts is what Athena actually published. If outputs were requested but artifacts is empty, send_to_agent with a correction and join again, or report the failure. Read the published result using read_file({artifactId}) before citing its values. Copy URIs only from artifacts. Use fileIds or artifactIds to explicitly pass inputs." : parentPrompt) + resourcePrompt + researchPrompt + (orchestration.researchWorkflow ? ' Search the project library and read relevant editions. Search public literature with search_research_literature to fill remaining gaps. Results are archived in the project folder. Cite retained editions with librarySources in prepare_research_paper; respect the recorded text coverage. Delegate connected Browser Use or Computer Use through the pinned external MCP tools when the method calls for them. Record URL/DOI, retrieval time, coverage and claim. Use inputIds to cite original attached material or citations for Crossref records. A supported experimental review requires reading all assigned inputs and result artifacts with read_file. Use record_browser_source to preserve an actual page returned by a connected tool. Delegate the experiment, save introduction and methods while it runs, then verify actual outputs with a fresh reviewer. Use record_experiment_table for a published JSON array of conditions. For insufficient results record the reason, try a distinct experiment within the child limit, or ask for input. Call prepare_research_paper only on supported evidence, preserving the requested template (article, elsarticle-3p, IEEEtran, acmart, or the exact attached .tex filename); report unavailable templates. For a Manuscript write request call compose_manuscript directly.' : ''),

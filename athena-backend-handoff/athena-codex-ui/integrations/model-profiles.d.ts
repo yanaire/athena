@@ -68,7 +68,7 @@ export type ResolvedModelReference = ModelReference & {
   readonly authRef?: string;
 };
 export type ModelProfileInput = Pick<ModelProfile, 'name' | 'provider' | 'modelId'> & Partial<Pick<ModelProfile, 'id' | 'revision' | 'thinkingLevel' | 'authMode'>> & { readonly accountRef?: string };
-export type WorkerRoleKey = 'worker' | 'literature' | 'experiment' | 'verification' | 'writer' | 'editor' | 'reviewer';
+export type WorkerRoleKey = 'worker' | 'mission' | 'literature' | 'experiment' | 'verification' | 'writer' | 'editor' | 'reviewer';
 export type WorkerModelPreference = { readonly role: WorkerRoleKey; readonly profileId: string | null; readonly thinkingLevel: ThinkingLevel | null };
 export type ModelProfileList = {
   readonly workerRoles?: readonly (WorkerModelPreference & {readonly label:string})[];

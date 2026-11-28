@@ -2,6 +2,7 @@ import type { ModelReference } from '../athena-backend-handoff/athena-codex-ui/i
 
 export const workerRoles = {
   worker: 'General worker',
+  mission: 'Experiment mission planner',
   literature: 'Literature research',
   experiment: 'Experiment',
   verification: 'Experiment verification',

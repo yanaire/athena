@@ -78,7 +78,8 @@ try{
   await level.selectOption('off');
   await page.waitForFunction(()=>document.querySelector('[data-role-level="literature"]')?.value==='off'&&!document.querySelector('[data-role-level="literature"]')?.disabled);
   assert.equal((await rpc('listModelProfiles')).workerRoles.find(r=>r.role==='literature').thinkingLevel,'off');
-  assert.equal(await page.locator('[data-role-profile]').count(),7);
+  assert.equal(await page.locator('[data-role-profile]').count(),(await rpc('listModelProfiles')).workerRoles.length);
+  await page.locator('[data-role-profile="mission"]').waitFor();
   await page.locator('#amp-routing-title').scrollIntoViewIfNeeded();
   await page.screenshot({path:join(evidence,'role-settings.png')});await delay(1800);
   await page.getByRole('button',{name:'Close settings'}).click();

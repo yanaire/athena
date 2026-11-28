@@ -129,6 +129,12 @@ flowchart TD
     M --> P
     P --> C1
     P --> C2
+    P -->|Fixed experiment contract| M
+    M --> Q["Mission planner<br/>Choose next trial or stop"]
+    Q --> R
+    Q -->|Proposal| M
+    M -->|Dispatch trial| C2
+    A -->|Measured value| M
     P --> R
     C1 --> R
     C2 --> R
